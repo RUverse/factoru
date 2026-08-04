@@ -230,13 +230,32 @@ templates/         Factoru Factory Template manifests that compose pinned packs 
 
 ## Tooling and commands
 
-The repository has not been scaffolded yet. Milestone 0 is the walking skeleton:
-when it selects the toolchain, add the canonical install, development, lint,
-typecheck, unit, integration, end-to-end, build, and packaging commands here.
-CI and local commands should use the same entry points.
+The toolchain is pnpm workspaces, TypeScript, Fastify, Electron, and React on
+Node 22 ([ADR 0001](./docs/adr/0001-monorepo-toolchain.md)). Do not introduce a
+second package manager or task runner.
 
-Until then, do not introduce multiple competing package managers or task
-runners. The roadmap's intended default is pnpm workspaces.
+Local and CI checks use the same entry points:
+
+| Command                                | Purpose                                                       |
+| -------------------------------------- | ------------------------------------------------------------- |
+| `pnpm install`                         | Install the workspace                                         |
+| `pnpm dev`                             | Run server and desktop against this worktree's isolated state |
+| `pnpm dev:server` / `pnpm dev:desktop` | Run one application                                           |
+| `pnpm dev:env`                         | Print this worktree's data directory and derived ports        |
+| `pnpm build`                           | Compile every package and application                         |
+| `pnpm typecheck`                       | Build, then typecheck every package                           |
+| `pnpm lint`                            | ESLint, including the package-boundary rules above            |
+| `pnpm format:check` / `pnpm format`    | Prettier                                                      |
+| `pnpm test`                            | Vitest per package plus `scripts/` tests                      |
+| `pnpm check`                           | Format, typecheck, lint, and test together                    |
+
+Tests live beside the code they cover. Unit and integration tests run under
+Vitest per package; server integration tests use a real listener and the shared
+protocol client. Development scripts under `scripts/` are plain ESM and use
+Node's built-in test runner.
+
+Packaging commands do not exist yet; they arrive with Milestone 7 as decided in
+[ADR 0005](./docs/adr/0005-packaging.md).
 
 ## Documentation expectations
 

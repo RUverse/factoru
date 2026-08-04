@@ -1,0 +1,11 @@
+node_modules/
+dist/
+out/
+coverage/
+pnpm-lock.yaml
+.factoru-dev/
+
+# Product and architecture documents are hand-authored and reviewed as prose.
+# Prettier's table padding would churn them on every edit without improving
+# readability, so they are formatted by hand.
+docs/

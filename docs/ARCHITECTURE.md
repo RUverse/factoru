@@ -2,7 +2,7 @@
 
 > Document type: living implementation map
 > Last reviewed: 2026-08-04
-> Runtime implementation status: not yet scaffolded
+> Runtime implementation status: Milestone 0 walking skeleton implemented
 
 This document describes both the architecture Factoru intends to build and the
 parts that actually exist. It must change with the code. Product scope and
@@ -28,10 +28,10 @@ inventory below is authoritative.
 
 | Area | Status | Current reality | Next proof |
 | --- | --- | --- | --- |
-| Monorepo | **Planned** | Only product and architecture documents exist. | Scaffold the pnpm workspace, shared checks, CI, and collision-free per-worktree development state. |
-| Factoru Server | **Planned** | No server runtime exists. | Expose versioned health and handshake operations. |
-| Shared protocol | **Planned** | Conceptual contract only. | Validate a handshake on both sides from one schema. |
-| Factoru Desktop | **Planned** | No Electron application exists. | Render server health from a real local connection. |
+| Monorepo | **Implemented** | pnpm workspace with `apps/desktop`, `apps/server`, `packages/protocol`, `packages/domain`, `packages/config`, and `scripts/`. Prettier, ESLint (including package-boundary rules), per-package typecheck/build, Vitest, GitHub Actions CI on Linux and macOS, and per-worktree development state with derived ports. | Add `packages/database` and `packages/gas-city` when their milestones need them. |
+| Factoru Server | **Partial** | Fastify service exposing `GET /api/v1/health` and `POST /api/v1/handshake`, bound to localhost, with a file-backed stable `server_id`, structured `Problem` errors, and integration tests over a real listener. No persistence, authentication, projects, or Gas City. | Persist product state and require authentication for non-local connections. |
+| Shared protocol | **Partial** | `packages/protocol` owns Zod schemas, protocol version range, negotiation, error envelope, and a typed client validated on both sides. Health and handshake only; no live subscriptions, commands, or queries. | Add authenticated commands, queries, and cursor-based subscriptions. |
+| Factoru Desktop | **Partial** | Electron application with context isolation, sandboxed renderer, a narrow preload bridge, and one connection runtime owning attempts, retries, and the connection snapshot. It renders server health, version, negotiated protocol, capabilities, cached state, and errors. No connection profiles, pairing, or product shell. | Add persisted server profiles, pairing, and the project workspace shell. |
 | Gas City adapter | **Planned** | Gas City is selected and its typed REST/SSE surfaces are understood but unverified. | Provision a disposable city/rig, map every required operation to a verified transport, and observe one real workflow without leaking raw DTOs. |
 | Agent-tool bridge | **Validate** | Gas City attachment-list MCP fields are not materialized; no Factoru tool has reached a real agent harness. | Complete one authenticated, role-scoped probe-tool round trip through both Claude and Codex before the pack contract stabilizes. |
 | Factoru Gas City pack | **Planned** | Pack contents and ownership are documented only. | Load the four intended agent roles and run a tiny implement/review Formula from a pinned provisional pack. |
@@ -55,9 +55,11 @@ inventory below is authoritative.
 The opening architecture work is ordered to retire the largest risk before
 durable product abstractions accumulate:
 
-1. **Milestone 0 — Walking skeleton:** establish the monorepo, versioned
+1. **Milestone 0 — Walking skeleton (complete):** the monorepo, versioned
    Desktop/Server handshake, shared verification commands, and isolated
-   per-worktree development state.
+   per-worktree development state exist. The desktop displays a local server's
+   health and version through shared runtime-validated protocol types, and the
+   same checks run locally and in CI.
 2. **Milestone 1 — Gas City feasibility gate:** use disposable state to prove
    the pinned runtime, adapter transports, city/rig/session/bead/Formula event
    flow, both initial harness tool bridges, restart behavior, and one
@@ -174,9 +176,16 @@ convenience, not an embedded alternate backend.
 
 ### Stable server identity
 
-**Planned.** Each Factoru Server receives a stable `server_id` on first start.
+**Partial.** Each Factoru Server receives a stable `server_id` on first start.
 Desktop connection profiles bind credentials and cached data to this identity,
 not merely to a hostname that may change. Projects are server-local entities.
+
+Implemented today: the id is generated once and stored in a `server-id` file in
+the server data directory, created with an exclusive write so concurrent starts
+cannot produce two identities. A malformed file is an error rather than a reason
+to become a different server, because credentials will later be bound to it.
+Still planned: desktop-side connection profiles, pairing, and credential storage
+(Milestone 2).
 
 ### Access and launch are separate
 
@@ -210,8 +219,9 @@ not make project/task history unavailable.
 flowchart TD
     DESKTOP["apps/desktop"] --> UI["packages/ui"]
     DESKTOP --> PROTOCOL["packages/protocol"]
+    DESKTOP --> DOMAIN["packages/domain"]
     SERVER["apps/server"] --> PROTOCOL
-    SERVER --> DOMAIN["packages/domain"]
+    SERVER --> DOMAIN
     SERVER --> DATABASE["packages/database"]
     SERVER --> GAS["packages/gas-city"]
     DATABASE --> DOMAIN
@@ -224,23 +234,39 @@ flowchart TD
 
 | Component | Status | Responsibility |
 | --- | --- | --- |
-| `apps/desktop` | **Planned** | Electron main/preload/renderer, connection profiles, secure local credential storage, and Factoru UI. |
-| `apps/server` | **Planned** | Authentication, application services, commands, task policy, Project Manager integration/tools, orchestration coordination, and live events. |
-| `packages/protocol` | **Planned** | Runtime-validated wire schemas, compatibility metadata, command/query/subscription contracts, and typed client. |
-| `packages/domain` | **Planned** | Framework-independent IDs, entities, state transitions, policies, and ports/interfaces. |
+| `apps/desktop` | **Partial** | Electron main/preload/renderer and the connection runtime exist. Connection profiles, secure local credential storage, and the product UI are planned. |
+| `apps/server` | **Partial** | Fastify HTTP surface with health and handshake exists. Authentication, application services, commands, task policy, Project Manager integration/tools, orchestration coordination, and live events are planned. |
+| `packages/protocol` | **Partial** | Runtime-validated wire schemas, compatibility metadata, and a typed client exist for health and handshake. Command/query/subscription contracts are planned. |
+| `packages/domain` | **Partial** | Server identity, application version, and the client connection state machine exist. Product entities, transitions, policies, and ports are planned. |
+| `packages/config` | **Implemented** | Shared TypeScript compiler configuration for every workspace package. |
 | `packages/database` | **Planned** | SQLite connection policy, migrations, repositories, transactional event/outbox writes, backup, and recovery. |
 | `packages/gas-city` | **Planned** | Factoru-owned orchestration port implemented using Gas City REST/SSE or another verified stable interface. |
 | `packages/ui` | **Planned** | Factoru design tokens and reusable visual primitives; no transport or server logic. |
 | `packs/factoru-default` | **Planned** | Versioned Gas City pack containing agent definitions, prompt templates, tool metadata/wiring assets, doctor checks, and built-in Formula v2 workflows. |
 | `templates/software-project` | **Planned** | Built-in Factoru Factory Template manifest referencing the pinned pack plus Worker Types, model slots, tool/memory policies, Formula defaults, capsule requirements, and UI metadata. |
 
+`apps/desktop` depends on `packages/domain` directly for the client connection
+state machine, which is framework-independent product logic rather than a visual
+primitive. It does not reach `packages/database` or `packages/gas-city`, and the
+renderer reaches nothing privileged at all.
+
 `packages/domain` must not know about Electron, React, SQLite drivers, network
 transports, provider SDKs, or Gas City wire formats. Complexity belongs at the
-adapter boundary.
+adapter boundary. `packages/protocol` deliberately does not depend on
+`packages/domain` either: it owns the wire format, and the server converts
+validated wire values into domain value objects at its boundary. These rules are
+enforced as ESLint `no-restricted-imports` rules, so a violation fails
+`pnpm lint`.
+
+Planned packages exist as directories with a README naming the milestone that
+introduces them. They have no package manifest, so nothing in the workspace can
+depend on an empty boundary.
 
 ## Desktop architecture
 
-**Planned.** Electron has three trust levels:
+**Partial.** The three trust levels and the connection runtime exist; connection
+profiles, credential storage, and local server lifecycle are planned. Electron
+has three trust levels:
 
 ```mermaid
 flowchart LR
@@ -262,9 +288,18 @@ flowchart LR
 React components do not create sockets, retries, or RPC clients. They consume
 domain-specific query, command, and subscription interfaces.
 
+Implemented today: `contextIsolation` is on, `nodeIntegration` is off, the
+renderer is sandboxed, and window navigation and window-open requests are denied.
+The preload bridge exposes exactly three named connection operations. The
+connection runtime owns every attempt and retry, coalesces concurrent refreshes
+into one in-flight request, and pushes snapshots to the renderer; it has no
+Electron dependency, so it is unit tested directly.
+
 ### Connection state machine
 
-**Planned.** Transport health and data synchronization are related but distinct.
+**Implemented** in `packages/domain`; the pairing and credential transitions are
+defined but not yet exercised. Transport health and data synchronization are
+related but distinct.
 
 ```mermaid
 stateDiagram-v2
@@ -286,8 +321,16 @@ as cached. A socket being open does not mean every subscription is synchronized.
 
 ## Server architecture
 
-**Planned.** Factoru Server is a modular monolith. It should remain one process
+**Partial.** Factoru Server is a modular monolith. It should remain one process
 and one deployment until evidence requires otherwise.
+
+Implemented today: a Fastify HTTP surface
+([ADR 0002](./adr/0002-server-framework.md)) bound to localhost with two
+unauthenticated read-only operations, `GET /api/v1/health` and
+`POST /api/v1/handshake`. Every layer below the API in the diagram is planned.
+Requests and responses are validated with the shared protocol schemas, and both
+the not-found and error handlers return the structured `Problem` envelope so no
+client ever receives an unstructured failure.
 
 ```mermaid
 flowchart TB
@@ -433,9 +476,16 @@ merely because a model requested them.
 
 ## Protocol architecture
 
-**Planned; transport library requires an ADR.** Use a small HTTP surface for
-health, pairing, token exchange, and operational downloads plus a typed live
-connection for commands, queries, and subscriptions.
+**Partial; recorded in [ADR 0003](./adr/0003-api-transport-and-protocol.md).**
+Use a small HTTP surface for health, pairing, token exchange, and operational
+downloads plus a typed live connection for commands, queries, and subscriptions.
+
+Implemented today: `packages/protocol` owns Zod schemas, the advertised protocol
+version range, the negotiation rule, the `Problem` error envelope, and a typed
+client. Both peers validate at runtime from the same schemas, and the client
+re-checks compatibility against its own range instead of trusting the server's
+verdict. The live connection, authentication, commands, queries, and
+subscriptions are planned for Milestone 2.
 
 The protocol must provide:
 
@@ -898,9 +948,16 @@ after orchestration:
 
 ## Security boundaries
 
-**Planned.** The server binds to localhost by default. Remote use requires
-authentication and protected transport. Authorization is enforced per operation
-and project, even after a connection is authenticated.
+**Partial.** The server binds to localhost by default — implemented, and
+changing it is an explicit configuration change. Remote use requires
+authentication and protected transport, and authorization is enforced per
+operation and project even after a connection is authenticated; both are planned
+for Milestone 2. The current health and handshake operations are unauthenticated
+by design and expose no project state.
+
+The renderer trust boundary is implemented: context isolation on, node
+integration off, sandbox on, navigation and window-open denied, and a preload
+bridge that exposes three named connection operations rather than raw IPC.
 
 Initial trust boundaries:
 
@@ -986,11 +1043,17 @@ not prose that can remain untouched after implementation changes.
 
 ## Decisions still requiring ADRs or spikes
 
+Accepted decisions live in [`docs/adr/`](./adr/README.md). Milestone 0 recorded
+the monorepo toolchain (0001), server framework (0002), API transport and
+protocol contract (0003), database and migrations (0004), packaging (0005), and
+per-worktree development state (0006).
+
 | Decision | Status | Required evidence |
 | --- | --- | --- |
-| Server framework and runtime | **Validate** | Local/remote streaming slice, packaging, cancellation, and Linux arm64 viability. |
-| Protocol/RPC library | **Validate** | Runtime validation, subscriptions, auth hooks, reconnection, and generated/inferred client ergonomics. |
-| SQLite driver and migration tool | **Validate** | Native packaging across targets, WAL configuration, backup, and load/recovery benchmark. |
+| Server framework and runtime | **Accepted** — [ADR 0002](./adr/0002-server-framework.md) | Fastify serves the health/handshake slice on macOS. Remote streaming, cancellation, and Linux arm64 viability are re-checked in Milestones 2 and 5. |
+| Protocol/RPC library | **Accepted** — [ADR 0003](./adr/0003-api-transport-and-protocol.md) | HTTP/JSON with shared Zod schemas, validated on both sides. Subscriptions, auth hooks, and reconnection are proven in Milestone 2 before the choice is treated as settled for live traffic. |
+| SQLite driver and migration tool | **Accepted, unproven** — [ADR 0004](./adr/0004-database-and-migrations.md) | `better-sqlite3` with hand-written forward-only migrations is chosen; native packaging across targets, WAL configuration, backup, and a load/recovery benchmark remain Milestone 2 evidence. |
+| Desktop and server packaging | **Accepted, unproven** — [ADR 0005](./adr/0005-packaging.md) | electron-builder plus a bundled Node service and container image; signing, notarization, and per-platform builds are Milestone 7 evidence. |
 | Worker Type binding compiler | **Validate** | Apply prompt, model-slot, tool, memory, formula, and capacity settings to the correct Gas City agents without leaking raw config into the domain. |
 | Gas City supervision/install strategy | **Validate** | macOS and Linux installs, version pinning, upgrades, health, and recovery. |
 | Dedicated city and project-rig lifecycle | **Validate** | Coexist with unrelated supervisor cities, stable naming, rig add/remove, repository `.beads/` effects, and safe recovery. |
@@ -1044,4 +1107,5 @@ status and diagrams in the same change.
 - [Gas City Dolt bloat recovery and prevention](https://docs.gascity.com/troubleshooting/dolt-bloat-recovery)
 - [Docker resource constraints](https://docs.docker.com/engine/containers/resource_constraints/)
 - [Factoru roadmap](./ROADMAP.md)
+- [Factoru decision records](./adr/README.md)
 - [Factoru deferred graph orchestration](./future/graph-orchestration.md)

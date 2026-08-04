@@ -1,0 +1,14 @@
+node_modules/
+dist/
+out/
+coverage/
+*.tsbuildinfo
+
+# Per-worktree development state (server data directory, logs, generated ids).
+# See scripts/worktree-env.mjs and docs/adr/0006-per-worktree-development-state.md.
+.factoru-dev/
+
+.DS_Store
+*.log
+.env
+.env.local

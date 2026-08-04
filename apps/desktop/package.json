@@ -1,0 +1,32 @@
+{
+  "name": "@factoru/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Factoru Desktop: unprivileged Electron client for a Factoru Server.",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "build": "electron-vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "install-electron && electron-vite dev",
+    "start": "install-electron && electron-vite preview",
+    "setup": "install-electron",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@factoru/config": "workspace:*",
+    "@factoru/domain": "workspace:*",
+    "@factoru/protocol": "workspace:*",
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.2.0",
+    "electron-vite": "^5.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  }
+}

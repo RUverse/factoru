@@ -1,0 +1,30 @@
+packages:
+  - apps/*
+  - packages/*
+  - packs/*
+  - templates/*
+
+# Build scripts are opt-in. esbuild ships a platform-specific binary and is the
+# only dependency that legitimately needs one. Electron 43 no longer uses an
+# install hook; `apps/desktop` downloads its runtime through `install-electron`
+# when the application is actually run.
+allowBuilds:
+  electron: false
+  esbuild: true
+
+# Keep dependency resolution strict so package boundaries are enforced by the
+# module resolver and not only by review.
+linkWorkspacePackages: true
+
+minimumReleaseAgeExclude:
+  - '@typescript-eslint/eslint-plugin@8.66.0'
+  - '@typescript-eslint/parser@8.66.0'
+  - '@typescript-eslint/project-service@8.66.0'
+  - '@typescript-eslint/scope-manager@8.66.0'
+  - '@typescript-eslint/tsconfig-utils@8.66.0'
+  - '@typescript-eslint/type-utils@8.66.0'
+  - '@typescript-eslint/types@8.66.0'
+  - '@typescript-eslint/typescript-estree@8.66.0'
+  - '@typescript-eslint/utils@8.66.0'
+  - '@typescript-eslint/visitor-keys@8.66.0'
+  - typescript-eslint@8.66.0

@@ -1,0 +1,29 @@
+{
+  "name": "@factoru/server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Factoru Server: authenticated API, application services, and orchestration.",
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@factoru/domain": "workspace:*",
+    "@factoru/protocol": "workspace:*",
+    "fastify": "^5.11.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@factoru/config": "workspace:*",
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

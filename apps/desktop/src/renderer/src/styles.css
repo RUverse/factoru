@@ -1,0 +1,206 @@
+/*
+ * Factoru's first visual tokens. They live in the desktop app while the shell
+ * is a single screen; packages/ui takes ownership when the product shell is
+ * built (Milestone 3).
+ */
+:root {
+  --factoru-bg: #0f1115;
+  --factoru-surface: #171a21;
+  --factoru-border: #262b36;
+  --factoru-text: #e6e9ef;
+  --factoru-text-muted: #99a1b3;
+  --factoru-accent: #6ea8fe;
+  --factoru-ok: #4ade80;
+  --factoru-warn: #fbbf24;
+  --factoru-error: #f87171;
+  --factoru-radius: 10px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--factoru-bg);
+  color: var(--factoru-text);
+  font-family:
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.muted {
+  color: var(--factoru-text-muted);
+}
+
+.shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+
+.server-url {
+  margin: 4px 0 0;
+  color: var(--factoru-text-muted);
+  font-size: 13px;
+}
+
+.card {
+  background: var(--factoru-surface);
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.badge {
+  border: 1px solid var(--factoru-border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--factoru-text-muted);
+}
+
+.badge-connected {
+  color: var(--factoru-ok);
+  border-color: color-mix(in srgb, var(--factoru-ok) 40%, transparent);
+}
+
+.badge-connecting,
+.badge-reconnecting,
+.badge-pairing {
+  color: var(--factoru-warn);
+  border-color: color-mix(in srgb, var(--factoru-warn) 40%, transparent);
+}
+
+.badge-offline,
+.badge-blocked {
+  color: var(--factoru-error);
+  border-color: color-mix(in srgb, var(--factoru-error) 40%, transparent);
+}
+
+.fields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 8px 16px;
+}
+
+.field {
+  display: contents;
+}
+
+.field dt {
+  color: var(--factoru-text-muted);
+}
+
+.field dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.notice {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--factoru-warn) 12%, transparent);
+  color: var(--factoru-warn);
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--factoru-error) 12%, transparent);
+  color: var(--factoru-error);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  font: inherit;
+  color: var(--factoru-text);
+  background: transparent;
+  border: 1px solid var(--factoru-border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--factoru-accent);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--factoru-accent);
+  outline-offset: 2px;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.footer {
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
