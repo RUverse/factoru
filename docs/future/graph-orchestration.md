@@ -149,6 +149,12 @@ preferred ownership split gives Gas City the Git worktree lifecycle and Factoru
 the correlated non-Git resource lease. The architecture spike must prove that
 split; only one component may own a resource transition.
 
+The first two tiers prevent resource collisions but do not isolate a malicious
+host-running agent from Gas City's host-local supervisor or shared Dolt store.
+Only the full-worker tier may become an agent security boundary, with explicit
+filesystem mounts and default-deny network access to Factoru/Gas City control
+planes.
+
 ## Activation criteria
 
 Graph implementation may enter the roadmap only after the serial product loop

@@ -49,6 +49,11 @@ These instructions apply to the entire repository.
 - One Factoru Server initially manages one dedicated Gas City city; each
   repository-backed Factoru project maps to one rig. Factoru must coexist with
   unrelated cities hosted by the machine-level supervisor.
+- The Gas City supervisor and all of its host-reachable cities form one trusted,
+  single-operator runtime domain from the perspective of host-running agents.
+  Rig prefixes provide logical routing and accidental-crossing protection, not
+  adversarial project isolation. Keep supervisor/controller and Dolt listeners
+  host-local and never proxy them through Factoru's remote API.
 - T3 Code may be studied as a reference but is not an application dependency or
   fork unless a later explicit decision changes that.
 - Projects, conversations, tasks, task dependencies, Worker Types, capacity
@@ -91,6 +96,9 @@ These instructions apply to the entire repository.
   never to an ephemeral agent session. Isolation is tiered: worktree-only,
   worktree plus containerized project services, and later a fully containerized
   worker when the security and compatibility cost is justified.
+- Tier-one worktrees and tier-two service containers isolate resources and
+  failures, not a malicious host-running agent. Only tier three may claim an
+  agent security boundary, after network and filesystem isolation are proven.
 
 ## Intended package boundaries
 
@@ -118,9 +126,13 @@ templates/         Factoru Factory Template manifests that compose pinned packs 
 - Gas City agents access Factoru state only through narrow authenticated,
   project- and role-scoped tools. They never open Factoru SQLite or receive
   general shell access to the server application.
+- Those tools protect Factoru product state only; do not describe Gas City's
+  host-local CLI/API/shared Dolt store as a per-project sandbox.
 - Do not assume pack MCP declarations are automatically attached to Gas City
   sessions. Hide proven harness-specific MCP/hooks/bridge behavior behind the
-  Gas City adapter.
+  Gas City adapter. A real scoped tool round trip through both initial harnesses
+  is a Milestone 1 exit gate, before prompts and Worker Types are treated as
+  stable.
 - Keep provider-specific model identifiers and options at adapter boundaries.
 
 ## Source-of-truth rules
@@ -132,7 +144,9 @@ templates/         Factoru Factory Template manifests that compose pinned packs 
   execution snapshot; do not independently edit both graphs.
 - Gas City owns its city/rig/agent/session runtime plus materialized execution
   and dependency state.
-- Git owns commits, branches, diffs, and worktrees.
+- Git owns commits, branches, diffs, and worktree contents. The pinned
+  Gas City integration spike decides lifecycle control; do not introduce a
+  second worktree creator/cleaner beside the chosen owner.
 - UI state derived from another owner may be cached, but it must be recoverable
   and must not become a second independently mutable truth.
 - Every database schema change requires a forward migration and a migration
@@ -172,6 +186,9 @@ templates/         Factoru Factory Template manifests that compose pinned packs 
   works. Unit tests may use a fake adapter; milestone acceptance requires the
   real dependency.
 - Bound every agent correction/retry loop and record why it stopped.
+- Validate Formula v2 semantics above the pinned release: do not rely on inert
+  `until`/gate vocabulary, unenforced variable types, or deprecated fan-out;
+  cook and sling rig-scoped work in the rig store the target reads.
 - Make model usage and cost observable from the first autonomous run.
 - Preserve user worktrees and unrelated working-tree changes. Never use a
   destructive Git command as cleanup.
@@ -208,15 +225,15 @@ templates/         Factoru Factory Template manifests that compose pinned packs 
 - Raspberry Pi support is unproven until Gas City and its dependency chain pass
   an end-to-end Linux arm64 test. Four cloud-model worker sessions on an 8 GB
   host are a benchmark target, not a guarantee; effective capacity must also
-  account for builds, services, memory pressure, CPU, storage, and provider
-  limits.
+  account for builds, services, memory pressure, CPU, Dolt/backup growth,
+  compaction headroom, storage I/O, and provider limits.
 
 ## Tooling and commands
 
-The repository has not been scaffolded yet. When Milestone 0 selects the
-toolchain, add the canonical install, development, lint, typecheck, unit,
-integration, end-to-end, build, and packaging commands here. CI and local
-commands should use the same entry points.
+The repository has not been scaffolded yet. Milestone 0 is the walking skeleton:
+when it selects the toolchain, add the canonical install, development, lint,
+typecheck, unit, integration, end-to-end, build, and packaging commands here.
+CI and local commands should use the same entry points.
 
 Until then, do not introduce multiple competing package managers or task
 runners. The roadmap's intended default is pnpm workspaces.
