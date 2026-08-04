@@ -177,7 +177,17 @@ export class ConnectionRuntime {
     if (!this.#running) return
     if (this.#timer !== null) {
       this.#options.clearTimer(this.#timer)
+      this.#timer = null
     }
+
+    /*
+     * `blocked` means an incompatible protocol, a rejected credential, or an
+     * invalid response: retrying cannot fix any of them, so polling would only
+     * burn requests and log noise. The next attempt happens when the user asks
+     * for one or the configuration changes, both of which call `refresh`.
+     */
+    if (this.#snapshot.state === 'blocked') return
+
     const delay =
       this.#snapshot.state === 'connected'
         ? this.#options.connectedIntervalMs

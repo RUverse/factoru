@@ -14,7 +14,7 @@
  */
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 
@@ -26,6 +26,13 @@ export const PORT_RANGE_END = PORT_RANGE_START + WORKTREE_SLOT_COUNT * PORTS_PER
 
 /** Development state lives inside the worktree so removing it removes the state. */
 export const DEV_STATE_DIRNAME = '.factoru-dev'
+
+/**
+ * Records the block the server actually resolved, so a separately started
+ * desktop attaches to its own worktree's server instead of the derived port,
+ * which another worktree may have taken first.
+ */
+export const PORT_ALLOCATION_FILENAME = 'dev-ports.json'
 
 export const DEV_HOST = '127.0.0.1'
 
@@ -123,6 +130,39 @@ export async function findFreePortBlock(preferredBase, { host = DEV_HOST, maxAtt
   )
 }
 
+function portAllocationFile(dataDir) {
+  return path.join(dataDir, PORT_ALLOCATION_FILENAME)
+}
+
+/**
+ * Returns the port block the last server start resolved for this worktree, or
+ * `null` when none was recorded or the record is unusable. A missing or corrupt
+ * record is never fatal: the caller falls back to the derived block.
+ */
+export function readAllocatedPortBase(dataDir) {
+  let base
+  try {
+    base = JSON.parse(readFileSync(portAllocationFile(dataDir), 'utf8')).portBase
+  } catch {
+    return null
+  }
+
+  const isUsable =
+    Number.isInteger(base) &&
+    base >= PORT_RANGE_START &&
+    base < PORT_RANGE_END &&
+    (base - PORT_RANGE_START) % PORTS_PER_WORKTREE === 0
+  return isUsable ? base : null
+}
+
+export function writeAllocatedPortBase(dataDir, portBase) {
+  mkdirSync(dataDir, { recursive: true })
+  writeFileSync(portAllocationFile(dataDir), `${JSON.stringify({ portBase }, null, 2)}\n`, 'utf8')
+}
+
 export function currentDevEnv(cwd = process.cwd()) {
-  return devEnvFor(resolveWorktreeRoot(cwd))
+  const worktreeRoot = resolveWorktreeRoot(cwd)
+  const dataDir = devEnvFor(worktreeRoot).dataDir
+  const portBase = readAllocatedPortBase(dataDir)
+  return devEnvFor(worktreeRoot, portBase === null ? {} : { portBase })
 }

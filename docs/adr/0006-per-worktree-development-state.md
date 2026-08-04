@@ -30,8 +30,12 @@ no coordination file.
   derived block and steps forward deterministically by whole blocks until it
   finds one that is free, printing a warning when it does. The claim is
   "collision-free at run time", not "hash collisions are impossible".
-- `pnpm dev --only desktop` deliberately skips probing and attaches to the
-  derived block, because a server is expected to be listening there.
+- Whichever command starts the server owns the allocation and records it in
+  `dev-ports.json` inside the worktree's data directory.
+  `pnpm dev --only desktop` reads that record rather than probing, because the
+  derived block may belong to a different worktree that claimed it first —
+  attaching to it would connect the desktop to the wrong worktree's server. A
+  missing or unusable record falls back to the derived block.
 
 The derivation lives in `scripts/worktree-env.mjs` and is covered by tests. The
 applications themselves read plain environment variables

@@ -20,16 +20,29 @@ describe('server configuration', () => {
     const config = loadServerConfig({
       FACTORU_DATA_DIR: '/tmp/factoru-test/worktree',
       FACTORU_PORT: '41234',
-      FACTORU_HOST: '0.0.0.0',
+      FACTORU_HOST: '127.0.0.1',
       FACTORU_LOG_LEVEL: 'debug',
     })
     expect(config).toEqual({
-      host: '0.0.0.0',
+      host: '127.0.0.1',
       port: 41234,
       dataDir: '/tmp/factoru-test/worktree',
       logLevel: 'debug',
     })
   })
+
+  it.each(['localhost', '::1', '0:0:0:0:0:0:0:1'])('accepts the loopback host %j', (host) => {
+    expect(loadServerConfig({ FACTORU_DATA_DIR: '/tmp/f', FACTORU_HOST: host }).host).toBe(host)
+  })
+
+  it.each(['0.0.0.0', '::', '192.168.1.10', 'factoru.local'])(
+    'refuses to bind %j while the API is unauthenticated',
+    (host) => {
+      expect(() => loadServerConfig({ FACTORU_DATA_DIR: '/tmp/f', FACTORU_HOST: host })).toThrow(
+        ServerConfigError,
+      )
+    },
+  )
 
   it.each(['0', '65535'])('accepts the boundary port %s', (port) => {
     expect(loadServerConfig({ FACTORU_DATA_DIR: '/tmp/f', FACTORU_PORT: port }).port).toBe(

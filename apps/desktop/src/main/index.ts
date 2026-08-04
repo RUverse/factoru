@@ -2,6 +2,7 @@ import path from 'node:path'
 import { BrowserWindow, app, ipcMain, shell } from 'electron'
 import { createFactoruClient } from '@factoru/protocol'
 import { ConnectionRuntime } from './connection-runtime'
+import { isExternallyOpenable, isSameOrigin } from './navigation'
 import { DESKTOP_NAME, DESKTOP_VERSION } from './version'
 import {
   IPC_CONNECTION_CHANGED,
@@ -46,14 +47,16 @@ function createWindow(): BrowserWindow {
 
   window.once('ready-to-show', () => window.show())
 
-  // The renderer is untrusted: it may not navigate away or open windows.
+  // The renderer is untrusted: it may not navigate away or open windows, and
+  // only web URLs may reach the operating system's default handler.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (isExternallyOpenable(url)) {
+      void shell.openExternal(url)
+    }
     return { action: 'deny' }
   })
   window.webContents.on('will-navigate', (event, url) => {
-    const devServer = process.env.ELECTRON_RENDERER_URL
-    if (!devServer || !url.startsWith(devServer)) {
+    if (!isSameOrigin(url, process.env.ELECTRON_RENDERER_URL)) {
       event.preventDefault()
     }
   })

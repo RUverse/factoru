@@ -46,8 +46,10 @@ there is one definition of the contract for both sides of the wire.
   receives an unstructured error.
 - Outgoing payloads are parsed with the same schema before they are sent, so the
   server cannot emit something the client would reject.
-- The server binds `127.0.0.1` by default; exposing it is an explicit
-  configuration change.
+- The server binds `127.0.0.1` by default and, until authentication exists,
+  refuses to start on a non-loopback address. An unauthenticated listener must
+  not be reachable from another machine, so this is a hard failure rather than a
+  configuration choice the operator can get wrong.
 
 ## Revisit when
 

@@ -289,11 +289,18 @@ React components do not create sockets, retries, or RPC clients. They consume
 domain-specific query, command, and subscription interfaces.
 
 Implemented today: `contextIsolation` is on, `nodeIntegration` is off, the
-renderer is sandboxed, and window navigation and window-open requests are denied.
-The preload bridge exposes exactly three named connection operations. The
-connection runtime owns every attempt and retry, coalesces concurrent refreshes
-into one in-flight request, and pushes snapshots to the renderer; it has no
-Electron dependency, so it is unit tested directly.
+renderer is sandboxed, and navigation and window-open requests are denied by the
+policy described under [security boundaries](#security-boundaries). The preload
+bridge exposes exactly three named connection operations. The connection runtime
+owns every attempt and retry, coalesces concurrent refreshes into one in-flight
+request, and pushes snapshots to the renderer; it has no Electron dependency, so
+it is unit tested directly.
+
+Retry policy follows the state machine rather than a single timer: `offline` and
+`reconnecting` poll, while `blocked` stops polling entirely because an
+incompatible protocol, a rejected credential, or an invalid response cannot be
+resolved by trying again. A blocked connection resumes only on an explicit
+refresh or a configuration change.
 
 ### Connection state machine
 
@@ -948,16 +955,24 @@ after orchestration:
 
 ## Security boundaries
 
-**Partial.** The server binds to localhost by default — implemented, and
-changing it is an explicit configuration change. Remote use requires
-authentication and protected transport, and authorization is enforced per
-operation and project even after a connection is authenticated; both are planned
-for Milestone 2. The current health and handshake operations are unauthenticated
-by design and expose no project state.
+**Partial.** The server binds to localhost by default. Until authentication
+exists it refuses to start on a non-loopback address at all, rather than trusting
+the operator to pair configuration changes correctly: an unauthenticated listener
+must not be reachable from another machine. Remote use requires authentication
+and protected transport, and authorization is enforced per operation and project
+even after a connection is authenticated; both are planned for Milestone 2, which
+is also when a non-loopback bind address becomes acceptable. The current health
+and handshake operations are unauthenticated by design and expose no project
+state.
 
 The renderer trust boundary is implemented: context isolation on, node
-integration off, sandbox on, navigation and window-open denied, and a preload
-bridge that exposes three named connection operations rather than raw IPC.
+integration off, sandbox on, and a preload bridge that exposes three named
+connection operations rather than raw IPC. Renderer-initiated navigation is
+allowed only to the exact origin of the development renderer, compared by parsed
+origin rather than string prefix, and window-open requests are always denied —
+their URL reaches the operating system's default handler only when it is `http:`
+or `https:`, so renderer content cannot launch local files or custom-protocol
+applications.
 
 Initial trust boundaries:
 

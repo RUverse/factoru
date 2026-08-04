@@ -15,6 +15,13 @@ export const DEFAULT_PORT = 8787
 
 const LOG_LEVELS = new Set(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
 
+/**
+ * Factoru Server has no authentication yet, so it must not be reachable from
+ * another machine. Milestone 2 adds pairing, device credentials, and TLS; only
+ * then may a non-loopback bind address be accepted.
+ */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '0:0:0:0:0:0:0:1'])
+
 export class ServerConfigError extends Error {
   constructor(message: string) {
     super(message)
@@ -64,8 +71,16 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     throw new ServerConfigError(`FACTORU_LOG_LEVEL must be one of ${[...LOG_LEVELS].join(', ')}`)
   }
 
+  const host = env.FACTORU_HOST?.trim() || DEFAULT_HOST
+  if (!LOOPBACK_HOSTS.has(host)) {
+    throw new ServerConfigError(
+      `FACTORU_HOST must be a loopback address until Factoru Server requires authentication ` +
+        `(Milestone 2); got ${host}. Reach a remote server through an authenticated tunnel instead.`,
+    )
+  }
+
   return {
-    host: env.FACTORU_HOST?.trim() || DEFAULT_HOST,
+    host,
     port: parsePort(env.FACTORU_PORT),
     dataDir,
     logLevel: logLevel as ServerConfig['logLevel'],

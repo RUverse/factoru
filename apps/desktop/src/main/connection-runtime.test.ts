@@ -95,7 +95,7 @@ describe('connection runtime', () => {
     expect(snapshot.health).toBeNull()
   })
 
-  it('blocks on an incompatible server instead of retrying forever', async () => {
+  it('blocks on an incompatible server rather than reporting it as offline', async () => {
     const incompatibleServer = {
       ...descriptorFromHealth(health),
       protocolVersion: PROTOCOL_VERSION + 3,
@@ -196,6 +196,57 @@ describe('connection runtime', () => {
     setTimer.mockClear()
     await connection.refresh()
     expect(setTimer).not.toHaveBeenCalled()
+  })
+
+  it('keeps retrying while offline', async () => {
+    const setTimer = vi.fn(() => 1)
+    const client = fakeClient({
+      handshake: vi.fn(async () => {
+        throw new FactoruProtocolError('transport_error', 'unreachable')
+      }),
+    })
+    const connection = new ConnectionRuntime({ client, setTimer, clearTimer: vi.fn() })
+
+    connection.start()
+    await connection.refresh()
+
+    expect(connection.snapshot.state).toBe('offline')
+    expect(setTimer).toHaveBeenCalled()
+  })
+
+  it('stops polling once blocked, because retrying cannot resolve it', async () => {
+    const setTimer = vi.fn(() => 1)
+    const client = fakeClient({
+      health: vi.fn(async () => {
+        throw new FactoruProtocolError('unauthorized', 'device credential revoked')
+      }),
+    })
+    const connection = new ConnectionRuntime({ client, setTimer, clearTimer: vi.fn() })
+
+    connection.start()
+    await connection.refresh()
+    expect(connection.snapshot.state).toBe('blocked')
+
+    setTimer.mockClear()
+    await connection.refresh()
+
+    expect(connection.snapshot.state).toBe('blocked')
+    expect(setTimer).not.toHaveBeenCalled()
+  })
+
+  it('leaves blocked when an explicit refresh succeeds after the problem is fixed', async () => {
+    const healthy = fakeClient().health
+    const health = vi
+      .fn<FactoruClient['health']>()
+      .mockImplementationOnce(async () => {
+        throw new FactoruProtocolError('unauthorized', 'device credential revoked')
+      })
+      .mockImplementation(healthy)
+
+    const connection = runtime(fakeClient({ health }))
+
+    expect((await connection.refresh()).state).toBe('blocked')
+    expect((await connection.refresh()).state).toBe('connected')
   })
 
   it('treats an unexpected thrown value as a transport failure', async () => {

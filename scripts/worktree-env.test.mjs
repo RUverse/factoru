@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   DEV_STATE_DIRNAME,
+  PORT_ALLOCATION_FILENAME,
   PORT_RANGE_END,
   PORT_RANGE_START,
   PORTS_PER_WORKTREE,
@@ -11,7 +14,9 @@ import {
   findFreePortBlock,
   portBaseFor,
   portsFor,
+  readAllocatedPortBase,
   worktreeIdFor,
+  writeAllocatedPortBase,
 } from './worktree-env.mjs'
 
 const listeners = []
@@ -100,6 +105,55 @@ describe('development port allocation', () => {
       () => findFreePortBlock(preferred, { maxAttempts: 1 }),
       /free development port block/,
     )
+  })
+})
+
+describe('recorded port allocation', () => {
+  const dirs = []
+
+  function tempDataDir() {
+    const dir = mkdtempSync(path.join(tmpdir(), 'factoru-devstate-'))
+    dirs.push(dir)
+    return dir
+  }
+
+  after(() => {
+    for (const dir of dirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('round trips the block the server resolved', () => {
+    const dataDir = tempDataDir()
+    writeAllocatedPortBase(dataDir, 24_008)
+    assert.equal(readAllocatedPortBase(dataDir), 24_008)
+  })
+
+  it('creates the data directory when recording', () => {
+    const dataDir = path.join(tempDataDir(), 'nested', 'state')
+    writeAllocatedPortBase(dataDir, 20_004)
+    assert.equal(readAllocatedPortBase(dataDir), 20_004)
+  })
+
+  it('reports no allocation when nothing was recorded', () => {
+    assert.equal(readAllocatedPortBase(tempDataDir()), null)
+    assert.equal(readAllocatedPortBase(path.join(tmpdir(), 'factoru-does-not-exist')), null)
+  })
+
+  it('ignores an unusable record instead of failing', () => {
+    for (const contents of [
+      'not json',
+      '{}',
+      '{"portBase":"20000"}',
+      '{"portBase":19999}',
+      `{"portBase":${PORT_RANGE_END}}`,
+      // Not on a block boundary, so it would overlap two worktrees' ports.
+      '{"portBase":20002}',
+    ]) {
+      const dataDir = tempDataDir()
+      writeFileSync(path.join(dataDir, PORT_ALLOCATION_FILENAME), contents)
+      assert.equal(readAllocatedPortBase(dataDir), null, `accepted ${contents}`)
+    }
   })
 })
 

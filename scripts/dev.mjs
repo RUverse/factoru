@@ -13,8 +13,10 @@ import {
   devEnvFor,
   findFreePortBlock,
   portBaseFor,
+  readAllocatedPortBase,
   resolveWorktreeRoot,
   worktreeIdFor,
+  writeAllocatedPortBase,
 } from './worktree-env.mjs'
 
 const argv = process.argv.slice(2)
@@ -28,17 +30,32 @@ if (!['all', 'server', 'desktop'].includes(only)) {
 
 const worktreeRoot = resolveWorktreeRoot()
 const preferredBase = portBaseFor(worktreeIdFor(worktreeRoot))
+const { dataDir } = devEnvFor(worktreeRoot)
 
-// `--only desktop` attaches to a server that is already listening on this
-// worktree's derived block, so it must not step away from a port in use.
-const portBase = only === 'desktop' ? preferredBase : await findFreePortBlock(preferredBase)
-const dev = devEnvFor(worktreeRoot, { portBase })
-
-if (portBase !== preferredBase) {
-  console.warn(
-    `[factoru] derived port block ${preferredBase} is in use; using ${portBase} for this run.`,
-  )
+/*
+ * Whoever starts the server owns the allocation and records it. A separately
+ * started desktop reads that record instead of the derived block, because the
+ * derived block may belong to another worktree that claimed it first — in which
+ * case the desktop would otherwise connect to the wrong worktree's server.
+ */
+let portBase
+if (only === 'desktop') {
+  const allocated = readAllocatedPortBase(dataDir)
+  portBase = allocated ?? preferredBase
+  if (allocated !== null && allocated !== preferredBase) {
+    console.log(`[factoru] using the port block ${allocated} recorded by this worktree's server.`)
+  }
+} else {
+  portBase = await findFreePortBlock(preferredBase)
+  if (portBase !== preferredBase) {
+    console.warn(
+      `[factoru] derived port block ${preferredBase} is in use; using ${portBase} for this run.`,
+    )
+  }
+  writeAllocatedPortBase(dataDir, portBase)
 }
+
+const dev = devEnvFor(worktreeRoot, { portBase })
 
 // Workspace packages are consumed from their build output, so the applications
 // need them compiled before the watchers start.
