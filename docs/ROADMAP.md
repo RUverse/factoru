@@ -610,8 +610,10 @@ milestone is a thin probe or adapter seam, not a second orchestration runtime.
 - Register one disposable repository as a rig and document every `.beads/` and
   Git working-tree change Gas City makes. **Resolved, with a defect:**
   `gc rig add` creates a git commit in the target repository and captured a
-  user's staged change. Factoru now requires a clean index and discloses every
-  mutation — [ADR 0009](./adr/0009-rig-registration-safety.md).
+  user's staged change. The guard that refuses a dirty index and discloses every
+  mutation exists and is tested in `packages/gas-city`; wiring it into an actual
+  project-registration operation lands with projects in Milestone 2 —
+  [ADR 0009](./adr/0009-rig-registration-safety.md).
 - Start a rig-scoped, always-on Project Manager chat named session and complete
   external-message register/subscribe/send/reconnect through Factoru Server.
 - Cook and run the tiny Formula as real beads, observe implementer-to-reviewer

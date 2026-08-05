@@ -26,9 +26,23 @@ export const cityEventSchema = z.object({
 /** One observation from a Gas City city, validated at the adapter boundary. */
 export type CityEvent = z.infer<typeof cityEventSchema>
 
+/**
+ * One page from `GET /v0/city/{city}/events`.
+ *
+ * `items` is nullable in the 1.4.0 contract (`type: ["array","null"]`), not
+ * merely absent, so it is coerced rather than defaulted — a Zod `.default()`
+ * only fires for `undefined` and would reject an explicit `null`.
+ */
 export const cityEventPageSchema = z.object({
-  items: z.array(cityEventSchema).default([]),
+  items: z
+    .array(cityEventSchema)
+    .nullish()
+    .transform((items) => items ?? []),
   total: z.number().int().optional(),
+  /**
+   * Opaque pagination token. Used only to walk further back within a single
+   * read; never persisted as Factoru's resume point.
+   */
   next_cursor: z.string().optional(),
 })
 
@@ -39,7 +53,12 @@ export const cityEventPageSchema = z.object({
  * `next_cursor` token, but Factoru deliberately does not persist that: an
  * opaque token has no defined lifetime across supervisor restarts or version
  * changes, whereas `seq` is a property of the event itself and stays
- * meaningful. The `after_seq` parameter accepts it directly.
+ * meaningful.
+ *
+ * Note that the paginated `GET /events` endpoint has **no `after_seq`
+ * parameter** — only `/events/stream` does. Backfill therefore pages backwards
+ * from the head using `next_cursor` until it reaches this sequence; see
+ * `GasCityAdapter.readEvents`.
  */
 export interface EventCursor {
   /** Highest sequence whose effects are durably applied. */
@@ -86,15 +105,22 @@ export function advanceCursor(cursor: EventCursor, handled: readonly CityEvent[]
 }
 
 /**
- * Whether a gap exists between the cursor and the oldest event received.
+ * Whether the oldest event available is newer than the cursor expects.
  *
- * A gap means events were dropped — usually because the city's event log was
+ * This is only meaningful once the caller has exhausted pagination. Mid-read it
+ * is simply a page boundary: more history exists, it just has not been fetched
+ * yet. Calling this on one page and treating the answer as a gap would report a
+ * dropped-history emergency every time a backlog exceeded one page.
+ *
+ * A true gap means events were lost — usually because the city's event log was
  * rotated while Factoru was down. It is not recoverable by reading further, so
- * the caller must reconcile authoritative state instead of pretending its
+ * the caller must reconcile authoritative state rather than pretend its
  * projection is continuous.
  */
-export function hasSequenceGap(events: readonly CityEvent[], cursor: EventCursor): boolean {
-  if (events.length === 0) return false
-  const oldest = Math.min(...events.map((event) => event.seq))
-  return oldest > cursor.lastHandledSeq + 1
+export function hasSequenceGap(
+  oldestAvailableSeq: number | undefined,
+  cursor: EventCursor,
+): boolean {
+  if (oldestAvailableSeq === undefined) return false
+  return oldestAvailableSeq > cursor.lastHandledSeq + 1
 }

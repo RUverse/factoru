@@ -15,7 +15,12 @@ export interface ParsedVersion {
   readonly suffix: string
 }
 
-const VERSION_PATTERN = /(\d+)(?:\.(\d+))?(?:\.(\d+))?([A-Za-z0-9.\-+]*)/
+/**
+ * Requires at least `major.minor` so a stray digit in prose — "Process exited
+ * with code 3" — is not read as version 3.0.0. Every tool in the dependency
+ * chain prints at least two components.
+ */
+const VERSION_PATTERN = /(\d+)\.(\d+)(?:\.(\d+))?([A-Za-z0-9.\-+]*)/
 
 /**
  * Extract the first version-shaped token from arbitrary `--version` output.
@@ -33,11 +38,16 @@ export function parseVersion(output: string): ParsedVersion | null {
   const major = Number(match[1])
   if (!Number.isSafeInteger(major)) return null
 
+  // SemVer build metadata (`+brew`) is not a prerelease and must not sort below
+  // the plain release. Strip it; it carries no ordering information.
+  const rawSuffix = match[4] ?? ''
+  const suffix = rawSuffix.split('+')[0] ?? ''
+
   return {
     major,
-    minor: match[2] === undefined ? 0 : Number(match[2]),
+    minor: Number(match[2]),
     patch: match[3] === undefined ? 0 : Number(match[3]),
-    suffix: match[4] ?? '',
+    suffix,
   }
 }
 

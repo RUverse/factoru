@@ -40,6 +40,12 @@ describe('cityEventPageSchema', () => {
   it('tolerates a page with no events', () => {
     expect(cityEventPageSchema.parse({}).items).toEqual([])
   })
+
+  it('accepts an explicitly null items array', () => {
+    // The 1.4.0 contract types every list as ["array","null"], and a Zod
+    // .default() would only cover undefined — an explicit null would throw.
+    expect(cityEventPageSchema.parse({ items: null }).items).toEqual([])
+  })
 })
 
 describe('selectUnhandledEvents', () => {
@@ -81,17 +87,22 @@ describe('advanceCursor', () => {
 })
 
 describe('hasSequenceGap', () => {
-  it('detects events lost between the cursor and the stream', () => {
-    // Seq 5 was handled and the next available event is 9: 6-8 are gone,
-    // typically because the city's event log rotated while Factoru was down.
-    expect(hasSequenceGap([event(9), event(10)], { lastHandledSeq: 5 })).toBe(true)
+  it('detects events lost between the cursor and the oldest retained event', () => {
+    // Seq 5 was handled and the oldest event still available is 9: 6-8 are
+    // gone, typically because the city's event log rotated while Factoru was
+    // down. This is only a valid conclusion once pagination is exhausted.
+    expect(hasSequenceGap(9, { lastHandledSeq: 5 })).toBe(true)
   })
 
   it('reports no gap for a contiguous resume', () => {
-    expect(hasSequenceGap([event(6), event(7)], { lastHandledSeq: 5 })).toBe(false)
+    expect(hasSequenceGap(6, { lastHandledSeq: 5 })).toBe(false)
   })
 
-  it('reports no gap when nothing arrived', () => {
-    expect(hasSequenceGap([], { lastHandledSeq: 5 })).toBe(false)
+  it('reports no gap when the oldest available event is already handled', () => {
+    expect(hasSequenceGap(3, { lastHandledSeq: 5 })).toBe(false)
+  })
+
+  it('reports no gap when nothing is available', () => {
+    expect(hasSequenceGap(undefined, { lastHandledSeq: 5 })).toBe(false)
   })
 })

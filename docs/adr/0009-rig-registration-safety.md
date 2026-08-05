@@ -55,6 +55,18 @@ yet installed, so a reload between the first and second step fails.
 This lives in `packages/gas-city/src/rig-safety.ts` with tests covering the exact
 `git status --porcelain` shapes involved.
 
+**It is a guard, not yet an enforced gate.** Milestone 1 has no project
+registration operation to attach it to — projects arrive in Milestone 2. The
+obligation this ADR creates is that `registerRig` must call it before invoking
+`gc rig add`, and must refuse rather than warn. Until that operation exists,
+nothing enforces this at runtime.
+
+Path parsing uses porcelain v1, which quotes and escapes unusual filenames and
+uses ` -> ` as the rename separator. A filename legitimately containing that
+sequence would be misparsed. Moving to `--porcelain=v1 -z` removes the ambiguity
+and should happen when the registration operation is built, where the command is
+actually invoked.
+
 ## Consequences
 
 - Factoru's add-project flow needs a preview step and a blocked state with an

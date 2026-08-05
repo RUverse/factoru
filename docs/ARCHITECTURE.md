@@ -578,13 +578,16 @@ transcript cursor:
 | `GET /v0/city/{city}/extmsg/transcript` | Read replies with `after_sequence` and `limit` |
 | `POST /v0/city/{city}/extmsg/transcript/ack` | Acknowledge consumption |
 
-Factoru binds to an **agent name** rather than a session ID, because that
-binding survives session restarts and cold-wakes a session at delivery time.
-`ConversationTranscriptRecord.Sequence` is the durable cursor both sides
-persist; an adapter `callback_url` is a latency optimisation, never the record
-of what was delivered. Factoru persists accepted user and assistant messages in
-its own database and the desktop never receives a Gas City address or token.
-See [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md).
+Factoru intends to bind to an **agent name** rather than a session ID, because
+Gas City documents that binding as surviving session restarts and cold-waking a
+session at delivery time. **That behaviour is documented, not yet observed** —
+the gate mapped the API surface but did not drive a conversation through it.
+`ConversationTranscriptRecord.Sequence` is intended as the durable cursor both
+sides persist, with an adapter `callback_url` as a latency optimisation rather
+than the record of what was delivered. Factoru persists accepted user and
+assistant messages in its own database and the desktop never receives a Gas City
+address or token. See
+[ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md).
 
 The Project Manager uses a Factoru-owned, project-scoped tool surface to inspect
 a bounded set of active/recent reconciliation candidates and request structured
@@ -896,9 +899,11 @@ City owns worktree creation and cleanup. A real two-step Formula v2 run created
 **no worktree at all**: `git worktree list` showed only the main worktree, and
 both the implementer and reviewer ran in the rig's primary repository path.
 
-Gas City creates separate worktrees for `[steps.drain] context = "separate"`
-fan-out units, not for workflow runs in general. A single-task run with no
-fan-out therefore gets none.
+What the gate observed is precisely that **an ordinary non-drain workflow
+creates no worktree**. The explanation — that Gas City creates them for
+`[steps.drain] context = "separate"` fan-out units — comes from the Formula
+guide and was not itself exercised, because the probe formula uses no drain.
+The decision below only depends on the observation, not on the explanation.
 
 The accepted ownership for the single-task loop is the architecture's documented
 fallback, adopted on evidence:

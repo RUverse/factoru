@@ -69,16 +69,22 @@ supports `--json` and `--json-schema` when structured output is needed.
 ### Conversation delivery is a durable cursor, not an SSE subscription
 
 The documented `POST /v0/extmsg/clients` plus per-conversation `subscribe` SSE
-stream does not exist in 1.4.0. The real surface registers an adapter, binds a
-conversation to an **agent name** — which survives session restarts and
-cold-wakes a session at delivery time — posts turns to `extmsg/inbound`, and
-reads replies from `extmsg/transcript` using `after_sequence`, acknowledging with
+stream does not exist in 1.4.0 — that absence is the one part of this section
+the gate directly established. The real surface registers an adapter, binds a
+conversation to an **agent name**, posts turns to `extmsg/inbound`, and reads
+replies from `extmsg/transcript` using `after_sequence`, acknowledging with
 `transcript/ack`.
 
 Factoru adopts the transcript cursor as the authoritative delivery mechanism and
 treats an adapter `callback_url` as a latency optimisation only. A cursor that
-both sides persist is strictly better for a product whose requirement is that a
+both sides persist is the better fit for a product whose requirement is that a
 desktop disconnect and a server restart never lose a conversation turn.
+
+**Verification still owed.** Gas City documents an agent-name binding as
+surviving session restarts and cold-waking a session at delivery time; the gate
+mapped the endpoints without driving a conversation through them. This is
+accepted design intent, not an observed property, and Milestone 3 must prove it
+before Project Manager chat is treated as durable.
 
 ### Event cursors persist `seq`, not the opaque token
 

@@ -21,6 +21,17 @@ describe('parseVersion', () => {
     expect(parseVersion('command not found')).toBeNull()
     expect(parseVersion('')).toBeNull()
   })
+
+  it('ignores a bare digit in prose rather than reading it as a version', () => {
+    // Otherwise a failure message becomes a version number, and a floor check
+    // passes on the strength of an exit code.
+    expect(parseVersion('Process exited with code 3')).toBeNull()
+    expect(parseVersion('dolt: error 1')).toBeNull()
+  })
+
+  it('drops SemVer build metadata, which carries no ordering', () => {
+    expect(parseVersion('1.4.0+brew')).toEqual({ major: 1, minor: 4, patch: 0, suffix: '' })
+  })
 })
 
 describe('compareVersions', () => {
@@ -33,10 +44,16 @@ describe('compareVersions', () => {
     expect(compareVersions(v('1.4.0'), v('1.4.0'))).toBe(0)
   })
 
-  it('sorts a suffixed build before the plain release', () => {
+  it('sorts a prerelease before the plain release', () => {
     // 1.0.0-rc1 is a pre-release of 1.0.0, not a successor to it.
     expect(compareVersions(v('1.0.0-rc1'), v('1.0.0'))).toBeLessThan(0)
     expect(compareVersions(v('3.7a'), v('3.7b'))).toBeLessThan(0)
+  })
+
+  it('treats build metadata as equal to the plain release', () => {
+    // A Homebrew-tagged 1.4.0 is the same release, so it must not fail a
+    // >=1.4.0 floor the way a prerelease legitimately would.
+    expect(compareVersions(v('1.4.0+brew'), v('1.4.0'))).toBe(0)
   })
 })
 

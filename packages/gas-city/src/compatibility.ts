@@ -36,9 +36,11 @@ export interface DependencySpec {
 export const PINNED_GAS_CITY_VERSION = '1.4.0'
 
 /**
- * Factoru accepts patch-level movement within the pinned minor, because the
- * supervisor's OpenAPI document is served by the running binary and is checked
- * separately. A minor or major change re-opens the feasibility gate.
+ * Factoru accepts patch-level movement within the pinned minor. That leniency
+ * is only safe because the version number is not the whole check:
+ * `GasCityAdapter.verifySupervisorContract` reads the OpenAPI document the
+ * running binary serves and confirms every operation Factoru depends on is
+ * still present. A minor or major change re-opens the feasibility gate.
  */
 export const GAS_CITY_SUPPORTED_RANGE = { minimum: '1.4.0', belowExclusive: '1.5.0' } as const
 

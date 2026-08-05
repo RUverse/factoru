@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { SUPPORTED_HARNESSES } from './compatibility.js'
+import { SUPERVISOR_OPENAPI_PATH, SUPPORTED_HARNESSES } from './compatibility.js'
 import {
   advanceCursor,
   cityEventPageSchema,
@@ -39,7 +39,19 @@ export interface RigBinding {
 }
 
 /** Where one execution of a workflow stands, in Factoru's terms. */
-export type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+export type RunStatus =
+  | 'pending'
+  | 'running'
+  /** Waiting on an unmet `needs` edge. Distinct from pending: nothing will pick it up yet. */
+  | 'blocked'
+  /** Cancellation requested; not yet terminal. */
+  | 'cancelling'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  /** Materialised but deliberately not executed, for example a false condition. */
+  | 'skipped'
+  | 'unknown'
 
 export interface RunStep {
   readonly stepId: string
@@ -76,6 +88,32 @@ export interface RunCorrelation {
   readonly startingEventSeq: number
 }
 
+/**
+ * Supervisor paths Factoru's operations depend on. A pinned patch release that
+ * no longer serves one of these is incompatible regardless of its version
+ * number.
+ */
+const REQUIRED_SUPERVISOR_PATHS: readonly string[] = [
+  '/v0/city/{cityName}/provider-readiness',
+  '/v0/city/{cityName}/rigs',
+  '/v0/city/{cityName}/sling',
+  '/v0/city/{cityName}/runs/{run_id}/steps',
+  '/v0/city/{cityName}/runs/{run_id}/cancel',
+  '/v0/city/{cityName}/workflow/{workflow_id}',
+  '/v0/city/{cityName}/events',
+  '/v0/city/{cityName}/events/stream',
+  '/v0/city/{cityName}/usage',
+  '/v0/city/{cityName}/extmsg/adapters',
+  '/v0/city/{cityName}/extmsg/bind',
+  '/v0/city/{cityName}/extmsg/inbound',
+  '/v0/city/{cityName}/extmsg/transcript',
+  '/v0/city/{cityName}/extmsg/transcript/ack',
+]
+
+const openApiSchema = z.object({
+  paths: z.record(z.string(), z.unknown()),
+})
+
 const slingResultSchema = z.object({
   status: z.string().optional(),
   workflow_id: z.string(),
@@ -83,42 +121,48 @@ const slingResultSchema = z.object({
   run: z.object({ run_id: z.string(), status: z.string().optional() }).optional(),
 })
 
+// Array-valued fields are `type: ["array","null"]` throughout the 1.4.0
+// contract, so every one is `.nullish()` then coerced. A Zod `.default([])`
+// only fires for `undefined` and would throw on the explicit `null` the
+// supervisor really sends.
+const nullableArray = <T extends z.ZodTypeAny>(item: T) =>
+  z
+    .array(item)
+    .nullish()
+    .transform((value) => value ?? [])
+
 const runStepsSchema = z.object({
   run_id: z.string().optional(),
-  steps: z
-    .array(
-      z.object({ id: z.string(), title: z.string().default(''), status: z.string().default('') }),
-    )
-    .default([]),
-  partial: z.boolean().default(false),
+  steps: nullableArray(
+    z.object({ id: z.string(), title: z.string().default(''), status: z.string().default('') }),
+  ),
 })
 
 const workflowSchema = z.object({
   workflow_id: z.string(),
   root_bead_id: z.string(),
-  beads: z
-    .array(
-      z.object({
-        id: z.string(),
-        title: z.string().default(''),
-        status: z.string().default(''),
-        metadata: z.record(z.string(), z.unknown()).default({}),
-      }),
-    )
-    .default([]),
+  beads: nullableArray(
+    z.object({
+      id: z.string(),
+      title: z.string().default(''),
+      status: z.string().default(''),
+      metadata: z.record(z.string(), z.unknown()).default({}),
+    }),
+  ),
 })
 
+// `RigResponse` fields are lower-snake in the served contract; `prefix` and
+// `default_branch` are genuinely optional and may be null.
 const rigListSchema = z.object({
-  items: z
-    .array(
-      z.object({
-        name: z.string(),
-        prefix: z.string().nullish(),
-        path: z.string().default(''),
-        default_branch: z.string().nullish(),
-      }),
-    )
-    .default([]),
+  items: nullableArray(
+    z.object({
+      name: z.string(),
+      prefix: z.string().nullish(),
+      path: z.string().default(''),
+      default_branch: z.string().nullish(),
+    }),
+  ),
+  partial: z.boolean().default(false),
 })
 
 /**
@@ -139,15 +183,25 @@ function toRunStatus(raw: string): RunStatus {
     case 'running':
     case 'waiting':
       return 'running'
+    case 'blocked':
+    case 'deferred':
+      return 'blocked'
     case 'completed':
     case 'closed':
       return 'completed'
     case 'failed':
       return 'failed'
+    // `canceling` is a requested cancellation, not a finished one. Folding it
+    // into `cancelled` would let Factoru report a run as terminal while its
+    // agent is still running and still spending money.
+    case 'canceling':
+    case 'cancelling':
+      return 'cancelling'
     case 'canceled':
     case 'cancelled':
-    case 'canceling':
       return 'cancelled'
+    case 'skipped':
+      return 'skipped'
     default:
       return 'unknown'
   }
@@ -209,6 +263,23 @@ export class GasCityAdapter {
     return { ready: isReady(findings), findings }
   }
 
+  /**
+   * Verify that the supervisor actually serves the operations Factoru depends
+   * on, by reading the OpenAPI document it publishes.
+   *
+   * The version range alone is not evidence. Accepting `1.4.9` because it is
+   * numerically inside `>=1.4.0 <1.5.0` assumes a patch release changed nothing
+   * Factoru uses; this checks it instead. The document comes from the process
+   * being talked to, so it cannot drift from it the way a published copy can.
+   */
+  async verifySupervisorContract(): Promise<{ ok: boolean; missingPaths: string[] }> {
+    const raw = await this.#client.getAbsolute(SUPERVISOR_OPENAPI_PATH)
+    const parsed = openApiSchema.parse(raw)
+    const served = new Set(Object.keys(parsed.paths))
+    const missingPaths = REQUIRED_SUPERVISOR_PATHS.filter((path) => !served.has(path))
+    return { ok: missingPaths.length === 0, missingPaths }
+  }
+
   /** The rigs this city has registered, as Factoru-owned bindings. */
   async listRigs(): Promise<RigBinding[]> {
     const raw = await this.#client.get(`/city/${this.#cityName}/rigs`)
@@ -261,15 +332,26 @@ export class GasCityAdapter {
     }
   }
 
-  /** Current state of a run's steps. */
-  async describeRun(runId: string): Promise<RunSnapshot> {
+  /**
+   * Current state of a run's steps.
+   *
+   * The caller supplies the workflow root bead ID it persisted at dispatch.
+   * Gas City's sling response reports `run_id`, `workflow_id`, and
+   * `root_bead_id` separately, so the adapter must not assume they are the same
+   * value — they happen to coincide for a standalone sling and would diverge
+   * silently otherwise.
+   */
+  async describeRun(runId: string, workflowRootBeadId: string): Promise<RunSnapshot> {
     const raw = await this.#client.get(`/city/${this.#cityName}/runs/${runId}/steps`)
     const parsed = runStepsSchema.parse(raw)
 
     return {
       runId,
-      workflowRootBeadId: runId,
-      partial: parsed.partial,
+      workflowRootBeadId,
+      // `RunStepsOutputBody` carries no `partial` field; only the aggregated
+      // list endpoints do. An empty step list here therefore means the run
+      // projection is still warming, which is not the same as "no steps".
+      partial: parsed.steps.length === 0,
       steps: parsed.steps.map((step) => ({
         stepId: step.id,
         title: step.title,
@@ -284,28 +366,73 @@ export class GasCityAdapter {
   }
 
   /**
-   * Read events after a cursor.
+   * Read every event after a cursor.
    *
-   * Returns the events still to handle plus the cursor to persist once their
-   * effects are durable — never before, or a crash mid-handling silently skips
-   * them.
+   * `GET /events` has **no `after_seq` parameter** — it returns the newest page
+   * and pages backwards through an opaque `next_cursor`. Only `/events/stream`
+   * accepts `after_seq`. So a resume cannot ask the server for "everything
+   * after N"; it must walk back from the head until it reaches N.
+   *
+   * Getting this wrong is silent and permanent: reading one newest page and
+   * advancing the cursor to its highest sequence skips everything in between,
+   * and the skipped events are never revisited because the cursor only moves
+   * forward.
+   *
+   * `maxPages` bounds the walk so a cursor left far behind cannot turn into an
+   * unbounded read. Exhausting it is reported as a gap, because the caller is
+   * then in exactly the position a gap describes: it cannot prove continuity
+   * and must reconcile authoritative state.
    */
   async readEvents(
     cursor: EventCursor,
-    limit = 200,
+    options: { pageSize?: number; maxPages?: number } = {},
   ): Promise<{ events: CityEvent[]; nextCursor: EventCursor; gapDetected: boolean }> {
-    const raw = await this.#client.get(`/city/${this.#cityName}/events`, {
-      after_seq: cursor.lastHandledSeq,
-      limit,
-    })
+    const pageSize = options.pageSize ?? 200
+    const maxPages = options.maxPages ?? 20
 
-    const page = cityEventPageSchema.parse(raw)
-    const events = selectUnhandledEvents(page.items, cursor)
+    const collected: CityEvent[] = []
+    let pageCursor: string | undefined
+    let oldestSeen: number | undefined
+    let reachedCursor = false
+
+    for (let page = 0; page < maxPages; page += 1) {
+      const raw = await this.#client.get(`/city/${this.#cityName}/events`, {
+        limit: pageSize,
+        cursor: pageCursor,
+      })
+      const parsed = cityEventPageSchema.parse(raw)
+      if (parsed.items.length === 0) {
+        // No more history at all: everything that exists has been seen.
+        reachedCursor = true
+        break
+      }
+
+      collected.push(...parsed.items)
+      for (const event of parsed.items) {
+        if (oldestSeen === undefined || event.seq < oldestSeen) oldestSeen = event.seq
+      }
+
+      // Walked back far enough to touch already-handled history.
+      if (oldestSeen !== undefined && oldestSeen <= cursor.lastHandledSeq + 1) {
+        reachedCursor = true
+        break
+      }
+
+      if (!parsed.next_cursor) {
+        // Reached the oldest retained event. Whether that is a gap depends on
+        // how far back it goes, which hasSequenceGap decides below.
+        break
+      }
+      pageCursor = parsed.next_cursor
+    }
+
+    const events = selectUnhandledEvents(collected, cursor)
 
     return {
       events,
       nextCursor: advanceCursor(cursor, events),
-      gapDetected: hasSequenceGap(page.items, cursor),
+      // Only meaningful now that pagination is finished.
+      gapDetected: !reachedCursor && hasSequenceGap(oldestSeen, cursor),
     }
   }
 

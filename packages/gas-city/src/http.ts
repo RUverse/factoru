@@ -73,6 +73,17 @@ export class SupervisorClient {
   }
 
   /**
+   * Read from a path outside the `/v0` prefix.
+   *
+   * Only the served OpenAPI document lives there. Kept separate from `get` so
+   * the version prefix stays a property of the client rather than something
+   * each call site remembers.
+   */
+  async getAbsolute(path: string): Promise<unknown> {
+    return this.#request('GET', path, { query: undefined, unversioned: true })
+  }
+
+  /**
    * Mutate through a versioned supervisor path.
    *
    * `idempotencyKey` is forwarded where the supervisor supports it. A `202` is
@@ -94,9 +105,11 @@ export class SupervisorClient {
       query?: Record<string, string | number | undefined> | undefined
       body?: unknown
       idempotencyKey?: string | undefined
+      unversioned?: boolean
     },
   ): Promise<unknown> {
-    const url = new URL(`${this.#baseUrl}${SUPERVISOR_API_PREFIX}${path}`)
+    const prefix = options.unversioned ? '' : SUPERVISOR_API_PREFIX
+    const url = new URL(`${this.#baseUrl}${prefix}${path}`)
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value))
     }
@@ -127,8 +140,10 @@ export class SupervisorClient {
       })
     }
 
-    // Captured for diagnostics even on success paths that later fail parsing.
-    const requestId = response.headers.get('x-request-id') ?? undefined
+    // Gas City names this header `X-GC-Request-Id`, not the more common
+    // `X-Request-Id`. Reading the wrong one leaves every error without the
+    // identifier needed to find it in Gas City's own logs.
+    const requestId = response.headers.get('X-GC-Request-Id') ?? undefined
 
     const text = await response.text()
     const parsed = text.length > 0 ? safeJsonParse(text) : undefined

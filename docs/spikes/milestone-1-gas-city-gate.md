@@ -233,6 +233,51 @@ when it applies Worker Type bindings rather than inheriting this default.
   agents into the city (+24 agents). A production Factoru pack should vendor
   only the fragment or accept the extra role definitions deliberately.
 
+## Adapter review findings
+
+The adapter was reviewed by Codex against this record. Confirmed findings, all
+fixed, with the corrected behaviour covered by contract tests using recorded
+1.4.0 response shapes:
+
+1. **Event resume was silently broken.** `GET /events` has **no `after_seq`
+   parameter** — only `/events/stream` does. The adapter sent it anyway, so the
+   supervisor returned the newest page regardless of the cursor, and advancing
+   to that page's highest sequence skipped everything older. Because a cursor
+   only moves forward, those events were unrecoverable. `readEvents` now pages
+   backwards from the head through `next_cursor` until it reaches the persisted
+   sequence, with a bounded page count.
+2. **Gap detection fired on ordinary pagination.** Mid-read, the oldest event
+   seen is always newer than the cursor. It is now evaluated only once
+   pagination is finished.
+3. **Nullable arrays.** Every list in the 1.4.0 contract is
+   `type: ["array","null"]`. A Zod `.default([])` only covers `undefined`, so an
+   explicit `null` would have thrown.
+4. **Wrong request-id header.** Gas City sends `X-GC-Request-Id`, not
+   `X-Request-Id`. Verified against a live 503, which now carries
+   `requestId: 9eda8db8e79042b7`.
+5. **`describeRun` conflated identifiers.** It reused the run ID as the workflow
+   root bead ID; the sling response reports them separately.
+6. **`canceling` was mapped to terminal `cancelled`.** A requested cancellation
+   is not a finished one, and treating it as terminal would let Factoru close a
+   task whose agent is still running and still spending money. `blocked` and
+   `skipped` were also missing.
+7. **The compatibility range was justified by a check that did not exist.**
+   `verifySupervisorContract` now reads the served OpenAPI and confirms every
+   operation Factoru depends on is present; verified live against 1.4.0.
+8. **Version parsing.** A bare digit in prose ("exited with code 3") parsed as
+   `3.0.0`, and SemVer build metadata (`1.4.0+brew`) sorted below the plain
+   release.
+
+One finding was not confirmed: the reviewer expected `/rigs` to return
+config-cased `Name`/`Path` fields. The served `RigResponse` schema and a live
+response both use lower-snake, so the original schema was correct.
+
+Two were accepted as accurate but deferred rather than fixed: the rig-safety
+guard is a tested helper with no registration operation to enforce it until
+Milestone 2, and `CityEvent` still carries Gas City's raw event vocabulary
+because Milestone 1 has no product event taxonomy to map it onto. Both are now
+stated as such rather than claimed as complete.
+
 ## Not yet verified
 
 These remain open and must not be described as working:
