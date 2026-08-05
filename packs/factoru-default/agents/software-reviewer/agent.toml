@@ -1,0 +1,7 @@
+description = "Factoru Software Engineer review binding: independent model and session"
+scope = "rig"
+
+# Independent of the implementer so review is a genuinely separate context. The
+# user may bind a different model to this role than to implementation; that is
+# the point of splitting the Software Engineer Worker Type into two bindings.
+max_active_sessions = 1

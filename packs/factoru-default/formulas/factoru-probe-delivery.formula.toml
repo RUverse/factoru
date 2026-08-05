@@ -1,0 +1,59 @@
+description = """
+Milestone 1 probe workflow: implement a tiny change, then have an independent
+model review it.
+
+This is not the production `software-delivery` formula. It exists to prove that
+Gas City routes two steps to two different agent bindings across a real `needs`
+edge, that the run is observable through the supervisor API, and that the run
+survives a restart. Deterministic checks and bounded correction are deliberately
+absent; they arrive with the production formula in Milestone 5.
+"""
+formula = "factoru-probe-delivery"
+version = 2
+contract = "graph.v2"
+target_required = false
+
+[catalog]
+name = "factoru-probe-delivery"
+description = "Factoru Milestone 1 implement-then-independent-review probe."
+
+[vars.request]
+description = "What the implementer should change. Supplied by Factoru, never by an agent."
+required = true
+
+[vars.implementation_target]
+description = "Agent binding that performs implementation."
+default = "factoru.software-implementer"
+
+[vars.review_target]
+description = "Agent binding that performs independent review. Must differ from implementation_target."
+default = "factoru.software-reviewer"
+
+[[steps]]
+id = "implement"
+title = "Implement: {{request}}"
+metadata = { "gc.run_target" = "{{implementation_target}}" }
+description = """
+Implement this change in the repository you are running in:
+
+{{request}}
+
+Make the smallest change that satisfies the request. When you are done, state
+which files you changed and why. Do not review your own work — a separate
+reviewer with a different model reads it next.
+"""
+
+[[steps]]
+id = "review"
+title = "Independent review: {{request}}"
+needs = ["implement"]
+metadata = { "gc.run_target" = "{{review_target}}" }
+description = """
+An implementer has just made a change for this request:
+
+{{request}}
+
+Read the resulting diff. Say whether the change does what was asked and whether
+it is safe, then state approve or request-changes with your reasons. You did not
+write this change and you have no authority to merge it.
+"""

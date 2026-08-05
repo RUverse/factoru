@@ -1,0 +1,8 @@
+description = "Factoru Project Manager chat: the user-facing conversation for one project"
+scope = "rig"
+
+# The chat identity is always-on so a conversation survives between user turns.
+# It deliberately declares no pool minimum: Gas City treats an always-on named
+# session and min_active_sessions as independent session sources, and its
+# doctor warns when both are set. Chat continuity comes from the named session
+# declared in city configuration, not from a pool floor.

@@ -1,0 +1,7 @@
+description = "Factoru Software Engineer implementation binding"
+scope = "rig"
+
+# On-demand pool. Milestone 1 keeps the ceiling at one because the initial
+# execution path is serial; raising it is a Milestone 8 decision that depends on
+# capsules existing.
+max_active_sessions = 1
