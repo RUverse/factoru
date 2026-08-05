@@ -14,12 +14,16 @@
  * Two things it must nonetheless model, because they are the parts that are
  * expensive to retrofit:
  *
- * 1. **Authentication.** The server refuses to start without
- *    `FACTORU_PROBE_TOKEN` and rejects calls that do not present it. A tool
- *    surface that is unauthenticated during the spike teaches the wrong shape.
- * 2. **Scope.** The token is bound to one project and one role, and the server
- *    echoes both back, so the round trip demonstrates that Factoru — not the
- *    model — decides what an agent identity may see.
+ * 1. **Authentication belongs to the server, not the caller.** The credential
+ *    lives in this process's environment, injected per session by Factoru. The
+ *    agent never sees it and never presents it. An earlier draft made the token
+ *    a tool argument, which is wrong twice over: a model cannot be given a
+ *    secret it is expected not to leak, and a model that holds the credential
+ *    is the thing being authenticated rather than the session Factoru issued it
+ *    to.
+ * 2. **Scope.** The credential is bound to one project and one role, and the
+ *    server echoes both back, so the round trip demonstrates that Factoru — not
+ *    the model — decides what an agent identity may see.
  *
  * Transport is JSON-RPC 2.0 over newline-delimited stdio, which is what both
  * harnesses launch for a `stdio` MCP server.
@@ -51,16 +55,12 @@ const TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-      token: {
-        type: 'string',
-        description: 'The probe token Factoru issued for this session.',
-      },
       note: {
         type: 'string',
         description: 'Optional text echoed back, so a caller can prove which call it made.',
       },
     },
-    required: ['token'],
+    required: [],
   },
 }
 
@@ -77,14 +77,11 @@ function failure(id, code, message) {
 }
 
 function callProbe(id, args) {
-  // Compared as a plain string: this is a development probe, and pretending a
-  // constant-time comparison makes a throwaway token safe would be theatre.
-  // The real tool gateway authenticates in Factoru Server, not here.
-  if (args?.token !== token) {
-    failure(id, -32602, 'factoru_probe: invalid or missing token for this session')
-    return
-  }
-
+  // No credential check against the caller: the agent is not the authenticated
+  // party. This process holds a per-session credential Factoru issued, and in
+  // the real tool gateway it would present that credential to Factoru Server on
+  // the agent's behalf. Here there is no server to call, so the probe simply
+  // reports the scope its credential carries.
   result(id, {
     content: [
       {
@@ -94,6 +91,7 @@ function callProbe(id, args) {
             ok: true,
             project_id: projectId,
             role,
+            session_credential_present: Boolean(token),
             note: args.note ?? null,
             message:
               'Factoru probe tool reached. This is fixed development data, not project state.',

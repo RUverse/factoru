@@ -598,10 +598,12 @@ milestone is a thin probe or adapter seam, not a second orchestration runtime.
   a proven API gap—pinned `gc --json`; keep all raw DTOs inside the adapter.
 - Before treating prompts, tools, or Worker Types as stable, prove one minimal
   authenticated Factoru tool round trip through both initial Claude and Codex
-  harnesses. Compare supported provider hooks, `session_setup`/
-  `session_setup_script`, overlays, and a narrow local bridge; record the chosen
-  role-scoped contract and revocation model in an ADR. The probe tool may expose
-  only fixed development data; it must not invent the production task API.
+  harnesses. **Resolved:** both harnesses called a role-scoped probe tool.
+  Gas City catalogues a pack's `mcp/` directory but never delivers it to a live
+  session, so Factoru writes each harness's MCP config itself from
+  `session_setup_script`, with an absolute server path and a per-session
+  credential held by the server rather than the agent —
+  [ADR 0010](./adr/0010-agent-tool-transport.md).
 - Create a provisional `packs/factoru-default` skeleton with the four intended
   agent roles, doctor checks, and one tiny implement-then-independent-review
   Formula. Keep queue/task semantics out of this probe.
@@ -637,13 +639,15 @@ Factoru probe tool, the adapter's transport map and worktree owner are recorded,
 and there is enough evidence to make an explicit go/no-go decision before
 building the product model.
 
-> **Result: conditional pass.** Everything above was achieved except the probe
-> tool: an agent asked to call it reported the tool was not exposed, and no
-> harness MCP config was written, even though `gc mcp list` reported a
-> projection target for both harnesses. Gas City is viable and Milestone 2 may
-> proceed, because persistence, projects, and pairing do not depend on agent
-> tools. Milestone 3's Worker Type contract is blocked until the bridge works.
-> See the [gate record](./spikes/milestone-1-gas-city-gate.md).
+> **Result: pass. The decision is go.** Every criterion was met against a real
+> Gas City 1.4.0 installation, including an authenticated, role-scoped Factoru
+> tool call from both the Claude and Codex harnesses. Gas City's own pack
+> `mcp/` projection turned out never to reach a live session, so Factoru
+> installs each harness's MCP config itself from `session_setup_script`
+> ([ADR 0010](./adr/0010-agent-tool-transport.md)). Several architectural
+> assumptions were disproven — worktree ownership, named-session scoping, and
+> the external-client protocol — and are corrected here and in
+> `ARCHITECTURE.md`. See the [gate record](./spikes/milestone-1-gas-city-gate.md).
 
 ### Milestone 2 — Persistence, projects, and remote connection
 

@@ -1,20 +1,18 @@
 # Milestone 1 — Gas City feasibility gate
 
-> Status: **conditional pass, one exit criterion unmet**
+> Status: **pass**
 >
-> The dependency is viable and every core mechanism Factoru needs was exercised
-> against a real installation: city and rig provisioning, live config reload,
-> pinned pack import, Formula v2 routing two steps to two agent bindings across
-> a real `needs` edge, a complete implement → review → finalize run, event
-> cursors across a supervisor restart, cost reporting, and a full Project
-> Manager conversation round trip.
+> The dependency is viable and every exit criterion was met against a real
+> installation: city and rig provisioning, live config reload, pinned pack
+> import, Formula v2 routing two steps to two agent bindings across a real
+> `needs` edge, a complete implement → review → finalize run, event cursors
+> across a supervisor restart, cost reporting, a full Project Manager
+> conversation round trip, and an authenticated role-scoped Factoru tool call
+> from both the Claude and Codex harnesses.
 >
-> **The agent-tool bridge does not work.** An agent asked to call a Factoru tool
-> reported it was not exposed. This is an explicit Milestone 1 exit criterion
-> and it is unmet, so prompts, tools, and Worker Types must not be treated as
-> stable. Milestone 2 may proceed — it introduces persistence, projects, and
-> pairing, none of which depend on agent tools — but Milestone 3's Worker Type
-> contract is blocked until the bridge is resolved.
+> The go decision is go. Several assumptions the architecture carried were
+> disproven along the way and are recorded below; the roadmap and architecture
+> have been corrected to match what the runtime actually does.
 > Runtime: Gas City 1.4.0 (Homebrew), macOS arm64 (Darwin 25.5.0)
 > Disposable state only. No Factoru product persistence exists yet.
 
@@ -295,9 +293,8 @@ exposes fixed development data and no product API, because designing Factoru's
 most security-sensitive surface inside a throwaway probe would be exactly
 backwards.
 
-**The bridge does not work, and this is the gate's most important negative
-result.** A run was slung asking the implementer to call `factoru_probe`. The
-agent reported:
+**But the pack `mcp/` directory does not deliver, and that is the trap.** A run
+was slung asking the implementer to call `factoru_probe`. The agent reported:
 
 > `factoru_probe` is not exposed in the tool set I can call.
 
@@ -305,26 +302,45 @@ No `.codex/config.toml` was written into the working directory at all — only
 `hooks.json` and `skills/` appeared there.
 
 So `gc mcp list` reports the **planned** projection for a target, not a
-materialised one. The architecture's original concern was therefore right, and
-more precisely than it was stated: Gas City catalogs pack MCP configuration and
-can describe exactly where it would go, but in this configuration it does not
-attach it to a live session. Reading `gc mcp list` output as proof that an agent
-has a tool would have been a serious mistake, because it looks exactly like
-success.
+materialised one. The architecture's original concern was right, and more
+precisely than it was stated: Gas City catalogs pack MCP configuration and
+describes exactly where it would go, but does not attach it to a live session.
+Reading `gc mcp list` output as proof that an agent has a tool would have been a
+serious mistake, because it looks exactly like success.
 
-Unresolved, and the next thing to try:
+### The bridge that does work: `session_setup_script`
 
-- `Delivery: stage1` suggests a staged write that something else must perform;
-  which component owns it, and what enables it, is not yet known.
-- Whether the codex and claude provider presets need `session_setup` or
-  `session_setup_script` to perform the write.
-- Whether `args` resolves relative to the pack directory or the working
-  directory. The projection displays the path verbatim, and this was never
-  reached because the server was never launched.
+Factoru installs its own tools instead, from a documented agent field whose
+commands run after session creation. `assets/scripts/install-factoru-tools.sh`
+writes both harness formats with an absolute server path and a freshly minted
+per-session credential. Recorded as
+[ADR 0010](../adr/0010-agent-tool-transport.md).
 
-Until an agent completes a call, the agent-tool transport decision stays
-`Validate`, the pack's tool contract must not be treated as stable, and no
-Worker Type may be described as having tools.
+Both harnesses completed a real round trip:
+
+| Harness | Role | Result |
+| --- | --- | --- |
+| Codex | `software-implementer` | Invoked `factoru_probe`; reported the bridge reachable |
+| Claude | `software-reviewer` | Invoked `mcp__factoru-probe__factoru_probe`; returned the response verbatim |
+
+Claude's returned payload:
+
+```json
+{
+  "ok": true,
+  "project_id": "probe",
+  "role": "probe/factoru.software-reviewer",
+  "session_credential_present": true,
+  "note": "claude-bridge",
+  "message": "Factoru probe tool reached. This is fixed development data, not project state."
+}
+```
+
+Each session rewrote the config with its own role and a distinct random token,
+so per-session scoping and credential rotation were observed rather than
+assumed. The pack `mcp/` directory is deliberately absent from
+`factoru-default`, so nothing in the pack suggests a delivery path that does not
+run.
 
 ### Sessions run with unrestricted permissions by default
 
@@ -398,12 +414,12 @@ stated as such rather than claimed as complete.
 
 These remain open and must not be described as working:
 
-- **Factoru probe tool round trip through both harnesses.** Both are now
-  authenticated and `provider-readiness` reports `configured` for each, and
-  `gc mcp list` exists as a projection mechanism, but no Factoru tool has been
-  called by an agent. The agent-tool transport decision stays `Validate`.
 - **Cancellation and partial failure.** `POST /runs/{id}/cancel` is mapped but
   never exercised.
+- **Credential revocation mid-session.** A credential currently dies with its
+  session. Revoking one while a session is live requires Factoru Server to
+  reject it, which is why authentication must terminate there rather than at the
+  MCP server.
 - **Pack rollback.** Import and pin work; rolling back to a previous pinned
   commit was not tested.
 - **Per-project named-session provisioning.** The constraint is understood; the
