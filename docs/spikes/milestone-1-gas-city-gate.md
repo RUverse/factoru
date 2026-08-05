@@ -210,6 +210,51 @@ session restarts, cold-waking a session at delivery time.
 The roadmap's description of the Project Manager transport is therefore updated
 to match the running API.
 
+### Named sessions are city-scoped, so rig-qualified PM chat is not available
+
+The roadmap's open question — *can rig-qualified always-on Project Manager
+sessions provide strict per-project chat isolation?* — is answered **no** for
+1.4.0, on two independent observations:
+
+- `[[named_session]]` rejects a `rig` field outright (`unknown field
+  "named_session.rig"`), and a rig-qualified template name fails validation:
+  `template "probe/factoru.project-manager-chat" must match
+  [a-zA-Z0-9][a-zA-Z0-9_-]* or binding.agent`.
+- `POST extmsg/bind` refuses to bind a conversation to a rig-scoped agent:
+  *agent "probe/factoru.project-manager-chat" does not resolve to a configured
+  named session; agent bindings require a named-session-backed agent*.
+
+Together those mean a durable, restart-surviving conversation binding requires a
+**city-scoped named session**. Per-project isolation must therefore come from
+giving each project its own named-session-backed identity — Factoru generating a
+distinct agent template plus `[[named_session]]` entry per project and reloading
+the city — rather than from rig scoping. Milestone 3 must decide and record that
+naming and lifecycle before Project Manager chat is built on it.
+
+### The conversation round trip works, and the transcript cursor is exact
+
+Registered an adapter, bound a conversation to a named-session-backed agent,
+delivered a turn, and read the reply:
+
+| Seq | Kind | Text |
+| --- | --- | --- |
+| 1 | `inbound` | "In one sentence, what does index.js export?" |
+| 2 | `outbound` | "`index.js` exports three named arithmetic functions: `add`, `subtract`, and `multiply`." |
+
+The reply carries `ReplyToMessageID: m1`, correlating it to the delivered turn.
+`after_sequence` is strictly-greater-than: `after_sequence=1` returns only
+sequence 2, and `after_sequence=2` returns an empty page. That is exactly the
+durable cursor Factoru needs, and it is now exercised through the adapter
+against the live supervisor.
+
+Two API details worth pinning down, both encoded in the adapter:
+
+- `ConversationKind` accepts only `dm`, `room`, or `thread`. A Project Manager
+  conversation is a `dm`.
+- `GET extmsg/transcript` requires every conversation field including `kind`.
+  Omitting `kind` returns **500 Internal Server Error**, not a validation error,
+  so a partially-built query looks like a server fault rather than a bad request.
+
 ### Sessions run with unrestricted permissions by default
 
 Live session options were `{"effort":"xhigh","model":"gpt-5.5",
@@ -282,12 +327,25 @@ stated as such rather than claimed as complete.
 
 These remain open and must not be described as working:
 
-- Factoru probe tool round trip through both harnesses.
-- PM chat named session through `extmsg` driven by Factoru Server.
-- Restart and event replay across a supervisor and Factoru restart.
-- Cancellation and partial failure.
-- Pack rollback.
-- Linux arm64 anything. Raspberry Pi support remains unproven.
+- **Factoru probe tool round trip through both harnesses.** Both are now
+  authenticated and `provider-readiness` reports `configured` for each, and
+  `gc mcp list` exists as a projection mechanism, but no Factoru tool has been
+  called by an agent. The agent-tool transport decision stays `Validate`.
+- **Cancellation and partial failure.** `POST /runs/{id}/cancel` is mapped but
+  never exercised.
+- **Pack rollback.** Import and pin work; rolling back to a previous pinned
+  commit was not tested.
+- **Per-project named-session provisioning.** The constraint is understood; the
+  generated-identity approach that works around it is not built.
+- **Linux arm64 anything.** Raspberry Pi support remains unproven.
+
+Partially verified:
+
+- **Restart and event replay.** The supervisor was stopped and restarted, the
+  city was re-adopted, and both the completed workflow and the event history
+  remained readable afterwards; the adapter read 150 events across three pages
+  from a persisted cursor. A Factoru-side restart was not exercised, because
+  Factoru has no persistence to restart with until Milestone 2.
 
 ## Repository toolchain note
 

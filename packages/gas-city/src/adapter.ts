@@ -114,13 +114,6 @@ const openApiSchema = z.object({
   paths: z.record(z.string(), z.unknown()),
 })
 
-const slingResultSchema = z.object({
-  status: z.string().optional(),
-  workflow_id: z.string(),
-  root_bead_id: z.string(),
-  run: z.object({ run_id: z.string(), status: z.string().optional() }).optional(),
-})
-
 // Array-valued fields are `type: ["array","null"]` throughout the 1.4.0
 // contract, so every one is `.nullish()` then coerced. A Zod `.default([])`
 // only fires for `undefined` and would throw on the explicit `null` the
@@ -130,6 +123,76 @@ const nullableArray = <T extends z.ZodTypeAny>(item: T) =>
     .array(item)
     .nullish()
     .transform((value) => value ?? [])
+
+/**
+ * One message in a Project Manager conversation, in Factoru's terms.
+ *
+ * `sequence` is the durable cursor: Factoru persists the highest sequence it
+ * has stored, and resumes strictly after it. `GET extmsg/transcript` treats
+ * `after_sequence` as strictly-greater-than, verified against 1.4.0.
+ */
+export interface ConversationMessage {
+  readonly sequence: number
+  /** `user` for a turn Factoru delivered, `assistant` for the agent's reply. */
+  readonly role: 'user' | 'assistant'
+  readonly text: string
+  readonly authorDisplayName: string
+  /** The message this replies to, when Gas City correlated one. */
+  readonly inReplyToMessageId: string | undefined
+  readonly createdAt: string
+}
+
+const transcriptSchema = z.object({
+  items: nullableArray(
+    z.object({
+      Sequence: z.number().int(),
+      Kind: z.string(),
+      Text: z.string().default(''),
+      ProviderMessageID: z.string().default(''),
+      ReplyToMessageID: z.string().default(''),
+      CreatedAt: z.string().default(''),
+      Actor: z
+        .object({ id: z.string().default(''), display_name: z.string().default('') })
+        .partial()
+        .default({}),
+    }),
+  ),
+})
+
+/** The provider name Factoru registers itself under with Gas City. */
+const CONVERSATION_PROVIDER = 'factoru'
+
+/**
+ * Identifies one Factoru conversation to Gas City.
+ *
+ * `scopeId` is the rig, and `conversationId` is Factoru's own stable
+ * conversation ID, so the mapping back to a Factoru project and conversation
+ * never depends on Gas City retaining product knowledge.
+ */
+export interface ConversationRef {
+  readonly scopeId: string
+  readonly accountId: string
+  readonly conversationId: string
+}
+
+function toWireConversation(conversation: ConversationRef): Record<string, string> {
+  return {
+    scope_id: conversation.scopeId,
+    provider: CONVERSATION_PROVIDER,
+    account_id: conversation.accountId,
+    conversation_id: conversation.conversationId,
+    // 1.4.0 accepts only dm, room, or thread. A Project Manager conversation is
+    // one user talking to one agent, which is a dm.
+    kind: 'dm',
+  }
+}
+
+const slingResultSchema = z.object({
+  status: z.string().optional(),
+  workflow_id: z.string(),
+  root_bead_id: z.string(),
+  run: z.object({ run_id: z.string(), status: z.string().optional() }).optional(),
+})
 
 const runStepsSchema = z.object({
   run_id: z.string().optional(),
@@ -289,6 +352,90 @@ export class GasCityAdapter {
       repositoryPath: rig.path,
       defaultBranch: rig.default_branch ?? undefined,
     }))
+  }
+
+  /**
+   * Register Factoru Server as an external-message adapter.
+   *
+   * Idempotent by `Idempotency-Key`, because this runs on every server start
+   * and re-registering must not create a second adapter identity.
+   */
+  async registerConversationAdapter(accountId: string, displayName: string): Promise<void> {
+    await this.#client.post(
+      `/city/${this.#cityName}/extmsg/adapters`,
+      { provider: CONVERSATION_PROVIDER, account_id: accountId, name: displayName },
+      { idempotencyKey: `factoru-adapter-${accountId}` },
+    )
+  }
+
+  /**
+   * Bind one Factoru conversation to a Gas City agent identity.
+   *
+   * The agent must be backed by a **configured named session**; 1.4.0 rejects
+   * an agent binding otherwise with `invalid-request`. Named sessions are
+   * city-scoped — `[[named_session]]` has no `rig` field and a rig-qualified
+   * template name fails validation — so per-project isolation comes from giving
+   * each project its own named-session-backed identity, not from rig scoping.
+   */
+  async bindConversation(conversation: ConversationRef, agentName: string): Promise<void> {
+    await this.#client.post(`/city/${this.#cityName}/extmsg/bind`, {
+      agent_name: agentName,
+      conversation: toWireConversation(conversation),
+    })
+  }
+
+  /** Deliver one user turn. The reply arrives on the transcript, not here. */
+  async sendConversationTurn(
+    conversation: ConversationRef,
+    turn: {
+      messageId: string
+      text: string
+      authorId: string
+      authorDisplayName: string
+      receivedAt: string
+    },
+  ): Promise<void> {
+    await this.#client.post(`/city/${this.#cityName}/extmsg/inbound`, {
+      message: {
+        provider_message_id: turn.messageId,
+        conversation: toWireConversation(conversation),
+        actor: { id: turn.authorId, display_name: turn.authorDisplayName, is_bot: false },
+        text: turn.text,
+        received_at: turn.receivedAt,
+      },
+    })
+  }
+
+  /**
+   * Read conversation messages after a sequence.
+   *
+   * `after_sequence` is strictly-greater-than, verified against 1.4.0. Every
+   * conversation field including `kind` must be supplied: omitting `kind`
+   * returns a 500 rather than a validation error, so a partially-built query
+   * fails as an unexplained server fault.
+   */
+  async readConversation(
+    conversation: ConversationRef,
+    afterSequence: number,
+    limit = 100,
+  ): Promise<ConversationMessage[]> {
+    const raw = await this.#client.get(`/city/${this.#cityName}/extmsg/transcript`, {
+      ...toWireConversation(conversation),
+      after_sequence: afterSequence,
+      limit,
+    })
+
+    return transcriptSchema
+      .parse(raw)
+      .items.map((entry) => ({
+        sequence: entry.Sequence,
+        role: entry.Kind === 'inbound' ? ('user' as const) : ('assistant' as const),
+        text: entry.Text,
+        authorDisplayName: entry.Actor.display_name ?? '',
+        inReplyToMessageId: entry.ReplyToMessageID || undefined,
+        createdAt: entry.CreatedAt,
+      }))
+      .sort((a, b) => a.sequence - b.sequence)
   }
 
   /**

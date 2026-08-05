@@ -345,6 +345,108 @@ describe('GasCityAdapter.startRun', () => {
   })
 })
 
+describe('GasCityAdapter conversation delivery', () => {
+  const conversation = {
+    scopeId: 'probe',
+    accountId: 'factoru-server-1',
+    conversationId: 'conv-probe-1',
+  }
+
+  it('registers the adapter idempotently', async () => {
+    // This runs on every server start; a second adapter identity would split
+    // the conversation across two providers.
+    const { fn, calls } = fakeFetch(() => ({ body: { status: 'registered' } }))
+
+    await adapterWith(fn).registerConversationAdapter('factoru-server-1', 'Factoru Server')
+
+    const headers = calls[0]?.init.headers as Record<string, string>
+    expect(headers['Idempotency-Key']).toBe('factoru-adapter-factoru-server-1')
+    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
+      provider: 'factoru',
+      account_id: 'factoru-server-1',
+    })
+  })
+
+  it('sends every conversation field, including the kind that a 500 depends on', async () => {
+    // Omitting `kind` makes 1.4.0 return a 500 rather than a validation error,
+    // so a partially-built query surfaces as an unexplained server fault.
+    const { fn, calls } = fakeFetch(() => ({ body: { items: [] } }))
+
+    await adapterWith(fn).readConversation(conversation, 0)
+
+    const params = calls[0]!.url.searchParams
+    expect(Object.fromEntries(params)).toMatchObject({
+      scope_id: 'probe',
+      provider: 'factoru',
+      account_id: 'factoru-server-1',
+      conversation_id: 'conv-probe-1',
+      kind: 'dm',
+      after_sequence: '0',
+    })
+  })
+
+  it('maps a recorded transcript onto Factoru roles', async () => {
+    // Recorded verbatim from a real round trip against 1.4.0.
+    const { fn } = fakeFetch(() => ({
+      body: {
+        items: [
+          {
+            Sequence: 1,
+            Kind: 'inbound',
+            Text: 'In one sentence, what does index.js export?',
+            ProviderMessageID: 'm1',
+            ReplyToMessageID: '',
+            CreatedAt: '2026-08-05T11:00:00Z',
+            Actor: { id: 'user-1', display_name: 'Alireza', is_bot: false },
+          },
+          {
+            Sequence: 2,
+            Kind: 'outbound',
+            Text: '`index.js` exports add, subtract, and multiply.',
+            ProviderMessageID: 'mayor-conv-probe-1-m1',
+            ReplyToMessageID: 'm1',
+            CreatedAt: '2026-08-05T11:08:55Z',
+            Actor: { id: 'mayor', display_name: 'mayor', is_bot: true },
+          },
+        ],
+        total: 2,
+      },
+    }))
+
+    const messages = await adapterWith(fn).readConversation(conversation, 0)
+
+    expect(messages.map((m) => m.role)).toEqual(['user', 'assistant'])
+    expect(messages[1]).toMatchObject({
+      sequence: 2,
+      authorDisplayName: 'mayor',
+      inReplyToMessageId: 'm1',
+    })
+  })
+
+  it('surfaces the named-session requirement rather than silently doing nothing', async () => {
+    // 1.4.0 rejects an agent binding when the agent has no configured named
+    // session. Factoru must see that as a configuration error it can report.
+    const { fn } = fakeFetch(() => ({
+      status: 400,
+      body: {
+        type: 'urn:gascity:error:invalid-request',
+        detail:
+          'agent "probe/factoru.project-manager-chat" does not resolve to a configured named session; agent bindings require a named-session-backed agent',
+        code: 'invalid-request',
+      },
+    }))
+
+    await expect(
+      adapterWith(fn).bindConversation(conversation, 'probe/factoru.project-manager-chat'),
+    ).rejects.toMatchObject({ kind: 'invalid_request', code: 'invalid-request' })
+  })
+
+  it('accepts a null transcript', async () => {
+    const { fn } = fakeFetch(() => ({ body: { items: null } }))
+    expect(await adapterWith(fn).readConversation(conversation, 5)).toEqual([])
+  })
+})
+
 describe('GasCityAdapter.describeRun', () => {
   it('maps recorded step statuses and keeps the caller-supplied root bead id', async () => {
     const { fn } = fakeFetch(() => ({

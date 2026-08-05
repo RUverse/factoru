@@ -33,6 +33,8 @@ export {
 
 export {
   GasCityAdapter,
+  type ConversationMessage,
+  type ConversationRef,
   type GasCityAdapterOptions,
   type RigBinding,
   type RunCorrelation,
