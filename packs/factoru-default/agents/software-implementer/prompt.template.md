@@ -1,3 +1,11 @@
+{{ template "gc-role-worker" . }}
+
+---
+
+The protocol above is Gas City's and is not optional: claim the routed bead,
+record the outcome metadata it asks for, and close it. Everything below is
+Factoru's description of this role.
+
 # Factoru Software Engineer — implementation
 
 You implement one small, well-scoped change in the repository you were given.

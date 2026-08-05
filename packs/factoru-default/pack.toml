@@ -14,3 +14,18 @@ schema = 2
 # Agent role names are stable because Factoru's adapter routes to them, but
 # their prompts, tool policy, and model bindings are expected to change once
 # the Worker Type contract is promoted in Milestone 3.
+
+# Every agent that executes a Formula v2 step must include Gas City's
+# `gc-role-worker` prompt fragment. The Milestone 1 gate proved why: an agent
+# with only a role description does its work and then stops, because the claim,
+# outcome-metadata, and bead-close protocol lives entirely in that fragment. The
+# step's bead stays open, the `needs` edge never releases, and the workflow
+# stalls with no error anywhere — the most expensive possible failure mode.
+#
+# The fragment is imported rather than copied. It is roughly two hundred lines
+# of claim-protocol shell that Gas City owns and revises; a copy in this pack
+# would drift silently and break exactly the same way.
+[imports]
+[imports.gc]
+source = "https://github.com/gastownhall/gascity-packs/tree/main/gascity/roles"
+version = "sha:3b3b89f2011e06d84459aa7bea1552382f13930a"
