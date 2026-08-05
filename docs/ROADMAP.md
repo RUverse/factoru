@@ -442,11 +442,16 @@ flowchart TB
     PL2 -->|"scoped Factoru tools"| FS
 ```
 
-The preferred Project Manager path is Gas City's connected-client protocol:
-Factoru Server registers a client, opens the replayable SSE reply stream, sends
-the user turn to a rig-isolated Project Manager named session, persists both
-sides of the conversation, and forwards them to the desktop. The Gas City token
-never leaves the server. The Project Manager maintains Factoru tasks through a
+The Project Manager path is Gas City's external-messaging protocol. The
+documented client-registration plus per-conversation SSE `subscribe` stream does
+not exist in the pinned 1.4.0 release; the real surface registers an adapter,
+binds a conversation to an **agent name** so the binding survives session
+restarts, posts turns to `extmsg/inbound`, and reads replies from
+`extmsg/transcript` with `after_sequence`, acknowledging through
+`transcript/ack`. Factoru persists both sides of the conversation and forwards
+them to the desktop. That transcript sequence is a durable cursor on both sides,
+which is a better fit for resumable delivery than a subscription would have
+been. The Gas City endpoint never leaves the server. The Project Manager maintains Factoru tasks through a
 narrow project-scoped tool interface, not by editing SQLite or treating chat
 text as a database command. The exact transport must be proven per harness:
 Gas City currently catalogs MCP but does not automatically attach every
@@ -574,9 +579,12 @@ Prove the core dependency and its vocabulary against a disposable repository
 before designing durable Factoru product behavior around it. Everything in this
 milestone is a thin probe or adapter seam, not a second orchestration runtime.
 
-- Pin a tested Gas City binary/CLI release and the authoritative OpenAPI schema
-  linked from that release or official repository; do not trust a generic docs
-  placeholder. Define one compatibility and upgrade policy for both contracts.
+- Pin a tested Gas City binary/CLI release and the authoritative OpenAPI schema.
+  **Resolved:** pinned to 1.4.0 (`>=1.4.0 <1.5.0`); the authoritative contract is
+  the document the running supervisor serves at `/openapi.json`, which diverges
+  from the documentation site. See
+  [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md) and the
+  [gate record](./spikes/milestone-1-gas-city-gate.md).
 - Add installation/readiness checks for `gc`, Git, tmux, jq, Dolt, Beads, flock,
   and at least one configured agent harness. Enforce the pinned release's Dolt
   floor (current Gas City operations documentation requires final Dolt 2.1.0 or
@@ -590,22 +598,36 @@ milestone is a thin probe or adapter seam, not a second orchestration runtime.
   a proven API gap—pinned `gc --json`; keep all raw DTOs inside the adapter.
 - Before treating prompts, tools, or Worker Types as stable, prove one minimal
   authenticated Factoru tool round trip through both initial Claude and Codex
-  harnesses. Compare supported provider hooks, `session_setup`/
-  `session_setup_script`, overlays, and a narrow local bridge; record the chosen
-  role-scoped contract and revocation model in an ADR. The probe tool may expose
-  only fixed development data; it must not invent the production task API.
+  harnesses. **Resolved:** both harnesses called a role-scoped probe tool.
+  Gas City catalogues a pack's `mcp/` directory but never delivers it to a live
+  session, so Factoru writes each harness's MCP config itself from
+  `session_setup_script`, with an absolute server path and a per-session
+  credential held by the server rather than the agent —
+  [ADR 0010](./adr/0010-agent-tool-transport.md).
 - Create a provisional `packs/factoru-default` skeleton with the four intended
   agent roles, doctor checks, and one tiny implement-then-independent-review
   Formula. Keep queue/task semantics out of this probe.
 - Install the provisional pack through a pinned import/lock and verify config
   reload and rollback.
 - Register one disposable repository as a rig and document every `.beads/` and
-  Git working-tree change Gas City makes.
+  Git working-tree change Gas City makes. **Resolved, with a defect:**
+  `gc rig add` creates a git commit in the target repository and captured a
+  user's staged change. The guard that refuses a dirty index and discloses every
+  mutation exists and is tested in `packages/gas-city`; wiring it into an actual
+  project-registration operation lands with projects in Milestone 2 —
+  [ADR 0009](./adr/0009-rig-registration-safety.md).
 - Start a rig-scoped, always-on Project Manager chat named session and complete
   external-message register/subscribe/send/reconnect through Factoru Server.
 - Cook and run the tiny Formula as real beads, observe implementer-to-reviewer
   dependency routing, and verify that its worktree behavior matches or disproves
-  the preferred ownership split.
+  the preferred ownership split. **Routing proven; the worktree split is
+  disproven** — Gas City creates worktrees only for `drain` fan-out units, so
+  Factoru owns worktree lifecycle for the single-task loop
+  ([ADR 0008](./adr/0008-worktree-ownership.md)).
+- Every agent Factoru binds to a Formula step must carry Gas City's
+  `gc-role-worker` prompt fragment. Without it an agent completes its work and
+  exits without closing its bead, and the workflow stalls with no error
+  anywhere. This is a permanent constraint on the Worker Type contract.
 - Consume the city event stream, persist its cursor, restart both processes, and
   resume without losing or duplicating the observed operation. A temporary
   probe store is sufficient; durable Factoru persistence begins in Milestone 2.
@@ -616,6 +638,16 @@ restart, and tear down only what it owns. Both initial harnesses call one scoped
 Factoru probe tool, the adapter's transport map and worktree owner are recorded,
 and there is enough evidence to make an explicit go/no-go decision before
 building the product model.
+
+> **Result: pass. The decision is go.** Every criterion was met against a real
+> Gas City 1.4.0 installation, including an authenticated, role-scoped Factoru
+> tool call from both the Claude and Codex harnesses. Gas City's own pack
+> `mcp/` projection turned out never to reach a live session, so Factoru
+> installs each harness's MCP config itself from `session_setup_script`
+> ([ADR 0010](./adr/0010-agent-tool-transport.md)). Several architectural
+> assumptions were disproven — worktree ownership, named-session scoping, and
+> the external-client protocol — and are corrected here and in
+> `ARCHITECTURE.md`. See the [gate record](./spikes/milestone-1-gas-city-gate.md).
 
 ### Milestone 2 — Persistence, projects, and remote connection
 

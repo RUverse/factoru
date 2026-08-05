@@ -1,0 +1,7 @@
+description = "Factoru Project Manager planning: serialized, on-demand queue reconciliation"
+scope = "rig"
+
+# Planning is a separate identity from chat so a long reconciliation pass never
+# blocks the user's conversation. It is serialized to one active session per
+# rig: priority, merge, and dependency decisions must not race each other.
+max_active_sessions = 1

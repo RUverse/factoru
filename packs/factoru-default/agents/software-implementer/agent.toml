@@ -1,0 +1,12 @@
+description = "Factoru Software Engineer implementation binding"
+scope = "rig"
+
+# On-demand pool. Milestone 1 keeps the ceiling at one because the initial
+# execution path is serial; raising it is a Milestone 8 decision that depends on
+# capsules existing.
+max_active_sessions = 1
+
+# Factoru installs its own agent tools at session start. Gas City 1.4.0 scans
+# the pack's mcp/ directory but does not deliver it into a live session, and a
+# per-session credential could not live in a versioned pack anyway.
+session_setup_script = "assets/scripts/install-factoru-tools.sh"
