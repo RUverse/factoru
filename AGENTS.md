@@ -230,6 +230,19 @@ templates/         Factoru Factory Template manifests that compose pinned packs 
 
 ## Tooling and commands
 
+### Git workflow
+
+- Use `dev` as the integration branch. Create each feature or fix branch from
+  the latest `dev`; do not implement feature work directly on `dev`.
+- After the requested work is complete and proportionately verified, commit it,
+  push the feature branch, and open a merge request targeting `dev` by default.
+- Do not push feature commits directly to `dev` or merge the merge request
+  yourself unless the user explicitly asks. If the user specifies another
+  target branch or asks not to push or open a merge request, follow that request.
+- If the remote, credentials, or merge-request tooling is unavailable, keep the
+  completed work on the local feature branch and report the exact remaining
+  push or merge-request step.
+
 The toolchain is pnpm workspaces, TypeScript, Fastify, Electron, and React on
 Node 22 ([ADR 0001](./docs/adr/0001-monorepo-toolchain.md)). Do not introduce a
 second package manager or task runner.
