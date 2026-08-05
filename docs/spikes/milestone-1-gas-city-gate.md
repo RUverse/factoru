@@ -418,6 +418,29 @@ Partially verified:
   from a persisted cursor. A Factoru-side restart was not exercised, because
   Factoru has no persistence to restart with until Milestone 2.
 
+## What the gate left on the host machine
+
+The spike is disposable, but some of it is machine-level and persistent. Anyone
+reproducing this should know what to remove.
+
+| Left behind | Where | Remove with |
+| --- | --- | --- |
+| Gas City and its dependency chain | Homebrew | `brew uninstall gascity` |
+| Supervisor launchd service | `~/Library/LaunchAgents/com.gascity.supervisor.plist` | `gc supervisor uninstall` |
+| Running supervisor | loopback `127.0.0.1:8372` | `gc supervisor stop` |
+| Registered spike city | `~/.gc/cities.toml` | `gc unregister` from the city directory |
+| Pack import cache | `~/.gc/cache/repos/` | `gc import prune` |
+| Dolt author identity | `~/.dolt/config_global.json` | `dolt config --global --unset user.name user.email` |
+| Spike city and disposable repositories | session scratchpad | delete the directory |
+
+Two of these are worth calling out as product requirements rather than cleanup
+notes. Gas City installs a **launchd agent** that starts the supervisor at
+login, so Factoru Server's installer must own that lifecycle deliberately rather
+than inherit it as a side effect of a first `gc start`. And managed Dolt
+**refuses to initialise without a global author identity**, which is a
+precondition Factoru's readiness check must cover — it is not something a user
+will guess from a failed city start.
+
 ## Repository toolchain note
 
 The gate surfaced an unrelated defect in the development environment: the
