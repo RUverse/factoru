@@ -1,8 +1,20 @@
 description = "Factoru Project Manager chat: the user-facing conversation for one project"
 scope = "rig"
 
-# The chat identity is always-on so a conversation survives between user turns.
-# It deliberately declares no pool minimum: Gas City treats an always-on named
-# session and min_active_sessions as independent session sources, and its
-# doctor warns when both are set. Chat continuity comes from the named session
-# declared in city configuration, not from a pool floor.
+# One chat identity per project, so two projects never share a conversation
+# context.
+#
+# The Milestone 1 gate found that Gas City named sessions are **city-scoped**:
+# `[[named_session]]` rejects a `rig` field, and a rig-qualified template name
+# fails validation. So the always-on named session the architecture originally
+# assumed cannot give per-project chat isolation.
+#
+# Isolation comes from the agent being rig-scoped instead. `extmsg bind` binds a
+# conversation to an agent name and resolves a live session at delivery time,
+# cold-waking one when none is live, so a rig-scoped agent gives one durable
+# conversation identity per project without a named session at all.
+#
+# The cap is one: a project has one Project Manager conversation, and a second
+# concurrent chat session for the same project would be two contexts answering
+# as one voice.
+max_active_sessions = 1
