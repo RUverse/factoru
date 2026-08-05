@@ -5,3 +5,7 @@ scope = "rig"
 # user may bind a different model to this role than to implementation; that is
 # the point of splitting the Software Engineer Worker Type into two bindings.
 max_active_sessions = 1
+
+# Milestone 1 harness comparison: review runs on a different harness from
+# implementation, which is the whole point of the two model bindings.
+provider = "claude"
