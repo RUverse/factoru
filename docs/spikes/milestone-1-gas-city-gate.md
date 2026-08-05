@@ -1,6 +1,20 @@
 # Milestone 1 — Gas City feasibility gate
 
-> Status: in progress
+> Status: **conditional pass, one exit criterion unmet**
+>
+> The dependency is viable and every core mechanism Factoru needs was exercised
+> against a real installation: city and rig provisioning, live config reload,
+> pinned pack import, Formula v2 routing two steps to two agent bindings across
+> a real `needs` edge, a complete implement → review → finalize run, event
+> cursors across a supervisor restart, cost reporting, and a full Project
+> Manager conversation round trip.
+>
+> **The agent-tool bridge does not work.** An agent asked to call a Factoru tool
+> reported it was not exposed. This is an explicit Milestone 1 exit criterion
+> and it is unmet, so prompts, tools, and Worker Types must not be treated as
+> stable. Milestone 2 may proceed — it introduces persistence, projects, and
+> pairing, none of which depend on agent tools — but Milestone 3's Worker Type
+> contract is blocked until the bridge is resolved.
 > Runtime: Gas City 1.4.0 (Homebrew), macOS arm64 (Darwin 25.5.0)
 > Disposable state only. No Factoru product persistence exists yet.
 
@@ -281,12 +295,36 @@ exposes fixed development data and no product API, because designing Factoru's
 most security-sensitive surface inside a throwaway probe would be exactly
 backwards.
 
-**Still unproven:** no agent has called it. Two things remain — whether the
-`args` path resolves relative to the pack directory or the agent's working
-directory (the projection displays it verbatim), and how the per-session token
-and scope reach the server's environment. Until an agent completes a call, the
-agent-tool transport decision stays `Validate` and the pack's tool contract must
-not be treated as stable.
+**The bridge does not work, and this is the gate's most important negative
+result.** A run was slung asking the implementer to call `factoru_probe`. The
+agent reported:
+
+> `factoru_probe` is not exposed in the tool set I can call.
+
+No `.codex/config.toml` was written into the working directory at all — only
+`hooks.json` and `skills/` appeared there.
+
+So `gc mcp list` reports the **planned** projection for a target, not a
+materialised one. The architecture's original concern was therefore right, and
+more precisely than it was stated: Gas City catalogs pack MCP configuration and
+can describe exactly where it would go, but in this configuration it does not
+attach it to a live session. Reading `gc mcp list` output as proof that an agent
+has a tool would have been a serious mistake, because it looks exactly like
+success.
+
+Unresolved, and the next thing to try:
+
+- `Delivery: stage1` suggests a staged write that something else must perform;
+  which component owns it, and what enables it, is not yet known.
+- Whether the codex and claude provider presets need `session_setup` or
+  `session_setup_script` to perform the write.
+- Whether `args` resolves relative to the pack directory or the working
+  directory. The projection displays the path verbatim, and this was never
+  reached because the server was never launched.
+
+Until an agent completes a call, the agent-tool transport decision stays
+`Validate`, the pack's tool contract must not be treated as stable, and no
+Worker Type may be described as having tools.
 
 ### Sessions run with unrestricted permissions by default
 

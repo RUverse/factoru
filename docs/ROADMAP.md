@@ -637,6 +637,14 @@ Factoru probe tool, the adapter's transport map and worktree owner are recorded,
 and there is enough evidence to make an explicit go/no-go decision before
 building the product model.
 
+> **Result: conditional pass.** Everything above was achieved except the probe
+> tool: an agent asked to call it reported the tool was not exposed, and no
+> harness MCP config was written, even though `gc mcp list` reported a
+> projection target for both harnesses. Gas City is viable and Milestone 2 may
+> proceed, because persistence, projects, and pairing do not depend on agent
+> tools. Milestone 3's Worker Type contract is blocked until the bridge works.
+> See the [gate record](./spikes/milestone-1-gas-city-gate.md).
+
 ### Milestone 2 — Persistence, projects, and remote connection
 
 Build durable Factoru ownership only after the Gas City feasibility gate passes.
