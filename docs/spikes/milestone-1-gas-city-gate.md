@@ -255,6 +255,39 @@ Two API details worth pinning down, both encoded in the adapter:
   Omitting `kind` returns **500 Internal Server Error**, not a validation error,
   so a partially-built query looks like a server fault rather than a bad request.
 
+### MCP projection is real, through the pack `mcp/` directory
+
+The architecture recorded that Gas City "attachment-list MCP fields are not
+materialized". That is true, but only of the **per-agent `mcp` arrays**, which
+the pack spec calls compatibility tombstones ignored by active materialization.
+The **pack-level `mcp/` directory** is scanned and projected.
+
+Verified for both initial harnesses from one pack source, `stdio` transport,
+`stage1` delivery:
+
+| Harness | Projection target |
+| --- | --- |
+| Codex | `<workdir>/.codex/config.toml` |
+| Claude | `<workdir>/.mcp.json` |
+
+The file format is one TOML per server whose `name` must equal the filename
+stem; the loader rejects a mismatch with
+`name "" must match filename stem "factoru-probe"`.
+
+`packs/factoru-default/assets/probe-tool/server.mjs` implements the probe: a
+JSON-RPC 2.0 stdio MCP server that refuses to start without
+`FACTORU_PROBE_TOKEN` and binds that token to one project and one role. It
+exposes fixed development data and no product API, because designing Factoru's
+most security-sensitive surface inside a throwaway probe would be exactly
+backwards.
+
+**Still unproven:** no agent has called it. Two things remain — whether the
+`args` path resolves relative to the pack directory or the agent's working
+directory (the projection displays it verbatim), and how the per-session token
+and scope reach the server's environment. Until an agent completes a call, the
+agent-tool transport decision stays `Validate` and the pack's tool contract must
+not be treated as stable.
+
 ### Sessions run with unrestricted permissions by default
 
 Live session options were `{"effort":"xhigh","model":"gpt-5.5",
