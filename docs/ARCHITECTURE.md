@@ -32,9 +32,9 @@ inventory below is authoritative.
 | Factoru Server | **Partial** | Fastify service exposing `GET /api/v1/health` and `POST /api/v1/handshake`, bound to localhost, with a file-backed stable `server_id`, structured `Problem` errors, and integration tests over a real listener. No persistence, authentication, projects, or Gas City. | Persist product state and require authentication for non-local connections. |
 | Shared protocol | **Partial** | `packages/protocol` owns Zod schemas, protocol version range, negotiation, error envelope, and a typed client validated on both sides. Health and handshake only; no live subscriptions, commands, or queries. | Add authenticated commands, queries, and cursor-based subscriptions. |
 | Factoru Desktop | **Partial** | Electron application with context isolation, sandboxed renderer, a narrow preload bridge, and one connection runtime owning attempts, retries, and the connection snapshot. It renders server health, version, negotiated protocol, capabilities, cached state, and errors. No connection profiles, pairing, or product shell. | Add persisted server profiles, pairing, and the project workspace shell. |
-| Gas City adapter | **Planned** | Gas City is selected and its typed REST/SSE surfaces are understood but unverified. | Provision a disposable city/rig, map every required operation to a verified transport, and observe one real workflow without leaking raw DTOs. |
-| Agent-tool bridge | **Validate** | Gas City attachment-list MCP fields are not materialized; no Factoru tool has reached a real agent harness. | Complete one authenticated, role-scoped probe-tool round trip through both Claude and Codex before the pack contract stabilizes. |
-| Factoru Gas City pack | **Planned** | Pack contents and ownership are documented only. | Load the four intended agent roles and run a tiny implement/review Formula from a pinned provisional pack. |
+| Gas City adapter | **Partial** | `packages/gas-city` exists and is verified against Gas City 1.4.0: pinned compatibility manifest, readiness reporting, loopback-only supervisor client with Problem Details mapping, durable event cursors, rig-registration safety guard, and run dispatch capturing the resolved formula hash. Raw DTOs stay inside the package. Session lifecycle, cancellation, and restart recovery are not yet exercised. | Complete one workflow through `workflow-finalize` and survive a supervisor restart. |
+| Agent-tool bridge | **Partial** | Proven through both harnesses. Factoru installs its own MCP config from `session_setup_script` with an absolute server path and a per-session credential; the pack `mcp/` directory is catalogued by Gas City but never delivered, so it is deliberately unused ([ADR 0010](./adr/0010-agent-tool-transport.md)). The probe exposes fixed development data only. | Replace the locally generated token with one minted by Factoru Server, and build the real role-scoped tool gateway with the task model. |
+| Factoru Gas City pack | **Partial** | `packs/factoru-default` defines the four agent roles and one implement/review probe formula, lints clean under `gc lint`, and is imported into a real city pinned by commit SHA. Its steps route to two distinct agent bindings across a real `needs` edge. No run has reached `workflow-finalize`. | Drive one probe workflow to a terminal state. |
 | Factoru database | **Planned** | SQLite/WAL is the accepted direction; no schema exists. | Migration creates and reopens the first database. |
 | Authentication and pairing | **Planned** | Security requirements are documented only. | Pair a desktop and revoke its credential. |
 | Projects | **Planned** | Domain definition exists only in documentation. | Persist and reopen one repository-backed project. |
@@ -240,9 +240,9 @@ flowchart TD
 | `packages/domain` | **Partial** | Server identity, application version, and the client connection state machine exist. Product entities, transitions, policies, and ports are planned. |
 | `packages/config` | **Implemented** | Shared TypeScript compiler configuration for every workspace package. |
 | `packages/database` | **Planned** | SQLite connection policy, migrations, repositories, transactional event/outbox writes, backup, and recovery. |
-| `packages/gas-city` | **Planned** | Factoru-owned orchestration port implemented using Gas City REST/SSE or another verified stable interface. |
+| `packages/gas-city` | **Partial** | Factoru-owned orchestration port over Gas City 1.4.0. Compatibility pinning, readiness, supervisor client, event cursors, rig-registration safety, and run dispatch/observation exist; conversation delivery, session lifecycle, and recovery do not. |
 | `packages/ui` | **Planned** | Factoru design tokens and reusable visual primitives; no transport or server logic. |
-| `packs/factoru-default` | **Planned** | Versioned Gas City pack containing agent definitions, prompt templates, tool metadata/wiring assets, doctor checks, and built-in Formula v2 workflows. |
+| `packs/factoru-default` | **Partial** | Provisional pack: four agent roles and one implement/review probe formula, pinned by commit SHA when imported. Production prompts, tool wiring, and the `queue-reconcile`/`software-delivery` formulas are still planned. |
 | `templates/software-project` | **Planned** | Built-in Factoru Factory Template manifest referencing the pinned pack plus Worker Types, model slots, tool/memory policies, Formula defaults, capsule requirements, and UI metadata. |
 
 `apps/desktop` depends on `packages/domain` directly for the client connection
@@ -562,15 +562,32 @@ consuming loop.
 
 ### Conversation to task
 
-**Planned.** Each project conversation has a stable Factoru conversation ID and
-is bound through Gas City's external-messaging protocol to that project's
-Project Manager named session. Factoru Server registers the external client,
-keeps its bearer credential server-side, subscribes before sending, reconnects
-with `Last-Event-ID`, and persists accepted user and assistant messages in the
-Factoru database. External-message registrations and conversation bindings are
-stored as project-scoped Factoru references, and Gas City's `allowed_sessions`
-is restricted to Factoru Project Manager session identities. The desktop never
-receives a Gas City address or token.
+**Planned; transport corrected by the Milestone 1 gate.** Each project
+conversation has a stable Factoru conversation ID and is bound through Gas
+City's external-messaging protocol to that project's Project Manager identity.
+
+The documented client-registration plus per-conversation SSE `subscribe` stream
+**does not exist in Gas City 1.4.0**. The surface that does exist is a durable
+transcript cursor:
+
+| Path | Purpose |
+| --- | --- |
+| `POST /v0/city/{city}/extmsg/adapters` | Register an adapter; optional `callback_url` and `Idempotency-Key` |
+| `POST /v0/city/{city}/extmsg/bind` | Bind a conversation to an `agent_name` or `session_id` |
+| `POST /v0/city/{city}/extmsg/inbound` | Deliver one user turn |
+| `GET /v0/city/{city}/extmsg/transcript` | Read replies with `after_sequence` and `limit` |
+| `POST /v0/city/{city}/extmsg/transcript/ack` | Acknowledge consumption |
+
+Factoru intends to bind to an **agent name** rather than a session ID, because
+Gas City documents that binding as surviving session restarts and cold-waking a
+session at delivery time. **That behaviour is documented, not yet observed** —
+the gate mapped the API surface but did not drive a conversation through it.
+`ConversationTranscriptRecord.Sequence` is intended as the durable cursor both
+sides persist, with an adapter `callback_url` as a latency optimisation rather
+than the record of what was delivered. Factoru persists accepted user and
+assistant messages in its own database and the desktop never receives a Gas City
+address or token. See
+[ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md).
 
 The Project Manager uses a Factoru-owned, project-scoped tool surface to inspect
 a bounded set of active/recent reconciliation candidates and request structured
@@ -876,22 +893,35 @@ write permissions and auditable access.
 | **2 — Project services** | Tier one plus task-specific Docker Compose identity, application-service containers, networks, volumes, database namespace, and CPU/memory/log limits | Added for projects whose runtime services need isolation |
 | **3 — Full worker** | Tier two plus the provider harness and agent tools inside the capsule container | Optional later hardening; never one container per ephemeral session by default |
 
-The Formula guide describes separate-context drain units as receiving separate
-Git worktrees, while the Formula v2 contract does not by itself specify every
-worktree lifecycle operation Factoru needs. The preferred ownership split is
-therefore **Validate** until proven against the pinned real release:
+**Resolved by the Milestone 1 gate; recorded in
+[ADR 0008](./adr/0008-worktree-ownership.md).** The preferred split assumed Gas
+City owns worktree creation and cleanup. A real two-step Formula v2 run created
+**no worktree at all**: `git worktree list` showed only the main worktree, and
+both the implementer and reviewer ran in the rig's primary repository path.
 
-- Gas City creates and removes Git worktrees for Formula v2 separate-context
-  units and retains its machine-local worktree state;
-- Factoru creates the stable capsule record and owns non-Git leases: ports,
+What the gate observed is precisely that **an ordinary non-drain workflow
+creates no worktree**. The explanation — that Gas City creates them for
+`[steps.drain] context = "separate"` fan-out units — comes from the Formula
+guide and was not itself exercised, because the probe formula uses no drain.
+The decision below only depends on the observation, not on the explanation.
+
+The accepted ownership for the single-task loop is the architecture's documented
+fallback, adopted on evidence:
+
+- **Factoru** creates and removes the Git worktree and branch for one task run,
+  and passes the validated path to Gas City as the run's working directory;
+- **Factoru** also owns the capsule record and every non-Git lease: ports,
   process supervision, service containers, databases, logs, limits, health,
   retention, and cleanup policy;
-- Formula setup/teardown or scoped steps acquire and release the Factoru lease,
-  correlated by task-run, workflow, and worktree identity;
-- if the spike disproves this split, an ADR chooses a replacement, but no
-  lifecycle operation may have two active owners. The fallback is for Factoru
-  to own worktree create/cleanup inside the capsule and pass the validated path
-  to Gas City; it is not a hybrid dual-owner design.
+- the implementer and reviewer steps of one run share that worktree, with
+  role-appropriate permissions;
+- no lifecycle operation has two owners. Factoru does not adopt `drain` fan-out
+  merely to obtain a worktree.
+
+Milestone 8 must re-examine this: real parallelism through `drain` with
+`context = "separate"` would make Gas City create worktrees too, which is
+exactly the dual ownership this forbids. That change is made as one decision,
+not incrementally.
 
 Tier two keeps the Gas City/provider session on the host and containerizes the
 project runtime. This avoids passing broad Docker access and provider credentials
@@ -1075,14 +1105,15 @@ per-worktree development state (0006).
 | Supervisor trust-domain deployment | **Validate** | Loopback-only listeners, warning for unrelated cities, and whether confidential coexistence requires a dedicated OS user/supervisor. |
 | Project Manager session isolation | **Validate** | Rig-qualified always-on sessions, external-message binding/replay, concurrent project chats, and no context leakage. |
 | Project Manager chat/planner split | **Validate** | Chat remains responsive while one serialized durable queue-reconciliation bead runs, with shared Factoru memory but no assumed shared context window. |
-| Factoru agent-tool transport | **Validate** | Harness-specific MCP, provider hooks, or equivalent local bridge with project/role-scoped credentials and auditable calls; do not assume Gas City auto-attaches catalogued MCP. |
+| Factoru agent-tool transport | **Accepted** — [ADR 0010](./adr/0010-agent-tool-transport.md) | Factoru writes each harness's MCP config from `session_setup_script` with a per-session, role-scoped credential. Proven through Claude and Codex. Gas City catalogues pack MCP but does not attach it, exactly as suspected. |
 | Durable memory storage/retrieval | **Validate** | Provenance, optimistic updates, bounded prompt injection, relevance, deletion, and resistance to poisoned task/model content. |
 | Capacity mapping | **Validate** | Factoru implementation cap maps correctly to agent/rig/workspace session caps while reserving PM, reviewer, and control capacity. |
 | Factory Template manifest | **Validate** | Small versioned schema composing a pinned pack, Worker Types, models, tools/memory, Formula defaults, capsule requirements, and UI metadata without duplicating Gas City config. |
 | Default pack installation and patching | **Validate** | Pinned import/lock behavior, worker model updates, config reload, rollback, and doctor checks. |
-| Gas City API compatibility policy | **Validate** | Pin the tested binary/CLI plus authoritative release/repository OpenAPI artifact, generate a client, and detect incompatible versions before mutation. |
+| Gas City API compatibility policy | **Accepted** — [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md) | Pinned to 1.4.0 with a `>=1.4.0 <1.5.0` range. The authoritative contract is the OpenAPI document served by the running supervisor at `/openapi.json`, which diverges from the documentation site. |
 | Formula semantic validator | **Validate** | Enforce Factoru variable schemas and reject inert/deprecated/unsupported v2 constructs and cross-store routes for the pinned release. |
-| Gas City versus Factoru capsule lifecycle | **Validate** | Real `software-delivery` run where Gas City owns one shared Git worktree and Factoru owns one correlated non-Git lease without dual ownership. |
+| Gas City versus Factoru capsule lifecycle | **Accepted** — [ADR 0008](./adr/0008-worktree-ownership.md) | A real run created no worktree, because Gas City only creates them for `drain` fan-out units. Factoru owns worktree lifecycle for the single-task loop; re-examined in Milestone 8. |
+| Rig registration safety | **Accepted** — [ADR 0009](./adr/0009-rig-registration-safety.md) | `gc rig add` commits to the target repository and captured a staged user change. Factoru requires a clean index and discloses every mutation. |
 | Tier-two container policy | **Validate** | Compose identity, ports, volumes/databases, limits, logs, secrets, health, recovery, and cleanup on macOS and Linux without exposing the Docker socket to workers. |
 | Raspberry Pi capacity | **Validate** | Linux arm64 benchmark with representative builds/services and one through four cloud-model sessions on an 8 GB host; derive safe dynamic admission thresholds. |
 | Dolt growth and compaction | **Validate** | Per-run store/backup growth, early disk warning, compactor order behavior, quarantine, and a full-GC recovery drill with sufficient headroom. |
