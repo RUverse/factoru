@@ -193,6 +193,7 @@ export class WorkspaceService {
             }
           : null
       })(),
+      taskMergeProposals: this.#database.tasks.listMergeProposals(projectId),
     })
   }
 

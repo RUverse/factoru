@@ -120,6 +120,7 @@ export const liveMethodSchema = z.enum([
   'tasks.move',
   'tasks.resolve',
   'tasks.search',
+  'tasks.decideMerge',
 ])
 export type LiveMethod = z.infer<typeof liveMethodSchema>
 export const liveRequestSchema = z.object({

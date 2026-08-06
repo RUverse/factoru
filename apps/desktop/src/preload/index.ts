@@ -26,6 +26,11 @@ import {
   IPC_PRODUCT_SEND_MESSAGE,
   IPC_PRODUCT_START_PLANNER,
   IPC_PRODUCT_UPDATE_MODEL,
+  IPC_PRODUCT_CREATE_TASK,
+  IPC_PRODUCT_UPDATE_TASK,
+  IPC_PRODUCT_MOVE_TASK,
+  IPC_PRODUCT_RESOLVE_TASK,
+  IPC_PRODUCT_DECIDE_TASK_MERGE,
   type ProductBridge,
 } from '../shared/product'
 
@@ -51,6 +56,11 @@ const product: ProductBridge = {
   startPlanner: (projectId) => ipcRenderer.invoke(IPC_PRODUCT_START_PLANNER, projectId),
   cancelPlanner: (projectId, plannerProbeId) =>
     ipcRenderer.invoke(IPC_PRODUCT_CANCEL_PLANNER, projectId, plannerProbeId),
+  createTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_CREATE_TASK, input),
+  updateTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_UPDATE_TASK, input),
+  moveTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_MOVE_TASK, input),
+  resolveTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_RESOLVE_TASK, input),
+  decideTaskMerge: (input) => ipcRenderer.invoke(IPC_PRODUCT_DECIDE_TASK_MERGE, input),
   subscribe: (listener) => {
     const handler = (_event: unknown, snapshot: Parameters<typeof listener>[0]) =>
       listener(snapshot)

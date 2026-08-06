@@ -10,12 +10,16 @@ import {
   plannerProbeSchema,
   workerTypeSchema,
   workspaceSchema,
+  taskSchema,
+  taskMergeProposalSchema,
   type MemoryEntry,
   type PlannerProbe,
   type Project,
   type ProjectPreview,
   type TrustedDevice,
   type WorkerType,
+  type Task,
+  type TaskMergeProposal,
 } from '@factoru/protocol'
 import { DESKTOP_NAME, DESKTOP_VERSION } from './version'
 import { normalizeProfileUrl } from './profile-store'
@@ -331,6 +335,70 @@ export class ProductRuntime {
       await this.request('planner.cancel', { projectId, plannerProbeId }, `cmd_${randomUUID()}`),
     )
     await this.#refreshWorkspace(projectId)
+    return result
+  }
+
+  async createTask(input: {
+    projectId: string
+    title: string
+    description?: string
+    status: 'backlog' | 'queue'
+  }): Promise<Task> {
+    const result = taskSchema.parse(
+      await this.request('tasks.create', input, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(input.projectId)
+    return result
+  }
+
+  async updateTask(input: {
+    projectId: string
+    taskId: string
+    title?: string
+    description?: string
+    priority?: number
+  }): Promise<Task> {
+    const result = taskSchema.parse(
+      await this.request('tasks.update', input, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(input.projectId)
+    return result
+  }
+
+  async moveTask(input: {
+    projectId: string
+    taskId: string
+    status: Task['status']
+    needsYouAction?: NonNullable<Task['needsYouAction']>
+    needsYouMessage?: string
+  }): Promise<Task> {
+    const result = taskSchema.parse(await this.request('tasks.move', input, `cmd_${randomUUID()}`))
+    await this.#refreshWorkspace(input.projectId)
+    return result
+  }
+
+  async resolveTask(input: {
+    projectId: string
+    taskId: string
+    resolution: Exclude<NonNullable<Task['resolution']>, 'superseded'>
+    summary: string
+  }): Promise<Task> {
+    const result = taskSchema.parse(
+      await this.request('tasks.resolve', input, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(input.projectId)
+    return result
+  }
+
+  async decideTaskMerge(input: {
+    projectId: string
+    proposalId: string
+    decision: 'accept' | 'reject'
+  }): Promise<TaskMergeProposal> {
+    const result = taskMergeProposalSchema.parse(
+      await this.request('tasks.decideMerge', input, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(input.projectId)
     return result
   }
 

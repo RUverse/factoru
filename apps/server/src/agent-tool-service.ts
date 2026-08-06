@@ -270,6 +270,7 @@ export class AgentToolService {
           targetTaskId,
           reason: requireString(args.reason, 'reason'),
           proposedBy: credential.sessionId,
+          actorKind,
         })
       }
       case 'tasks.resolve': {

@@ -32,6 +32,11 @@ import {
   IPC_PRODUCT_SEND_MESSAGE,
   IPC_PRODUCT_START_PLANNER,
   IPC_PRODUCT_UPDATE_MODEL,
+  IPC_PRODUCT_CREATE_TASK,
+  IPC_PRODUCT_UPDATE_TASK,
+  IPC_PRODUCT_MOVE_TASK,
+  IPC_PRODUCT_RESOLVE_TASK,
+  IPC_PRODUCT_DECIDE_TASK_MERGE,
 } from '../shared/product'
 
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:8787'
@@ -150,6 +155,27 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC_PRODUCT_CANCEL_PLANNER, (_event, projectId: string, plannerProbeId: string) =>
     product.cancelPlanner(projectId, plannerProbeId),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_CREATE_TASK,
+    (_event, input: Parameters<ProductRuntime['createTask']>[0]) => product.createTask(input),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_UPDATE_TASK,
+    (_event, input: Parameters<ProductRuntime['updateTask']>[0]) => product.updateTask(input),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_MOVE_TASK,
+    (_event, input: Parameters<ProductRuntime['moveTask']>[0]) => product.moveTask(input),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_RESOLVE_TASK,
+    (_event, input: Parameters<ProductRuntime['resolveTask']>[0]) => product.resolveTask(input),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_DECIDE_TASK_MERGE,
+    (_event, input: Parameters<ProductRuntime['decideTaskMerge']>[0]) =>
+      product.decideTaskMerge(input),
   )
   product.subscribe((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) {

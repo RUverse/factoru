@@ -602,11 +602,76 @@ code {
 .task-board {
   display: grid;
   min-height: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-rows: minmax(126px, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 9px;
   overflow: auto;
   padding: 12px;
+}
+
+.board-toolbar {
+  display: grid;
+  gap: 8px;
+}
+
+.board-toolbar > details,
+.merge-proposal {
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius);
+  background: var(--factoru-surface);
+  padding: 9px;
+}
+
+.board-toolbar summary,
+.task-details summary {
+  cursor: pointer;
+  color: var(--factoru-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.task-create-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.task-create-form textarea {
+  grid-column: 1 / -1;
+}
+
+.queue-summary,
+.merge-proposal > div,
+.task-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.queue-summary {
+  min-height: 30px;
+  font-size: 10px;
+}
+
+.merge-proposal {
+  border-color: rgba(247, 185, 85, 0.35);
+  background: rgba(247, 185, 85, 0.06);
+}
+
+.merge-proposal p {
+  margin: 5px 0 8px;
+  color: var(--factoru-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.task-grid {
+  display: grid;
+  min-height: 520px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(250px, 1fr));
+  gap: 9px;
 }
 
 .task-column {
@@ -616,6 +681,125 @@ code {
   border: 1px solid var(--factoru-border);
   border-radius: var(--factoru-radius);
   background: var(--factoru-surface);
+}
+
+.task-list {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  gap: 7px;
+  overflow: auto;
+  padding: 7px;
+}
+
+.task-list > p {
+  place-self: center;
+  color: var(--factoru-text-faint);
+  font-size: 11px;
+}
+
+.task-card {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  background: var(--factoru-surface-raised);
+  padding: 8px;
+}
+
+.task-card > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.task-card > header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.task-card > p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--factoru-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.phase-badge {
+  flex: none;
+  border: 1px solid rgba(173, 140, 245, 0.3);
+  border-radius: 999px;
+  background: rgba(173, 140, 245, 0.1);
+  padding: 2px 5px;
+  color: #c8afff;
+  font-size: 8px;
+  text-transform: capitalize;
+}
+
+.needs-action {
+  display: grid;
+  gap: 2px;
+  border-left: 2px solid var(--factoru-warn);
+  padding-left: 7px;
+  color: var(--factoru-text-muted);
+  font-size: 10px;
+}
+
+.needs-action strong {
+  color: var(--factoru-warn);
+  text-transform: capitalize;
+}
+
+.task-card footer {
+  color: var(--factoru-text-faint);
+  font-size: 9px;
+}
+
+.queue-button {
+  border-color: rgba(173, 140, 245, 0.35);
+  color: #c8afff;
+}
+
+.task-details {
+  border-top: 1px solid var(--factoru-border);
+  padding-top: 5px;
+}
+
+.task-details form {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.task-details label {
+  display: grid;
+  grid-template-columns: 1fr 70px;
+  align-items: center;
+  color: var(--factoru-text-muted);
+  font-size: 9px;
+}
+
+.task-details input,
+.task-details textarea,
+.task-details select,
+.task-details button,
+.task-create-form input,
+.task-create-form textarea,
+.task-create-form select,
+.task-create-form button {
+  min-width: 0;
+  padding: 6px;
+  font-size: 10px;
+}
+
+button.danger {
+  border-color: rgba(239, 125, 125, 0.35);
+  color: var(--factoru-error);
 }
 
 .task-column > header {
@@ -648,14 +832,8 @@ code {
   background: var(--factoru-text-faint);
 }
 
-.task-column > p {
-  place-self: center;
-  color: var(--factoru-text-faint);
-  font-size: 11px;
-}
-
 .board-note {
-  grid-column: 1 / -1;
+  place-self: center;
   color: var(--factoru-text-faint);
   font-size: 10px;
   text-align: center;
@@ -817,6 +995,20 @@ code {
 
   .model-row strong {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 850px) {
+  .task-grid {
+    min-height: 1040px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(4, minmax(250px, auto));
+  }
+
+  .queue-summary,
+  .merge-proposal > div {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

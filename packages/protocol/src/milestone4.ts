@@ -74,6 +74,18 @@ export const taskCandidateSchema = z.object({
   match: z.enum(['likely', 'possible']),
 })
 
+export const taskMergeProposalSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  sourceTaskId: z.string(),
+  targetTaskId: z.string(),
+  reason: z.string().min(1),
+  status: z.enum(['pending', 'accepted', 'rejected']),
+  proposedBy: z.string(),
+  createdAt: z.iso.datetime(),
+  decidedAt: z.iso.datetime().nullable(),
+})
+
 export const taskProjectParamsSchema = z.object({ projectId: z.string().min(1) })
 export const taskCreateParamsSchema = taskProjectParamsSchema.extend({
   title: z.string().trim().min(1).max(200),
@@ -111,7 +123,12 @@ export const taskSearchParamsSchema = taskProjectParamsSchema.extend({
   query: z.string().trim().min(1).max(1_000),
   limit: z.number().int().min(1).max(20).default(8),
 })
+export const taskMergeDecisionParamsSchema = taskProjectParamsSchema.extend({
+  proposalId: z.string().min(1),
+  decision: z.enum(['accept', 'reject']),
+})
 
 export type Task = z.infer<typeof taskSchema>
 export type QueueReconciliation = z.infer<typeof queueReconciliationSchema>
 export type TaskCandidate = z.infer<typeof taskCandidateSchema>
+export type TaskMergeProposal = z.infer<typeof taskMergeProposalSchema>

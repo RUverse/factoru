@@ -7,6 +7,8 @@ import type {
   TrustedDevice,
   WorkerType,
   Workspace,
+  Task,
+  TaskMergeProposal,
 } from '@factoru/protocol'
 
 export interface ServerProfileSummary {
@@ -48,6 +50,11 @@ export const IPC_PRODUCT_UPDATE_MODEL = 'factoru:product:update-model'
 export const IPC_PRODUCT_ADD_MEMORY = 'factoru:product:add-memory'
 export const IPC_PRODUCT_START_PLANNER = 'factoru:product:start-planner'
 export const IPC_PRODUCT_CANCEL_PLANNER = 'factoru:product:cancel-planner'
+export const IPC_PRODUCT_CREATE_TASK = 'factoru:product:create-task'
+export const IPC_PRODUCT_UPDATE_TASK = 'factoru:product:update-task'
+export const IPC_PRODUCT_MOVE_TASK = 'factoru:product:move-task'
+export const IPC_PRODUCT_RESOLVE_TASK = 'factoru:product:resolve-task'
+export const IPC_PRODUCT_DECIDE_TASK_MERGE = 'factoru:product:decide-task-merge'
 
 export interface ProductBridge {
   get(): Promise<ProductSnapshot>
@@ -91,5 +98,36 @@ export interface ProductBridge {
   }): Promise<MemoryEntry>
   startPlanner(projectId: string): Promise<PlannerProbe>
   cancelPlanner(projectId: string, plannerProbeId: string): Promise<PlannerProbe>
+  createTask(input: {
+    projectId: string
+    title: string
+    description?: string
+    status: 'backlog' | 'queue'
+  }): Promise<Task>
+  updateTask(input: {
+    projectId: string
+    taskId: string
+    title?: string
+    description?: string
+    priority?: number
+  }): Promise<Task>
+  moveTask(input: {
+    projectId: string
+    taskId: string
+    status: Task['status']
+    needsYouAction?: NonNullable<Task['needsYouAction']>
+    needsYouMessage?: string
+  }): Promise<Task>
+  resolveTask(input: {
+    projectId: string
+    taskId: string
+    resolution: Exclude<NonNullable<Task['resolution']>, 'superseded'>
+    summary: string
+  }): Promise<Task>
+  decideTaskMerge(input: {
+    projectId: string
+    proposalId: string
+    decision: 'accept' | 'reject'
+  }): Promise<TaskMergeProposal>
   subscribe(listener: (snapshot: ProductSnapshot) => void): () => void
 }

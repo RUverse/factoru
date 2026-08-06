@@ -184,4 +184,142 @@ describe('Milestone 4 task persistence', () => {
     ])
     db.close()
   })
+
+  it('requires a user decision before an ambiguous merge becomes terminal', () => {
+    const { db, project, device } = fixture()
+    const source = db.tasks.create({
+      projectId: project.id,
+      title: 'Add a dark theme',
+      source: 'user',
+      actorKind: 'user',
+      actorId: device.id,
+    })
+    const target = db.tasks.create({
+      projectId: project.id,
+      title: 'Support color themes',
+      source: 'user',
+      actorKind: 'user',
+      actorId: device.id,
+    })
+    const proposal = db.tasks.proposeMerge({
+      projectId: project.id,
+      sourceTaskId: source.id,
+      targetTaskId: target.id,
+      reason: 'The requests appear to overlap.',
+      proposedBy: 'planner-session',
+      actorKind: 'pm_planner',
+    })
+
+    expect(db.tasks.get(source.id)?.resolution).toBeNull()
+    expect(db.tasks.listMergeProposals(project.id)).toEqual([proposal])
+    expect(
+      db.tasks.decideMerge({
+        projectId: project.id,
+        proposalId: proposal.id,
+        decision: 'accept',
+        actorId: device.id,
+      }),
+    ).toMatchObject({ status: 'accepted' })
+    expect(db.tasks.get(source.id)).toMatchObject({
+      resolution: 'superseded',
+      mergedIntoTaskId: target.id,
+    })
+    expect(db.tasks.listMergeProposals(project.id)).toEqual([])
+
+    const separate = db.tasks.create({
+      projectId: project.id,
+      title: 'Keep this request separate',
+      source: 'user',
+      actorKind: 'user',
+      actorId: device.id,
+    })
+    const rejected = db.tasks.proposeMerge({
+      projectId: project.id,
+      sourceTaskId: separate.id,
+      targetTaskId: target.id,
+      reason: 'The titles look similar.',
+      proposedBy: 'chat-session',
+      actorKind: 'pm_chat',
+    })
+    expect(
+      db.tasks.decideMerge({
+        projectId: project.id,
+        proposalId: rejected.id,
+        decision: 'reject',
+        actorId: device.id,
+      }),
+    ).toMatchObject({ status: 'rejected' })
+    expect(db.tasks.get(separate.id)?.resolution).toBeNull()
+    expect(db.tasks.listMergeProposals(project.id)).toEqual([])
+    db.close()
+  })
+
+  it('enforces the Factory execution WIP limit of one', () => {
+    const { db, project, device } = fixture()
+    const first = db.tasks.create({
+      projectId: project.id,
+      title: 'First delivery',
+      source: 'user',
+      actorKind: 'user',
+      actorId: device.id,
+    })
+    const second = db.tasks.create({
+      projectId: project.id,
+      title: 'Second delivery',
+      source: 'user',
+      actorKind: 'user',
+      actorId: device.id,
+    })
+    db.tasks.move({
+      taskId: first.id,
+      status: 'in_progress',
+      actorKind: 'system',
+      actorId: 'scheduler',
+    })
+    expect(() =>
+      db.tasks.move({
+        taskId: second.id,
+        status: 'in_progress',
+        actorKind: 'system',
+        actorId: 'scheduler',
+      }),
+    ).toThrow(/execution_wip_limit_reached/)
+    expect(db.tasks.get(second.id)?.status).toBe('backlog')
+    db.close()
+  })
+
+  it('removes stale merge proposals when either task resolves independently', () => {
+    const { db, project, device } = fixture()
+    const source = db.tasks.create({
+      projectId: project.id,
+      title: 'Maybe duplicate',
+      source: 'user',
+      actorKind: 'user',
+      actorId: device.id,
+    })
+    const target = db.tasks.create({
+      projectId: project.id,
+      title: 'Original request',
+      source: 'user',
+      actorKind: 'user',
+      actorId: device.id,
+    })
+    db.tasks.proposeMerge({
+      projectId: project.id,
+      sourceTaskId: source.id,
+      targetTaskId: target.id,
+      reason: 'Possibly related.',
+      proposedBy: 'planner-session',
+      actorKind: 'pm_planner',
+    })
+    db.tasks.resolve({
+      taskId: target.id,
+      resolution: 'cancelled',
+      summary: 'No longer needed.',
+      actorKind: 'user',
+      actorId: device.id,
+    })
+    expect(db.tasks.listMergeProposals(project.id)).toEqual([])
+    db.close()
+  })
 })

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import type { ProjectPreview, TrustedDevice, WorkerType } from '@factoru/protocol'
+import type { ProjectPreview, Task, TrustedDevice, WorkerType } from '@factoru/protocol'
 import type { ProductSnapshot } from '../../shared/product'
 
 type Root = { id: string; label: string }
 type Entry = { name: string; relativePath: string; kind: 'directory' | 'repository' }
 
 const taskColumns = [
-  ['needs_you', 'Needs you'],
-  ['in_progress', 'In progress'],
-  ['queue', 'Queue'],
   ['backlog', 'Backlog'],
+  ['queue', 'Queue'],
+  ['in_progress', 'In progress'],
+  ['needs_you', 'Needs you'],
 ] as const
 
 function statusLabel(value: string): string {
@@ -165,6 +165,83 @@ export function App() {
         provenanceRef: 'desktop:workers-memory-editor',
       }),
     ).then((value) => value && form.reset())
+  }
+
+  const createTask = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!snapshot?.activeProjectId) return
+    const form = event.currentTarget
+    const data = new FormData(form)
+    void run(() =>
+      window.factoru.product.createTask({
+        projectId: snapshot.activeProjectId!,
+        title: String(data.get('title')),
+        description: String(data.get('description') || '') || undefined,
+        status: String(data.get('status')) as 'backlog' | 'queue',
+      }),
+    ).then((value) => value && form.reset())
+  }
+
+  const updateTask = (event: FormEvent<HTMLFormElement>, task: Task) => {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    void run(() =>
+      window.factoru.product.updateTask({
+        projectId: task.projectId,
+        taskId: task.id,
+        title: String(data.get('title')),
+        description: String(data.get('description')),
+        priority: Number(data.get('priority')),
+      }),
+    )
+  }
+
+  const moveTask = (event: FormEvent<HTMLFormElement>, task: Task) => {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    const status = String(data.get('status')) as Task['status']
+    void run(() =>
+      window.factoru.product.moveTask({
+        projectId: task.projectId,
+        taskId: task.id,
+        status,
+        needsYouAction:
+          status === 'needs_you'
+            ? (String(data.get('needsYouAction')) as NonNullable<Task['needsYouAction']>)
+            : undefined,
+        needsYouMessage: status === 'needs_you' ? String(data.get('needsYouMessage')) : undefined,
+      }),
+    )
+  }
+
+  const queueTask = (task: Task) =>
+    run(() =>
+      window.factoru.product.moveTask({
+        projectId: task.projectId,
+        taskId: task.id,
+        status: 'queue',
+      }),
+    )
+
+  const resolveTask = (event: FormEvent<HTMLFormElement>, task: Task) => {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    const resolution = String(data.get('resolution')) as 'accepted' | 'rejected' | 'cancelled'
+    const summary = String(data.get('summary')).trim()
+    if (
+      !window.confirm(`${statusLabel(resolution)} “${task.title}” and remove it from the board?`)
+    ) {
+      return
+    }
+    void run(() =>
+      window.factoru.product.resolveTask({
+        projectId: task.projectId,
+        taskId: task.id,
+        resolution,
+        summary,
+      }),
+    )
   }
 
   if (!snapshot) return <main className="startup muted">Starting Factoru Desktop…</main>
@@ -467,19 +544,219 @@ export function App() {
 
         {tab === 'tasks' ? (
           <div className="task-board" aria-label="Tasks">
-            {taskColumns.map(([id, label]) => (
-              <section key={id} className="task-column">
-                <header>
-                  <span className={`column-dot ${id}`} />
-                  <h2>{label}</h2>
-                  <span>0</span>
-                </header>
-                <p>No tasks</p>
-              </section>
-            ))}
-            <p className="board-note">
-              Persistent task capture and Queue reconciliation arrive in Milestone 4.
-            </p>
+            {snapshot.workspace ? (
+              <>
+                <section className="board-toolbar">
+                  <details>
+                    <summary>Capture a task</summary>
+                    <form className="task-create-form" onSubmit={createTask}>
+                      <input name="title" required maxLength={200} placeholder="A rough thought…" />
+                      <textarea
+                        name="description"
+                        rows={2}
+                        maxLength={20_000}
+                        placeholder="Optional context or acceptance criteria"
+                      />
+                      <select name="status" defaultValue="backlog">
+                        <option value="backlog">Save to Backlog</option>
+                        <option value="queue">Save and request planning</option>
+                      </select>
+                      <button className="primary" disabled={!snapshot.connected || busy}>
+                        Add task
+                      </button>
+                    </form>
+                  </details>
+                  <div className="queue-summary" aria-live="polite">
+                    <strong>Execution WIP {snapshot.workspace.factory.executionWipLimit}</strong>
+                    {snapshot.workspace.queueReconciliation ? (
+                      <span
+                        className={`health-pill ${snapshot.workspace.queueReconciliation.status}`}
+                      >
+                        Planning {statusLabel(snapshot.workspace.queueReconciliation.status)} · r
+                        {snapshot.workspace.queueReconciliation.coalescedThroughRevision}
+                      </span>
+                    ) : (
+                      <span className="muted">Queue is settled</span>
+                    )}
+                  </div>
+                  {snapshot.workspace.taskMergeProposals.map((proposal) => {
+                    const source = snapshot.workspace!.tasks.find(
+                      (task) => task.id === proposal.sourceTaskId,
+                    )
+                    const target = snapshot.workspace!.tasks.find(
+                      (task) => task.id === proposal.targetTaskId,
+                    )
+                    return (
+                      <article className="merge-proposal" key={proposal.id}>
+                        <strong>Merge confirmation</strong>
+                        <p>
+                          Merge “{source?.title ?? proposal.sourceTaskId}” into “
+                          {target?.title ?? proposal.targetTaskId}”? {proposal.reason}
+                        </p>
+                        <div>
+                          <button
+                            className="primary"
+                            disabled={!snapshot.connected || busy}
+                            onClick={() =>
+                              void run(() =>
+                                window.factoru.product.decideTaskMerge({
+                                  projectId: proposal.projectId,
+                                  proposalId: proposal.id,
+                                  decision: 'accept',
+                                }),
+                              )
+                            }
+                          >
+                            Confirm merge
+                          </button>
+                          <button
+                            disabled={!snapshot.connected || busy}
+                            onClick={() =>
+                              void run(() =>
+                                window.factoru.product.decideTaskMerge({
+                                  projectId: proposal.projectId,
+                                  proposalId: proposal.id,
+                                  decision: 'reject',
+                                }),
+                              )
+                            }
+                          >
+                            Keep separate
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </section>
+                <div className="task-grid">
+                  {taskColumns.map(([id, label]) => {
+                    const tasks = snapshot.workspace!.tasks.filter((task) => task.status === id)
+                    return (
+                      <section key={id} className="task-column">
+                        <header>
+                          <span className={`column-dot ${id}`} />
+                          <h2>{label}</h2>
+                          <span>{tasks.length}</span>
+                        </header>
+                        <div className="task-list">
+                          {tasks.length === 0 ? (
+                            <p>No tasks</p>
+                          ) : (
+                            tasks.map((task) => (
+                              <article className="task-card" key={`${task.id}:${task.version}`}>
+                                <header>
+                                  <strong>{task.title}</strong>
+                                  {task.queuePhase && (
+                                    <span className="phase-badge">
+                                      {statusLabel(task.queuePhase)}
+                                    </span>
+                                  )}
+                                </header>
+                                {task.description && <p>{task.description}</p>}
+                                {task.status === 'needs_you' && (
+                                  <div className="needs-action">
+                                    <strong>{statusLabel(task.needsYouAction!)}</strong>
+                                    <span>{task.needsYouMessage}</span>
+                                  </div>
+                                )}
+                                <footer>
+                                  <span>Priority {task.priority}</span>
+                                  <span>
+                                    {task.workerTypeKind
+                                      ? statusLabel(task.workerTypeKind)
+                                      : 'Unassigned'}
+                                  </span>
+                                </footer>
+                                {task.status === 'backlog' && (
+                                  <button
+                                    className="queue-button"
+                                    disabled={!snapshot.connected || busy}
+                                    onClick={() => void queueTask(task)}
+                                  >
+                                    Move to Queue
+                                  </button>
+                                )}
+                                <details className="task-details">
+                                  <summary>Edit and move</summary>
+                                  <form onSubmit={(event) => updateTask(event, task)}>
+                                    <input
+                                      name="title"
+                                      required
+                                      defaultValue={task.title}
+                                      maxLength={200}
+                                    />
+                                    <textarea
+                                      name="description"
+                                      rows={3}
+                                      defaultValue={task.description}
+                                      maxLength={20_000}
+                                    />
+                                    <label>
+                                      Priority
+                                      <input
+                                        name="priority"
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        defaultValue={task.priority}
+                                      />
+                                    </label>
+                                    <button disabled={!snapshot.connected || busy}>
+                                      Save edits
+                                    </button>
+                                  </form>
+                                  <form onSubmit={(event) => moveTask(event, task)}>
+                                    <select name="status" defaultValue={task.status}>
+                                      {taskColumns.map(([value, text]) => (
+                                        <option value={value} key={value}>
+                                          {text}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <select name="needsYouAction" defaultValue="clarify">
+                                      <option value="clarify">Clarify</option>
+                                      <option value="approve">Approve</option>
+                                      <option value="review">Review</option>
+                                      <option value="resolve_conflict">Resolve conflict</option>
+                                      <option value="recover_failure">Recover failure</option>
+                                    </select>
+                                    <input
+                                      name="needsYouMessage"
+                                      placeholder="Required when moving to Needs you"
+                                    />
+                                    <button disabled={!snapshot.connected || busy}>Move</button>
+                                  </form>
+                                  <form onSubmit={(event) => resolveTask(event, task)}>
+                                    <select name="resolution" defaultValue="cancelled">
+                                      <option value="accepted">Accepted</option>
+                                      <option value="rejected">Rejected</option>
+                                      <option value="cancelled">Cancelled</option>
+                                    </select>
+                                    <input
+                                      name="summary"
+                                      required
+                                      placeholder="Why is this terminal?"
+                                    />
+                                    <button
+                                      className="danger"
+                                      disabled={!snapshot.connected || busy}
+                                    >
+                                      Resolve task
+                                    </button>
+                                  </form>
+                                </details>
+                              </article>
+                            ))
+                          )}
+                        </div>
+                      </section>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <p className="board-note">Choose a project to see its task board.</p>
+            )}
           </div>
         ) : snapshot.workspace ? (
           <div className="workers-panel">

@@ -67,4 +67,36 @@ describe('TaskService', () => {
     expect(() => service.search('prj_missing', 'dark mode', 8)).toThrow(/Project not found/)
     database.close()
   })
+
+  it('turns merge decisions into durable user-confirmed resolutions', () => {
+    const { database, service, device, project } = fixture()
+    const source = service.create(
+      { projectId: project.id, title: 'Dark theme', status: 'backlog' },
+      device.id,
+    )
+    const target = service.create(
+      { projectId: project.id, title: 'Color themes', status: 'backlog' },
+      device.id,
+    )
+    const proposal = database.tasks.proposeMerge({
+      projectId: project.id,
+      sourceTaskId: source.id,
+      targetTaskId: target.id,
+      reason: 'These overlap.',
+      proposedBy: 'planner-session',
+      actorKind: 'pm_planner',
+    })
+
+    expect(
+      service.decideMerge(
+        { projectId: project.id, proposalId: proposal.id, decision: 'accept' },
+        device.id,
+      ),
+    ).toMatchObject({ status: 'accepted' })
+    expect(database.tasks.get(source.id)).toMatchObject({
+      resolution: 'superseded',
+      mergedIntoTaskId: target.id,
+    })
+    database.close()
+  })
 })

@@ -47,6 +47,7 @@ import {
   type LiveRequest,
   taskCreateParamsSchema,
   taskMoveParamsSchema,
+  taskMergeDecisionParamsSchema,
   taskResolveParamsSchema,
   taskSearchParamsSchema,
   taskUpdateParamsSchema,
@@ -357,6 +358,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'tasks.move': 'projects:write',
       'tasks.resolve': 'projects:write',
       'tasks.search': 'projects:read',
+      'tasks.decideMerge': 'projects:write',
     }
     try {
       requireScope(currentDevice, requiredScopes[request.method])
@@ -594,6 +596,20 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           result = tasks.search(params.projectId, params.query, params.limit)
           break
         }
+        case 'tasks.decideMerge': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = taskMergeDecisionParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Deciding a merge requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => tasks.decideMerge(params, currentDevice.id),
+          )
+          break
+        }
       }
       socket.send(JSON.stringify({ id: request.id, ok: true, result }))
       if (request.method === 'devices.revoke' && (result as { self?: boolean }).self === true) {
@@ -610,7 +626,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         request.method === 'tasks.create' ||
         request.method === 'tasks.update' ||
         request.method === 'tasks.move' ||
-        request.method === 'tasks.resolve'
+        request.method === 'tasks.resolve' ||
+        request.method === 'tasks.decideMerge'
       )
         publishEvents()
     } catch (error) {

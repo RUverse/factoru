@@ -1,5 +1,12 @@
 import type { FactoruDatabase, TaskRecord } from '@factoru/database'
-import { taskCandidateSchema, taskSchema, type Task, type TaskCandidate } from '@factoru/protocol'
+import {
+  taskCandidateSchema,
+  taskMergeProposalSchema,
+  taskSchema,
+  type Task,
+  type TaskCandidate,
+  type TaskMergeProposal,
+} from '@factoru/protocol'
 import { ApplicationError } from './project-service.js'
 
 export function taskProjection(record: TaskRecord): Task {
@@ -81,13 +88,23 @@ export class TaskService {
     actorId: string,
   ): Task {
     this.#requireTask(input.projectId, input.taskId)
-    return taskProjection(
-      this.#database.tasks.move({
-        ...input,
-        actorKind: 'user',
-        actorId,
-      }),
-    )
+    try {
+      return taskProjection(
+        this.#database.tasks.move({
+          ...input,
+          actorKind: 'user',
+          actorId,
+        }),
+      )
+    } catch (error) {
+      if (error instanceof Error && error.message === 'execution_wip_limit_reached') {
+        throw new ApplicationError(
+          'invalid_request',
+          'Execution WIP is full; move the current task out of In progress first',
+        )
+      }
+      throw error
+    }
   }
 
   resolve(
@@ -116,6 +133,21 @@ export class TaskService {
     return taskCandidateSchema
       .array()
       .parse(this.#database.tasks.searchCandidates(projectId, query, limit))
+  }
+
+  decideMerge(
+    input: { projectId: string; proposalId: string; decision: 'accept' | 'reject' },
+    actorId: string,
+  ): TaskMergeProposal {
+    this.#requireProject(input.projectId)
+    try {
+      return taskMergeProposalSchema.parse(this.#database.tasks.decideMerge({ ...input, actorId }))
+    } catch (error) {
+      if (error instanceof Error && error.message === 'task_merge_proposal_not_found') {
+        throw new ApplicationError('not_found', 'Pending merge proposal not found')
+      }
+      throw error
+    }
   }
 
   #requireProject(projectId: string): void {

@@ -282,6 +282,15 @@ export class TaskStore {
   }): TaskRecord {
     return this.#db.transaction(() => {
       const current = this.#requireActive(input.taskId)
+      if (input.status === 'in_progress' && current.status !== 'in_progress') {
+        const running = this.#db
+          .prepare(
+            `SELECT COUNT(*) AS count FROM tasks
+             WHERE project_id = ? AND status = 'in_progress' AND resolution IS NULL`,
+          )
+          .get(current.projectId) as { count: number }
+        if (running.count >= 1) throw new Error('execution_wip_limit_reached')
+      }
       const queuePhase = queuePhaseForStatus(input.status)
       const needsYouAction = input.status === 'needs_you' ? (input.needsYouAction ?? null) : null
       const needsYouMessage =
@@ -379,6 +388,12 @@ export class TaskStore {
              merged_into_task_id = ?, version = version + 1, updated_at = ? WHERE id = ?`,
         )
         .run(input.resolution, summary, now, mergedInto, now, task.id)
+      this.#db
+        .prepare(
+          `UPDATE task_merge_proposals SET status = 'rejected', decided_at = ?
+           WHERE status = 'pending' AND (source_task_id = ? OR target_task_id = ?)`,
+        )
+        .run(now, task.id, task.id)
       const resolved = this.#require(task.id)
       this.#recordTaskEvent(resolved, 'resolved', input.actorKind, input.actorId, {
         resolution: input.resolution,
@@ -417,6 +432,7 @@ export class TaskStore {
     targetTaskId: string
     reason: string
     proposedBy: string
+    actorKind: Extract<TaskActorKind, 'pm_chat' | 'pm_planner'>
   }): TaskMergeProposalRecord {
     return this.#db.transaction(() => {
       const source = this.#requireActive(input.sourceTaskId)
@@ -458,7 +474,7 @@ export class TaskStore {
            ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
         )
         .run(id, input.projectId, source.id, target.id, reason, input.proposedBy, now)
-      this.#recordTaskEvent(source, 'merge_proposed', 'pm_planner', input.proposedBy, {
+      this.#recordTaskEvent(source, 'merge_proposed', input.actorKind, input.proposedBy, {
         proposalId: id,
         targetTaskId: target.id,
         reason,
@@ -485,6 +501,57 @@ export class TaskStore {
       decided_at: string | null
     }>
     return rows.map((row) => this.#mergeProposal(row))
+  }
+
+  decideMerge(input: {
+    projectId: string
+    proposalId: string
+    decision: 'accept' | 'reject'
+    actorId: string
+  }): TaskMergeProposalRecord {
+    return this.#db.transaction(() => {
+      const row = this.#db
+        .prepare('SELECT * FROM task_merge_proposals WHERE id = ? AND project_id = ?')
+        .get(input.proposalId, input.projectId) as
+        | {
+            id: string
+            project_id: string
+            source_task_id: string
+            target_task_id: string
+            reason: string
+            status: TaskMergeProposalRecord['status']
+            proposed_by: string
+            created_at: string
+            decided_at: string | null
+          }
+        | undefined
+      if (!row || row.status !== 'pending') throw new Error('task_merge_proposal_not_found')
+      const now = this.#now().toISOString()
+      if (input.decision === 'accept') {
+        this.resolve({
+          taskId: row.source_task_id,
+          resolution: 'superseded',
+          summary: `Merged after user confirmation: ${row.reason}`,
+          mergedIntoTaskId: row.target_task_id,
+          actorKind: 'user',
+          actorId: input.actorId,
+        })
+      } else {
+        const source = this.#requireActive(row.source_task_id)
+        this.#recordTaskEvent(source, 'merge_rejected', 'user', input.actorId, {
+          proposalId: row.id,
+          targetTaskId: row.target_task_id,
+        })
+      }
+      this.#db
+        .prepare(`UPDATE task_merge_proposals SET status = ?, decided_at = ? WHERE id = ?`)
+        .run(input.decision === 'accept' ? 'accepted' : 'rejected', now, row.id)
+      return this.#mergeProposal({
+        ...row,
+        status: input.decision === 'accept' ? 'accepted' : 'rejected',
+        decided_at: now,
+      })
+    })()
   }
 
   queueRevision(projectId: string): number {

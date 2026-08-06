@@ -64,6 +64,7 @@ describe('Milestone 4 task protocol', () => {
       tasks: [],
       recentTaskResolutions: [],
       queueReconciliation: null,
+      taskMergeProposals: [],
     })
   })
 })
