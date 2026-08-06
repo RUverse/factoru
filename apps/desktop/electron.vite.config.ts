@@ -6,7 +6,9 @@ import react from '@vitejs/plugin-react'
  *
  * electron-vite externalizes everything listed in `dependencies`, so the shared
  * Factoru packages are declared as devDependencies and bundled into the output.
- * A packaged application therefore carries no dependency on the monorepo layout.
+ * Node runtime libraries such as `ws` stay production dependencies so their
+ * CommonJS optional-import behavior is preserved. A packaged application still
+ * carries no dependency on the monorepo layout.
  */
 export default defineConfig({
   main: {
