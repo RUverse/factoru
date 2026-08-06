@@ -21,6 +21,10 @@ that Milestone 0's build layout does not have to be redone later.
   and bundled into the output, because electron-vite externalizes anything in
   `dependencies`. A packaged application therefore contains no reference to the
   monorepo layout.
+- Node runtime libraries that rely on CommonJS optional imports remain explicit
+  production dependencies and are externalized for electron-builder to package.
+  In particular, bundling `ws` converts its optional `bufferutil` probe into a
+  hard unresolved import and prevents Electron main from starting.
 - Milestone 7 adds electron-builder with a signed and notarized macOS build.
   Linux desktop packaging stays a later item, so no Linux-only Electron APIs may
   be introduced in the meantime.
@@ -45,8 +49,9 @@ that Milestone 0's build layout does not have to be redone later.
 
 ## Consequences
 
-- The desktop build must keep shared packages out of `dependencies`, which is
-  documented in `apps/desktop/electron.vite.config.ts`.
+- The desktop build keeps shared workspace packages out of `dependencies`, while
+  true Node runtime libraries stay there for packaging; this boundary is
+  documented in `apps/desktop/electron.vite.config.ts` and regression-tested.
 - Server releases are per platform, and CI must build on macOS and Linux.
 - Packaging cannot begin before the database driver is chosen, which it now is.
 

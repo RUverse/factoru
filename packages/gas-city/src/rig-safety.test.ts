@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { parsePorcelainStatus, previewRigRegistration } from './rig-safety.js'
+import {
+  parsePorcelainStatus,
+  parsePorcelainStatusZ,
+  previewRigRegistration,
+} from './rig-safety.js'
 
 describe('parsePorcelainStatus', () => {
   it('distinguishes staged from unstaged and untracked paths', () => {
@@ -11,7 +15,7 @@ describe('parsePorcelainStatus', () => {
     expect(parsePorcelainStatus(output)).toEqual([
       { path: 'file.txt', staged: true },
       { path: 'other.txt', staged: false },
-      { path: 'scratch.txt', staged: false },
+      { path: 'scratch.txt', staged: false, untracked: true },
     ])
   })
 
@@ -28,6 +32,20 @@ describe('parsePorcelainStatus', () => {
   it('ignores blank and truncated lines', () => {
     expect(parsePorcelainStatus('')).toEqual([])
     expect(parsePorcelainStatus('\n\n')).toEqual([])
+  })
+})
+
+describe('parsePorcelainStatusZ', () => {
+  it('preserves unusual paths and consumes rename source fields', () => {
+    expect(
+      parsePorcelainStatusZ(
+        Buffer.from('?? weird -> name\n.txt\0R  new name.txt\0old name.txt\0 M ordinary.txt\0'),
+      ),
+    ).toEqual([
+      { path: 'weird -> name\n.txt', staged: false, untracked: true },
+      { path: 'new name.txt', staged: true },
+      { path: 'ordinary.txt', staged: false },
+    ])
   })
 })
 

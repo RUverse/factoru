@@ -78,11 +78,13 @@ export function devEnvFor(worktreeRoot, { portBase } = {}) {
   const ports = portsFor(base)
   const dataDir = path.join(worktreeRoot, DEV_STATE_DIRNAME, worktreeId)
   const serverUrl = `http://${DEV_HOST}:${ports.serverPort}`
+  const localEnrollmentFile = path.join(dataDir, 'local-enrollment.json')
 
   return {
     worktreeRoot,
     worktreeId,
     dataDir,
+    localEnrollmentFile,
     serverUrl,
     portBase: base,
     ...ports,
@@ -91,11 +93,26 @@ export function devEnvFor(worktreeRoot, { portBase } = {}) {
       FACTORU_DATA_DIR: dataDir,
       FACTORU_HOST: DEV_HOST,
       FACTORU_PORT: String(ports.serverPort),
+      FACTORU_REPOSITORY_ROOTS: JSON.stringify([worktreeRoot]),
+      FACTORU_GAS_CITY_PATH: path.join(dataDir, 'gas-city'),
+      FACTORU_PACK_PATH: path.join(worktreeRoot, 'packs', 'factoru-default'),
       FACTORU_SERVER_URL: serverUrl,
+      FACTORU_LOCAL_ENROLLMENT_FILE: localEnrollmentFile,
       FACTORU_RENDERER_PORT: String(ports.rendererPort),
       FACTORU_LOG_LEVEL: process.env.FACTORU_LOG_LEVEL ?? 'debug',
     },
   }
+}
+
+/**
+ * Keeps identity, state, and ports owned by the worktree harness while allowing
+ * an operator to point development project browsing at disposable repositories.
+ */
+export function processEnvForDevelopment(devEnvironment, parentEnvironment = process.env) {
+  const merged = { ...parentEnvironment, ...devEnvironment }
+  const repositoryRoots = parentEnvironment.FACTORU_REPOSITORY_ROOTS?.trim()
+  if (repositoryRoots) merged.FACTORU_REPOSITORY_ROOTS = repositoryRoots
+  return merged
 }
 
 function isPortFree(port, host = DEV_HOST) {

@@ -1,6 +1,6 @@
 # 0010 — Factoru installs its own agent tools from `session_setup_script`
 
-**Status:** Accepted (Milestone 1)
+**Status:** Accepted (production path connected in Milestone 4)
 **Date:** 2026-08-05
 
 ## Context
@@ -64,6 +64,15 @@ Three properties matter more than the mechanism:
    be handed a secret it is expected not to leak, and it makes the model the
    authenticated party rather than the session Factoru issued the credential to.
 
+The server also projects its current bare HTTP loopback origin to
+`<city>/.gc/factoru-server.json`. Gas City supplies the absolute city path as
+`GC_CITY`, so session setup discovers isolated development ports and deployment
+port changes without baking machine-local data into the pack. The projection is
+non-secret, private (`0600`), schema-versioned, and recoverable from server
+configuration. Setup rejects links, non-regular or group/world-accessible files,
+and every non-loopback or path-bearing URL. A repository-local development
+allocation and the stable `127.0.0.1:8787` origin remain compatibility fallbacks.
+
 ## Evidence
 
 Both harnesses completed a real round trip against Gas City 1.4.0.
@@ -88,10 +97,15 @@ so per-session scoping and credential rotation are observed rather than assumed.
 
 ## Consequences
 
-- Factoru Server must expose an internal, loopback-only endpoint for the setup
-  script to obtain a short-lived credential. The probe generates a random token
-  locally because there is no server to ask yet; that is the one part of this
-  design still standing in for production.
+- Factoru Server exposes an internal, loopback-only endpoint for the setup
+  process to obtain a short-lived credential. It validates Gas City rig and
+  agent identifiers, binds the token to project, role, and session, and audits
+  every authenticated tool call. The fixed-data probe was replaced by the real
+  task gateway in Milestone 4.
+- Factoru's city configurator owns the `.gc/factoru-server.json` projection and
+  includes endpoint changes in its idempotent reload decision. It is deployment
+  state, not a second source of truth; the bound server configuration remains
+  authoritative.
 - The setup script writes files into the user's repository working directory
   (`.mcp.json`, `.codex/config.toml`). Registration already discloses Gas City's
   repository mutations ([ADR 0009](./0009-rig-registration-safety.md)); this

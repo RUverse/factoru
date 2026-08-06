@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createFactoruClient, type FetchLike } from './client.js'
 import { FactoruProtocolError, problem } from './errors.js'
+import { LOCAL_ENROLLMENT_PATH } from './milestone2.js'
 import { descriptorFromHealth, type HealthResponse } from './schemas.js'
 import {
   HANDSHAKE_PATH,
@@ -128,6 +129,27 @@ describe('factoru client', () => {
       minProtocolVersion: MIN_SUPPORTED_PROTOCOL_VERSION,
     })
     expect(outcome.compatibility.compatible).toBe(true)
+  })
+
+  it('sends a local enrollment proof to the dedicated endpoint', async () => {
+    const proof = 'a'.repeat(43)
+    const response = {
+      serverId: `srv_${'b'.repeat(32)}`,
+      device: {
+        id: 'dev_local',
+        name: 'My Mac',
+        scopes: ['projects:read'],
+        createdAt: '2026-08-06T12:00:00.000Z',
+        lastSeenAt: '2026-08-06T12:00:00.000Z',
+        revokedAt: null,
+      },
+      token: 'token.'.padEnd(43, 'a'),
+    }
+    const fetchImpl = vi.fn<FetchLike>(async () => jsonResponse(response))
+    await client(fetchImpl).pairLocal(proof, 'My Mac')
+    const [url, init] = fetchImpl.mock.calls[0]!
+    expect(url).toBe(`http://127.0.0.1:41234${LOCAL_ENROLLMENT_PATH}`)
+    expect(JSON.parse(String(init?.body))).toEqual({ proof, deviceName: 'My Mac' })
   })
 
   it('does not trust the server verdict when the ranges do not overlap', async () => {

@@ -15,6 +15,7 @@ import {
   portBaseFor,
   readAllocatedPortBase,
   resolveWorktreeRoot,
+  processEnvForDevelopment,
   worktreeIdFor,
   writeAllocatedPortBase,
 } from './worktree-env.mjs'
@@ -61,7 +62,18 @@ const dev = devEnvFor(worktreeRoot, { portBase })
 // need them compiled before the watchers start.
 const build = spawnSync(
   'pnpm',
-  ['--filter', '@factoru/domain', '--filter', '@factoru/protocol', 'run', 'build'],
+  [
+    '--filter',
+    '@factoru/domain',
+    '--filter',
+    '@factoru/protocol',
+    '--filter',
+    '@factoru/database',
+    '--filter',
+    '@factoru/gas-city',
+    'run',
+    'build',
+  ],
   { cwd: worktreeRoot, stdio: 'inherit' },
 )
 if (build.status !== 0) {
@@ -95,7 +107,7 @@ function shutdown(exitCode) {
 const children = targets.map(({ name, filter }) => {
   const child = spawn('pnpm', ['--filter', filter, 'run', 'dev'], {
     cwd: worktreeRoot,
-    env: { ...process.env, ...dev.env },
+    env: processEnvForDevelopment(dev.env),
     stdio: 'inherit',
   })
   child.on('exit', (code, signal) => {

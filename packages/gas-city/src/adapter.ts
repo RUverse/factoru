@@ -133,6 +133,8 @@ const nullableArray = <T extends z.ZodTypeAny>(item: T) =>
  */
 export interface ConversationMessage {
   readonly sequence: number
+  /** The stable provider identifier supplied by Factoru for inbound turns. */
+  readonly providerMessageId: string | undefined
   /** `user` for a turn Factoru delivered, `assistant` for the agent's reply. */
   readonly role: 'user' | 'assistant'
   readonly text: string
@@ -429,6 +431,7 @@ export class GasCityAdapter {
       .parse(raw)
       .items.map((entry) => ({
         sequence: entry.Sequence,
+        providerMessageId: entry.ProviderMessageID || undefined,
         role: entry.Kind === 'inbound' ? ('user' as const) : ('assistant' as const),
         text: entry.Text,
         authorDisplayName: entry.Actor.display_name ?? '',
@@ -452,18 +455,23 @@ export class GasCityAdapter {
     target: string
     title: string
     variables: Readonly<Record<string, string>>
+    requestId?: string
   }): Promise<RunCorrelation> {
     const startingEventSeq = await this.#currentEventSeq()
 
-    const raw = await this.#client.post(`/city/${this.#cityName}/sling`, {
-      target: request.target,
-      formula: request.formulaName,
-      rig: request.rigName,
-      scope_kind: 'rig',
-      scope_ref: request.rigName,
-      title: request.title,
-      vars: request.variables,
-    })
+    const raw = await this.#client.post(
+      `/city/${this.#cityName}/sling`,
+      {
+        target: request.target,
+        formula: request.formulaName,
+        rig: request.rigName,
+        scope_kind: 'rig',
+        scope_ref: request.rigName,
+        title: request.title,
+        vars: request.variables,
+      },
+      { idempotencyKey: request.requestId },
+    )
 
     const result = slingResultSchema.parse(raw)
     const formulaHash = await this.#formulaHashFor(result.workflow_id)

@@ -1,19 +1,17 @@
 [pack]
 name = "factoru-default"
-version = "0.1.0"
+version = "0.2.2"
 schema = 2
 
-# Milestone 1 provisional pack.
+# Factoru's versioned default orchestration pack.
 #
-# This pack exists to prove the Gas City dependency, not to define Factoru's
-# production behaviour. It declares the four intended agent roles and one tiny
-# implement-then-independent-review formula. Queue and task semantics are
-# deliberately absent: they are Factoru product concepts and arrive with the
-# task model in Milestone 4.
+# Milestone 4 adds the production Queue reconciliation formula and authenticated
+# role-scoped Factoru task tools while retaining the earlier probes as pinned
+# operational evidence.
 #
 # Agent role names are stable because Factoru's adapter routes to them, but
-# their prompts, tool policy, and model bindings are expected to change once
-# the Worker Type contract is promoted in Milestone 3.
+# their provider/model bindings are projected from Factoru Worker Types into
+# the dedicated city's validated deployment configuration.
 
 # Every agent that executes a Formula v2 step must include Gas City's
 # `gc-role-worker` prompt fragment. The Milestone 1 gate proved why: an agent

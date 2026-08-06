@@ -1,0 +1,35 @@
+description = """
+Milestone 3 Project Manager planner-isolation probe. It routes one bounded,
+durable step to the rig-scoped planner agent while the per-project named chat
+session remains available. It deliberately does not read or mutate Factoru
+tasks; production queue reconciliation is introduced with the task model in
+Milestone 4.
+"""
+formula = "factoru-planner-probe"
+version = 2
+contract = "graph.v2"
+target_required = false
+
+[catalog]
+name = "factoru-planner-probe"
+description = "Verify durable Project Manager planning without blocking chat."
+
+[vars.project_id]
+description = "Stable Factoru project identity used only for correlation."
+required = true
+
+[vars.planner_target]
+description = "Rig-scoped Project Manager planner agent binding."
+default = "factoru.project-manager-planner"
+
+[[steps]]
+id = "planner-probe"
+title = "Verify isolated planning for {{project_id}}"
+metadata = { "gc.run_target" = "{{planner_target}}" }
+description = """
+This is a bounded runtime probe for Factoru project {{project_id}}.
+
+Confirm that you are the Project Manager planning identity, state that you do
+not share the chat session's context window, and close this work item using the
+Gas City worker protocol. Do not create, update, or schedule Factoru tasks.
+"""

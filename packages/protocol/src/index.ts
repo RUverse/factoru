@@ -53,3 +53,7 @@ export {
   type RequestOptions,
   type HandshakeOutcome,
 } from './client.js'
+
+export * from './milestone2.js'
+export * from './milestone3.js'
+export * from './milestone4.js'

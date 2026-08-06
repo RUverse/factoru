@@ -14,6 +14,7 @@ import {
   findFreePortBlock,
   portBaseFor,
   portsFor,
+  processEnvForDevelopment,
   readAllocatedPortBase,
   worktreeIdFor,
   writeAllocatedPortBase,
@@ -56,6 +57,8 @@ describe('worktree development environment', () => {
     const env = devEnvFor('/Users/dev/factoru')
     assert.equal(env.dataDir, path.join('/Users/dev/factoru', DEV_STATE_DIRNAME, env.worktreeId))
     assert.equal(env.env.FACTORU_DATA_DIR, env.dataDir)
+    assert.equal(env.env.FACTORU_LOCAL_ENROLLMENT_FILE, env.localEnrollmentFile)
+    assert.equal(env.env.FACTORU_PACK_PATH, '/Users/dev/factoru/packs/factoru-default')
   })
 
   it('allocates four consecutive ports inside the reserved range', () => {
@@ -80,6 +83,22 @@ describe('worktree development environment', () => {
 
   it('requires an absolute worktree path', () => {
     assert.throws(() => worktreeIdFor('relative/path'), /absolute path/)
+  })
+
+  it('allows disposable repository roots without overriding worktree identity or state', () => {
+    const dev = devEnvFor('/Users/dev/factoru')
+    const merged = processEnvForDevelopment(dev.env, {
+      FACTORU_DATA_DIR: '/unsafe/shared-state',
+      FACTORU_PACK_PATH: '/unsafe/pack',
+      FACTORU_PORT: '9999',
+      FACTORU_LOCAL_ENROLLMENT_FILE: '/unsafe/local-enrollment.json',
+      FACTORU_REPOSITORY_ROOTS: '["/tmp/disposable-repositories"]',
+    })
+    assert.equal(merged.FACTORU_DATA_DIR, dev.dataDir)
+    assert.equal(merged.FACTORU_PACK_PATH, dev.env.FACTORU_PACK_PATH)
+    assert.equal(merged.FACTORU_PORT, String(dev.serverPort))
+    assert.equal(merged.FACTORU_LOCAL_ENROLLMENT_FILE, dev.localEnrollmentFile)
+    assert.equal(merged.FACTORU_REPOSITORY_ROOTS, '["/tmp/disposable-repositories"]')
   })
 })
 

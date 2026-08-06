@@ -7,14 +7,16 @@ durable state. **Factoru Desktop** is an unprivileged Electron client that
 connects to it. See [docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the living system map.
 
-> **Status: Milestone 0 — walking skeleton.** The desktop connects to a local
-> server and displays its health and version through shared, runtime-validated
-> protocol types. There are no projects, conversations, tasks, or agents yet.
+> **Status: Milestones 0–4 implemented.** The development app includes durable
+> projects, persistent Project Manager chat, Worker/model/memory controls, the
+> four-state task board, and serialized Queue reconciliation. Provider-backed
+> operator acceptance, remote HTTPS, and the Milestone 5 delivery loop remain.
 
 ## Requirements
 
 - Node.js 22.12 or newer
 - pnpm 11 (`corepack enable pnpm`, or install it however you manage Node tools)
+- Gas City 1.4.x and its dependencies for project/chat/Queue testing
 
 ## Getting started
 
@@ -28,8 +30,33 @@ Run both applications against this worktree's isolated development state:
 pnpm dev
 ```
 
-The server and the Electron window start together, the desktop points at the
-local server, and the window shows the connection state. Individually:
+The server and the Electron window start together. Its URL and isolated state
+directory are printed in the terminal. Generate a pairing code in another
+terminal with:
+
+```bash
+pnpm dev:pair
+```
+
+For a fresh development state, explicitly initialize its dedicated Gas City
+city with the provider harnesses you want to test. Nothing is chosen silently:
+
+```bash
+pnpm dev:city --provider codex
+```
+
+Select several providers and one default when needed:
+
+```bash
+pnpm dev:city --provider claude --provider codex --default-provider codex
+```
+
+The command pins the local `factoru-default` pack, installs its imports, and
+registers the city without automatically restarting a drifting machine-wide
+supervisor. The selected harnesses must already be authenticated.
+
+Enter the printed development server URL and pairing code in the desktop.
+Individually:
 
 ```bash
 pnpm dev:server
@@ -41,6 +68,20 @@ pnpm dev:desktop
 
 `pnpm dev:desktop` expects a server already listening on this worktree's derived
 port.
+
+For project-creation testing, prefer a clean disposable Git repository because
+Gas City rig registration intentionally creates Beads metadata and may commit it
+in the selected repository. Point the development server at a containing folder
+instead of this source worktree:
+
+```bash
+FACTORU_REPOSITORY_ROOTS='["/absolute/path/to/disposable-repositories"]' pnpm dev
+```
+
+After pairing, add the disposable repository, open Tasks, capture a Backlog
+card, move it to Queue, and observe the planning phase badge. Queue planning and
+Project Manager chat additionally require the chosen provider harness to be
+authenticated.
 
 ## Per-worktree development state
 
@@ -81,14 +122,17 @@ apps/desktop       Electron main, preload, and renderer
 apps/server        API, application services, orchestration
 packages/protocol  Versioned wire schemas, compatibility rules, typed client
 packages/domain    Framework-independent entities, value objects, and rules
+packages/database  SQLite migrations and persistence adapters
+packages/gas-city  Factoru-owned Gas City integration
 packages/config    Shared TypeScript configuration
 scripts/           Development harness and per-worktree environment
 docs/              Roadmap, architecture, and decision records
 ```
 
-`packages/database`, `packages/gas-city`, `packages/ui`, `packs/`, and
-`templates/` are placeholders. Each contains a README naming the milestone that
-introduces it; none of them ship code yet.
+`packages/ui` provides the visual tokens used by the renderer. `templates/`
+contains the built-in Software Project Factory Template, and
+`packs/factoru-default` contains the versioned Project Manager and Software
+Engineer roles plus the production Queue reconciliation Formula.
 
 ## Working in this repository
 

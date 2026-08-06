@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoru.local/schemas/factory-template.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "name", "pack", "factory", "workerTypes"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "const": "software-project" },
+    "version": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "pack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "lock"],
+      "properties": {
+        "id": { "const": "factoru-default" },
+        "lock": { "type": "string", "minLength": 1 }
+      }
+    },
+    "factory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxParallelImplementationWorkers"],
+      "properties": { "maxParallelImplementationWorkers": { "const": 1 } }
+    },
+    "workerTypes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_manager", "software_engineer"],
+      "properties": {
+        "project_manager": { "$ref": "#/$defs/worker" },
+        "software_engineer": { "$ref": "#/$defs/worker" }
+      }
+    }
+  },
+  "$defs": {
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelSlots", "defaultFormula", "memoryPolicy"],
+      "properties": {
+        "modelSlots": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+        "defaultFormula": { "type": "string", "minLength": 1 },
+        "memoryPolicy": { "const": "provenance_required" }
+      }
+    }
+  }
+}
