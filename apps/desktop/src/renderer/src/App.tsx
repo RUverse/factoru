@@ -314,12 +314,43 @@ export function App() {
                   {busy ? 'Connecting…' : 'Connect on this device'}
                 </button>
               </form>
+            </>
+          ) : (
+            <>
+              <form className="form-stack" onSubmit={pair}>
+                <label>
+                  Server address
+                  <input
+                    name="url"
+                    type="url"
+                    required
+                    value={serverUrl}
+                    onChange={(event) => setServerUrl(event.target.value)}
+                  />
+                </label>
+                <label>
+                  One-time pairing code
+                  <input
+                    name="code"
+                    required
+                    pattern="[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}"
+                    placeholder="ABCD-EFGH-JKMN"
+                  />
+                </label>
+                <label>
+                  Device name
+                  <input name="deviceName" required defaultValue="My Mac" />
+                </label>
+                <button className="primary" disabled={busy}>
+                  {busy ? 'Connecting…' : 'Pair and connect'}
+                </button>
+              </form>
               <details className="server-install" open>
-                <summary>Install or start Factoru Server</summary>
+                <summary>Install Factoru Server on the remote machine</summary>
                 <p className="muted">
                   Developer preview for macOS and Linux. In the Factoru repository, run:
                 </p>
-                <pre aria-label="Local server setup commands">
+                <pre aria-label="Remote server setup commands">
                   <code>pnpm install{`\n`}pnpm dev:server</code>
                 </pre>
                 <p className="install-note">
@@ -327,35 +358,6 @@ export function App() {
                 </p>
               </details>
             </>
-          ) : (
-            <form className="form-stack" onSubmit={pair}>
-              <label>
-                Server address
-                <input
-                  name="url"
-                  type="url"
-                  required
-                  value={serverUrl}
-                  onChange={(event) => setServerUrl(event.target.value)}
-                />
-              </label>
-              <label>
-                One-time pairing code
-                <input
-                  name="code"
-                  required
-                  pattern="[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}"
-                  placeholder="ABCD-EFGH-JKMN"
-                />
-              </label>
-              <label>
-                Device name
-                <input name="deviceName" required defaultValue="My Mac" />
-              </label>
-              <button className="primary" disabled={busy}>
-                {busy ? 'Connecting…' : 'Pair and connect'}
-              </button>
-            </form>
           )}
           {snapshot.profiles.length > 0 && (
             <button type="button" onClick={() => setShowPairing(false)}>
