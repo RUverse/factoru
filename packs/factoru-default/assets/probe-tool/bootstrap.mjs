@@ -2,30 +2,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { discoverFactoruServerUrl } from './server-url.mjs'
 
 const workdir = path.resolve(process.argv[2] ?? process.cwd())
-function discoverServerUrl() {
-  if (process.env.FACTORU_SERVER_URL) return process.env.FACTORU_SERVER_URL
-  const developmentRoot = path.join(workdir, '.factoru-dev')
-  try {
-    const allocations = fs
-      .readdirSync(developmentRoot)
-      .map((name) => path.join(developmentRoot, name, 'dev-ports.json'))
-      .filter((file) => fs.existsSync(file))
-    if (allocations.length === 1) {
-      const port = JSON.parse(fs.readFileSync(allocations[0], 'utf8')).portBase
-      if (Number.isInteger(port) && port > 0 && port <= 65535) {
-        return `http://127.0.0.1:${port}`
-      }
-    }
-  } catch {
-    // Production uses the stable loopback default. An invalid development
-    // allocation must not be guessed or broadened into a port scan.
-  }
-  return 'http://127.0.0.1:8787'
-}
-
-const serverUrl = discoverServerUrl().replace(/\/+$/, '')
+const serverUrl = discoverFactoruServerUrl({ workdir })
 const rigName = process.env.GC_RIG
 const agentName = process.env.GC_AGENT ?? process.env.GC_TEMPLATE
 const sessionId = process.env.GC_SESSION_ID ?? process.env.GC_SESSION_NAME

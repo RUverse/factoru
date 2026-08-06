@@ -29,6 +29,7 @@ export interface ProjectRuntimeConfigurator {
 
 export interface GasCityProjectConfiguratorOptions {
   cityPath: string
+  factoruServerUrl: string
   projectManagerPromptPath: string
   executor: CommandExecutor
 }
@@ -84,6 +85,59 @@ function atomicWriteIfChanged(file: string, content: string): boolean {
   fs.writeFileSync(temporary, content, { mode: stat.mode & 0o777 })
   fs.renameSync(temporary, file)
   return true
+}
+
+function atomicWritePrivateFileIfChanged(file: string, content: string): boolean {
+  if (fs.existsSync(file)) {
+    const stat = fs.lstatSync(file)
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new GasCityError(`Refusing to replace non-regular runtime file ${file}`, {
+        kind: 'invalid_request',
+      })
+    }
+    if (fs.readFileSync(file, 'utf8') === content && (stat.mode & 0o777) === 0o600) {
+      return false
+    }
+  }
+  const temporary = `${file}.factoru-${process.pid}.tmp`
+  try {
+    fs.writeFileSync(temporary, content, { mode: 0o600, flag: 'wx' })
+    fs.renameSync(temporary, file)
+  } catch (cause) {
+    try {
+      fs.unlinkSync(temporary)
+    } catch {
+      // The temporary may not have been created or may already have been renamed.
+    }
+    throw cause
+  }
+  return true
+}
+
+function normalizeLoopbackServerUrl(rawUrl: string): string {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    throw new GasCityError(`Invalid Factoru Server URL: ${rawUrl}`, {
+      kind: 'invalid_request',
+    })
+  }
+  const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]'])
+  if (
+    url.protocol !== 'http:' ||
+    !loopbackHosts.has(url.hostname) ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
+    throw new GasCityError('Factoru agent tools require a bare HTTP loopback server URL', {
+      kind: 'invalid_request',
+    })
+  }
+  return url.origin
 }
 
 function bindingLines(binding: ProjectAgentBinding): string[] {
@@ -158,6 +212,7 @@ function updateRigBlock(source: string, project: ProjectRuntimeConfiguration): s
  */
 export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
   readonly #cityPath: string
+  readonly #factoruServerUrl: string
   readonly #promptPath: string
   readonly #executor: CommandExecutor
 
@@ -168,6 +223,7 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
       })
     }
     this.#cityPath = options.cityPath
+    this.#factoruServerUrl = normalizeLoopbackServerUrl(options.factoruServerUrl)
     this.#promptPath = options.projectManagerPromptPath
     this.#executor = options.executor
   }
@@ -189,8 +245,22 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
     const packFile = path.join(this.#cityPath, 'pack.toml')
     const cityFile = path.join(this.#cityPath, 'city.toml')
     const agentsDirectory = path.join(this.#cityPath, 'agents')
+    const runtimeDirectory = path.join(this.#cityPath, '.gc')
+    if (fs.existsSync(runtimeDirectory)) {
+      const runtimeStat = fs.lstatSync(runtimeDirectory)
+      if (!runtimeStat.isDirectory() || runtimeStat.isSymbolicLink()) {
+        throw new GasCityError(`Refusing to traverse runtime directory ${runtimeDirectory}`, {
+          kind: 'invalid_request',
+        })
+      }
+    } else {
+      fs.mkdirSync(runtimeDirectory, { mode: 0o700 })
+    }
     const prompt = fs.readFileSync(this.#promptPath, 'utf8')
-    let changed = false
+    let changed = atomicWritePrivateFileIfChanged(
+      path.join(runtimeDirectory, 'factoru-server.json'),
+      `${JSON.stringify({ version: 1, serverUrl: this.#factoruServerUrl }, null, 2)}\n`,
+    )
 
     for (const project of projects) {
       const directory = path.join(agentsDirectory, project.chatAgentName)

@@ -92,6 +92,7 @@ async function main(): Promise<void> {
     gasCity,
     new GasCityProjectConfigurator({
       cityPath: config.gasCityPath,
+      factoruServerUrl: `http://${config.host.includes(':') ? `[${config.host}]` : config.host}:${config.port}`,
       projectManagerPromptPath: path.join(
         config.factoruPackPath,
         'agents/project-manager-chat/prompt.template.md',

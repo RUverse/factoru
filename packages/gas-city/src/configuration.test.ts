@@ -24,8 +24,10 @@ function fixture() {
     root,
     prompt,
     run,
+    executor,
     configurator: new GasCityProjectConfigurator({
       cityPath: root,
+      factoruServerUrl: 'http://127.0.0.1:8787',
       projectManagerPromptPath: prompt,
       executor,
     }),
@@ -64,6 +66,10 @@ describe('GasCityProjectConfigurator', () => {
     expect(city).toContain('agent = "project-manager-planner"')
     expect(city).toContain('agent = "software-reviewer"')
     expect(run).toHaveBeenCalledWith('gc', ['reload', '--city', root])
+    expect(fs.readFileSync(path.join(root, '.gc/factoru-server.json'), 'utf8')).toBe(
+      '{\n  "version": 1,\n  "serverUrl": "http://127.0.0.1:8787"\n}\n',
+    )
+    expect(fs.statSync(path.join(root, '.gc/factoru-server.json')).mode & 0o777).toBe(0o600)
   })
 
   it('is byte-idempotent and does not reload unchanged configuration', async () => {
@@ -84,5 +90,28 @@ describe('GasCityProjectConfigurator', () => {
     await expect(
       configurator.reconcile([{ ...project, chatAgentName: '../escape' }]),
     ).rejects.toThrow(/Invalid chat agent name/)
+  })
+
+  it('rejects non-loopback agent-tool endpoints and runtime symlinks', async () => {
+    const { root, prompt, executor } = fixture()
+    expect(
+      () =>
+        new GasCityProjectConfigurator({
+          cityPath: root,
+          factoruServerUrl: 'https://factoru.example.com',
+          projectManagerPromptPath: prompt,
+          executor,
+        }),
+    ).toThrow(/bare HTTP loopback/)
+
+    fs.symlinkSync(path.join(root, 'agents'), path.join(root, '.gc'))
+    await expect(
+      new GasCityProjectConfigurator({
+        cityPath: root,
+        factoruServerUrl: 'http://localhost:8787',
+        projectManagerPromptPath: prompt,
+        executor,
+      }).reconcile([project]),
+    ).rejects.toThrow(/Refusing to traverse runtime directory/)
   })
 })
