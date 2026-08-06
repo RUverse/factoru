@@ -72,6 +72,67 @@ function replaceManagedBlock(source: string, begin: string, end: string, body: s
   return `${source.slice(0, start)}${block}${source.slice(finish + end.length)}`
 }
 
+function removeManagedBlock(source: string, begin: string, end: string): string {
+  const start = source.indexOf(begin)
+  const finish = source.indexOf(end)
+  if (start >= 0 !== finish >= 0 || (start >= 0 && finish < start)) {
+    throw new GasCityError(`Gas City config has a malformed ${begin} block`, {
+      kind: 'invalid_request',
+    })
+  }
+  if (start < 0) return source
+  const prefix = source.slice(0, start).trimEnd()
+  const suffix = source.slice(finish + end.length).trimStart()
+  return suffix ? `${prefix}\n\n${suffix}` : `${prefix}\n`
+}
+
+function isFactoruChatSession(block: readonly string[]): boolean {
+  const templateLine = block.find((line) => /^\s*template\s*=/.test(line))
+  if (!templateLine) return false
+  const match = /^\s*template\s*=\s*("(?:[^"\\]|\\.)*")\s*$/.exec(templateLine)
+  if (!match) return false
+  try {
+    return /^project-manager-chat-[0-9a-f]{12}$/.test(JSON.parse(match[1]!) as string)
+  } catch {
+    return false
+  }
+}
+
+function removeGeneratedChatSessions(source: string): string {
+  const lines = source.split(/(?<=\n)/)
+  const kept: string[] = []
+  for (let index = 0; index < lines.length;) {
+    if (lines[index]!.trim() !== '[[named_session]]') {
+      kept.push(lines[index]!)
+      index += 1
+      continue
+    }
+    let finish = index + 1
+    while (finish < lines.length && !/^\s*\[/.test(lines[finish]!)) {
+      const line = lines[finish]!
+      finish += 1
+      if (line.trim() === '') break
+    }
+    const block = lines.slice(index, finish)
+    if (!isFactoruChatSession(block)) kept.push(...block)
+    index = finish
+  }
+  return kept.join('').trimEnd() + '\n'
+}
+
+function reconciledSessionSource(
+  source: string,
+  projects: readonly ProjectRuntimeConfiguration[],
+): string {
+  const withoutManagedBlock = removeManagedBlock(source, SESSIONS_BEGIN, SESSIONS_END)
+  return replaceManagedBlock(
+    removeGeneratedChatSessions(withoutManagedBlock),
+    SESSIONS_BEGIN,
+    SESSIONS_END,
+    sessionBlocks(projects),
+  )
+}
+
 function atomicWriteIfChanged(file: string, content: string): boolean {
   const current = fs.readFileSync(file, 'utf8')
   if (current === content) return false
@@ -285,11 +346,7 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
     }
 
     const pack = fs.readFileSync(packFile, 'utf8')
-    changed =
-      atomicWriteIfChanged(
-        packFile,
-        replaceManagedBlock(pack, SESSIONS_BEGIN, SESSIONS_END, sessionBlocks(projects)),
-      ) || changed
+    changed = atomicWriteIfChanged(packFile, reconciledSessionSource(pack, projects)) || changed
 
     let city = fs.readFileSync(cityFile, 'utf8')
     for (const project of projects) city = updateRigBlock(city, project)

@@ -744,7 +744,8 @@ root-pack `mode="always"` named session for it. The portable chat definition is
 the versioned prompt/policy source, not the live rig target. The planner has
 `max_active_sessions=1`; implementer and reviewer templates are on-demand pools.
 Factoru applies project model choices through bounded root-pack/city managed
-blocks and reloads only after a byte change
+blocks, structurally adopts generated chat sessions normalized outside those
+markers by Gas City import installation, and reloads only after a byte change
 ([ADR 0012](./adr/0012-project-manager-runtime-identities.md)).
 
 Do not configure a pool minimum on the chat template. Gas City treats an

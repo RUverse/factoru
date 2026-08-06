@@ -33,8 +33,10 @@ Factoru-managed regions of its dedicated city's configuration:
 - chat and planning keep separate Gas City identities even though the desktop
   groups them into one Project Manager Worker Type;
 - Factoru writes only its marked regions and generated chat-agent directory,
-  preserves unrelated city configuration, writes atomically, refuses symlink
-  traversal, and reloads only after a byte change;
+  structurally adopts its deterministic chat sessions if Gas City's import
+  installer normalizes them outside the comment markers, preserves unrelated
+  city configuration, writes atomically, refuses symlink traversal, and reloads
+  only after a byte change;
 - Factoru SQLite remains authoritative for Worker Type/model intent. The city
   files are a recoverable desired-runtime projection.
 
@@ -56,13 +58,19 @@ validated as data and translated to Gas City fields only inside
   arguments by Factoru.
 - Gas City upgrades must re-run the configuration smoke test because named
   session and patch schemas are dependency contracts.
+- Import installation may serialize a marked named session as a normal TOML
+  table while retaining the original comment-delimited text. Reconciliation
+  removes every structurally recognized Factoru chat-session duplicate before
+  writing one canonical managed region, so restart and pack upgrades do not
+  create duplicate identities.
 
 ## Evidence
 
 The generated configuration resolves under Gas City 1.4.0 with a distinct
 city-scoped chat agent and a rig-scoped planner/provider patch. Unit tests cover
-byte-idempotency, malformed managed blocks, unsafe identities, and reload
-suppression. The earlier Milestone 1 external-message probe demonstrated why a
+byte-idempotency, post-import structural adoption, malformed managed blocks,
+unsafe identities, and reload suppression. The earlier Milestone 1
+external-message probe demonstrated why a
 rig-scoped chat target is invalid and why a city-scoped named identity is
 required.
 

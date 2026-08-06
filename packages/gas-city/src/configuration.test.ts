@@ -83,6 +83,26 @@ describe('GasCityProjectConfigurator', () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
+  it('adopts chat sessions normalized outside its markers by Gas City import install', async () => {
+    const { root, run, configurator } = fixture()
+    await configurator.reconcile([project])
+    const packFile = path.join(root, 'pack.toml')
+    const managed = fs.readFileSync(packFile, 'utf8')
+    fs.writeFileSync(
+      packFile,
+      managed.replace(
+        '# factoru-managed project sessions: begin',
+        '[[named_session]]\n  template = "project-manager-chat-111111111111"\n  mode = "always"\n\n# factoru-managed project sessions: begin',
+      ),
+    )
+
+    expect(await configurator.reconcile([project])).toBe(true)
+    const repaired = fs.readFileSync(packFile, 'utf8')
+    expect(repaired.match(/template = "project-manager-chat-111111111111"/g)).toHaveLength(1)
+    expect(await configurator.reconcile([project])).toBe(false)
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
   it('refuses malformed managed blocks and unsafe identities', async () => {
     const { root, configurator } = fixture()
     fs.appendFileSync(path.join(root, 'pack.toml'), '\n# factoru-managed project sessions: begin\n')
