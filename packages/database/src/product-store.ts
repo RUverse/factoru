@@ -68,6 +68,20 @@ export interface MemoryEntryRecord {
   createdAt: string
 }
 
+export interface PlannerProbeRecord {
+  id: string
+  projectId: string
+  status: 'pending' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
+  runId: string | null
+  workflowRootBeadId: string | null
+  formulaHash: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  requestedAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
 interface WorkerRow {
   project_id: string
   kind: WorkerTypeKind
@@ -129,6 +143,20 @@ interface MemoryRow {
   version: number
   supersedes_id: string | null
   created_at: string
+}
+
+interface PlannerRow {
+  id: string
+  project_id: string
+  status: PlannerProbeRecord['status']
+  run_id: string | null
+  workflow_root_bead_id: string | null
+  formula_hash: string | null
+  error_code: string | null
+  error_message: string | null
+  requested_at: string
+  started_at: string | null
+  finished_at: string | null
 }
 
 export function initializeProjectProductModel(
@@ -240,6 +268,22 @@ function memoryFromRow(row: MemoryRow): MemoryEntryRecord {
     version: row.version,
     supersedesId: row.supersedes_id,
     createdAt: row.created_at,
+  }
+}
+
+function plannerFromRow(row: PlannerRow): PlannerProbeRecord {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    status: row.status,
+    runId: row.run_id,
+    workflowRootBeadId: row.workflow_root_bead_id,
+    formulaHash: row.formula_hash,
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    requestedAt: row.requested_at,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
   }
 }
 
@@ -357,6 +401,12 @@ export class ProductStore {
     return row ? conversationFromRow(row) : null
   }
 
+  getConversationById(id: string): ConversationRecord | null {
+    const row = this.#db.prepare('SELECT * FROM conversations WHERE id = ?').get(id) as
+      ConversationRow | undefined
+    return row ? conversationFromRow(row) : null
+  }
+
   listMessages(conversationId: string, limit = 200): ConversationMessageRecord[] {
     return (
       this.#db
@@ -379,22 +429,199 @@ export class ProductStore {
     if (!normalized) throw new Error('empty_message')
     const now = this.#now().toISOString()
     const id = `msg_${randomUUID().replaceAll('-', '')}`
-    this.#db
-      .prepare(
-        `INSERT INTO conversation_messages(
-           id, conversation_id, role, text, author_display_name, delivery_state, created_at
-         ) VALUES (?, ?, 'user', ?, ?, 'pending', ?)`,
+    return this.#db.transaction(() => {
+      this.#db
+        .prepare(
+          `INSERT INTO conversation_messages(
+             id, conversation_id, role, text, author_display_name, delivery_state, created_at
+           ) VALUES (?, ?, 'user', ?, ?, 'pending', ?)`,
+        )
+        .run(id, conversationId, normalized, authorDisplayName, now)
+      this.#db
+        .prepare(
+          `INSERT INTO outbox_items(
+             id, kind, aggregate_id, payload_json, status, available_at, created_at, updated_at
+           ) VALUES (?, 'conversation.deliver', ?, ?, 'pending', ?, ?, ?)`,
+        )
+        .run(randomUUID(), id, JSON.stringify({ conversationId, messageId: id }), now, now, now)
+      const conversation = this.#db
+        .prepare('SELECT project_id FROM conversations WHERE id = ?')
+        .get(conversationId) as { project_id: string } | undefined
+      if (!conversation) throw new Error('conversation_not_found')
+      this.#appendEvent('conversation.message_added', 'conversation', conversation.project_id, 1, {
+        conversationId,
+        messageId: id,
+        role: 'user',
+      })
+      return messageFromRow(
+        this.#db.prepare('SELECT * FROM conversation_messages WHERE id = ?').get(id) as MessageRow,
       )
-      .run(id, conversationId, normalized, authorDisplayName, now)
-    return messageFromRow(
-      this.#db.prepare('SELECT * FROM conversation_messages WHERE id = ?').get(id) as MessageRow,
-    )
+    })()
+  }
+
+  markMessageFailed(messageId: string, code: string, message: string): void {
+    this.#db.transaction(() => {
+      const row = this.#db
+        .prepare(
+          `SELECT m.conversation_id, c.project_id FROM conversation_messages m
+           JOIN conversations c ON c.id = m.conversation_id WHERE m.id = ?`,
+        )
+        .get(messageId) as { conversation_id: string; project_id: string } | undefined
+      if (!row) throw new Error('message_not_found')
+      this.#db
+        .prepare("UPDATE conversation_messages SET delivery_state = 'failed' WHERE id = ?")
+        .run(messageId)
+      this.setConversationStatus(row.conversation_id, 'needs_attention', code, message)
+      this.#appendEvent('conversation.message_failed', 'conversation', row.project_id, 1, {
+        conversationId: row.conversation_id,
+        messageId,
+        code,
+      })
+    })()
+  }
+
+  claimConversationDeliveries(
+    limit = 20,
+  ): Array<{ outboxId: string; message: ConversationMessageRecord; attemptCount: number }> {
+    return this.#db.transaction(() => {
+      const now = this.#now()
+      const rows = this.#db
+        .prepare(
+          `SELECT o.id AS outbox_id, o.aggregate_id, o.attempt_count
+           FROM outbox_items o
+           JOIN conversation_messages m ON m.id = o.aggregate_id
+           WHERE o.kind = 'conversation.deliver'
+             AND o.status IN ('pending', 'processing') AND o.available_at <= ?
+             AND (o.lease_expires_at IS NULL OR o.lease_expires_at <= ?)
+           ORDER BY o.created_at LIMIT ?`,
+        )
+        .all(now.toISOString(), now.toISOString(), limit) as Array<{
+        outbox_id: string
+        aggregate_id: string
+        attempt_count: number
+      }>
+      const lease = new Date(now.getTime() + 30_000).toISOString()
+      return rows.map((row) => {
+        this.#db
+          .prepare(
+            `UPDATE outbox_items SET status = 'processing', lease_expires_at = ?,
+               attempt_count = attempt_count + 1, updated_at = ? WHERE id = ?`,
+          )
+          .run(lease, now.toISOString(), row.outbox_id)
+        const message = this.#db
+          .prepare('SELECT * FROM conversation_messages WHERE id = ?')
+          .get(row.aggregate_id) as MessageRow
+        return {
+          outboxId: row.outbox_id,
+          message: messageFromRow(message),
+          attemptCount: row.attempt_count + 1,
+        }
+      })
+    })()
+  }
+
+  completeConversationDelivery(outboxId: string, messageId: string): void {
+    this.#db.transaction(() => {
+      const now = this.#now().toISOString()
+      const message = this.#db
+        .prepare(
+          `SELECT m.conversation_id, c.project_id FROM conversation_messages m
+           JOIN conversations c ON c.id = m.conversation_id WHERE m.id = ?`,
+        )
+        .get(messageId) as { conversation_id: string; project_id: string } | undefined
+      if (!message) throw new Error('message_not_found')
+      this.#db
+        .prepare("UPDATE conversation_messages SET delivery_state = 'delivered' WHERE id = ?")
+        .run(messageId)
+      this.#db
+        .prepare(
+          `UPDATE outbox_items SET status = 'completed', lease_expires_at = NULL,
+             updated_at = ? WHERE id = ?`,
+        )
+        .run(now, outboxId)
+      this.#appendEvent('conversation.message_delivered', 'conversation', message.project_id, 1, {
+        conversationId: message.conversation_id,
+        messageId,
+      })
+    })()
+  }
+
+  failConversationDelivery(
+    outboxId: string,
+    messageId: string,
+    attemptCount: number,
+    code: string,
+    message: string,
+  ): void {
+    const now = this.#now()
+    if (attemptCount < 6) {
+      const delays = [1, 5, 30, 120, 600, 1_800]
+      const availableAt = new Date(now.getTime() + delays[attemptCount - 1]! * 1_000).toISOString()
+      this.#db
+        .prepare(
+          `UPDATE outbox_items SET status = 'pending', available_at = ?, lease_expires_at = NULL,
+             last_error = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(availableAt, message, now.toISOString(), outboxId)
+      return
+    }
+    this.#db.transaction(() => {
+      this.#db
+        .prepare(
+          `UPDATE outbox_items SET status = 'failed', lease_expires_at = NULL,
+             last_error = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(message, now.toISOString(), outboxId)
+      this.markMessageFailed(messageId, code, message)
+    })()
+  }
+
+  setConversationStatus(
+    conversationId: string,
+    status: ConversationRecord['status'],
+    errorCode: string | null = null,
+    errorMessage: string | null = null,
+  ): void {
+    this.#db.transaction(() => {
+      const current = this.#db
+        .prepare(
+          'SELECT project_id, status, last_error_code, last_error_message FROM conversations WHERE id = ?',
+        )
+        .get(conversationId) as
+        | {
+            project_id: string
+            status: ConversationRecord['status']
+            last_error_code: string | null
+            last_error_message: string | null
+          }
+        | undefined
+      if (!current) throw new Error('conversation_not_found')
+      if (
+        current.status === status &&
+        current.last_error_code === errorCode &&
+        current.last_error_message === errorMessage
+      ) {
+        return
+      }
+      this.#db
+        .prepare(
+          `UPDATE conversations SET status = ?, last_error_code = ?, last_error_message = ?,
+             updated_at = ? WHERE id = ?`,
+        )
+        .run(status, errorCode, errorMessage, this.#now().toISOString(), conversationId)
+      this.#appendEvent('conversation.status_changed', 'conversation', current.project_id, 1, {
+        conversationId,
+        status,
+        errorCode,
+      })
+    })()
   }
 
   storeTranscriptMessage(
     conversationId: string,
     input: {
       sequence: number
+      providerMessageId?: string
       role: 'user' | 'assistant'
       text: string
       authorDisplayName: string
@@ -409,6 +636,34 @@ export class ProductStore {
         )
         .get(conversationId, input.sequence) as MessageRow | undefined
       if (existing) return messageFromRow(existing)
+      if (input.role === 'user' && input.providerMessageId) {
+        const pending = this.#db
+          .prepare(
+            `SELECT * FROM conversation_messages
+             WHERE id = ? AND conversation_id = ? AND role = 'user'`,
+          )
+          .get(input.providerMessageId, conversationId) as MessageRow | undefined
+        if (pending) {
+          this.#db
+            .prepare(
+              `UPDATE conversation_messages SET gas_city_sequence = ?, delivery_state = 'delivered'
+               WHERE id = ?`,
+            )
+            .run(input.sequence, pending.id)
+          this.#advanceConversationCursor(conversationId, input.sequence)
+          const projectId = this.#conversationProjectId(conversationId)
+          this.#appendEvent('conversation.transcript_advanced', 'conversation', projectId, 1, {
+            conversationId,
+            messageId: pending.id,
+            sequence: input.sequence,
+          })
+          return messageFromRow(
+            this.#db
+              .prepare('SELECT * FROM conversation_messages WHERE id = ?')
+              .get(pending.id) as MessageRow,
+          )
+        }
+      }
       const id = `msg_${randomUUID().replaceAll('-', '')}`
       this.#db
         .prepare(
@@ -427,13 +682,14 @@ export class ProductStore {
           input.sequence,
           input.createdAt,
         )
-      this.#db
-        .prepare(
-          `UPDATE conversations SET transcript_cursor = MAX(transcript_cursor, ?),
-             status = 'ready', last_error_code = NULL, last_error_message = NULL, updated_at = ?
-           WHERE id = ?`,
-        )
-        .run(input.sequence, this.#now().toISOString(), conversationId)
+      this.#advanceConversationCursor(conversationId, input.sequence)
+      const projectId = this.#conversationProjectId(conversationId)
+      this.#appendEvent('conversation.message_received', 'conversation', projectId, 1, {
+        conversationId,
+        messageId: id,
+        role: input.role,
+        sequence: input.sequence,
+      })
       return messageFromRow(
         this.#db.prepare('SELECT * FROM conversation_messages WHERE id = ?').get(id) as MessageRow,
       )
@@ -473,16 +729,23 @@ export class ProductStore {
       supersedes_id: input.supersedesId ?? null,
       created_at: this.#now().toISOString(),
     }
-    this.#db
-      .prepare(
-        `INSERT INTO memory_entries(
-           id, project_id, scope, worker_type_kind, content, provenance_kind,
-           provenance_ref, version, supersedes_id, created_at
-         ) VALUES (@id, @project_id, @scope, @worker_type_kind, @content, @provenance_kind,
-           @provenance_ref, @version, @supersedes_id, @created_at)`,
-      )
-      .run(row)
-    return memoryFromRow(row)
+    return this.#db.transaction(() => {
+      this.#db
+        .prepare(
+          `INSERT INTO memory_entries(
+             id, project_id, scope, worker_type_kind, content, provenance_kind,
+             provenance_ref, version, supersedes_id, created_at
+           ) VALUES (@id, @project_id, @scope, @worker_type_kind, @content, @provenance_kind,
+             @provenance_ref, @version, @supersedes_id, @created_at)`,
+        )
+        .run(row)
+      this.#appendEvent('memory.entry_added', 'memory', input.projectId, version, {
+        memoryEntryId: row.id,
+        scope: row.scope,
+        workerTypeKind: row.worker_type_kind,
+      })
+      return memoryFromRow(row)
+    })()
   }
 
   listMemory(projectId: string): MemoryEntryRecord[] {
@@ -491,6 +754,151 @@ export class ProductStore {
         .prepare('SELECT * FROM memory_entries WHERE project_id = ? ORDER BY created_at, id')
         .all(projectId) as MemoryRow[]
     ).map(memoryFromRow)
+  }
+
+  activePlannerProbe(projectId: string): PlannerProbeRecord | null {
+    const row = this.#db
+      .prepare(
+        `SELECT * FROM planner_probes WHERE project_id = ?
+         AND status IN ('pending', 'running', 'cancelling') ORDER BY requested_at DESC LIMIT 1`,
+      )
+      .get(projectId) as PlannerRow | undefined
+    return row ? plannerFromRow(row) : null
+  }
+
+  latestPlannerProbe(projectId: string): PlannerProbeRecord | null {
+    const row = this.#db
+      .prepare(
+        'SELECT * FROM planner_probes WHERE project_id = ? ORDER BY requested_at DESC LIMIT 1',
+      )
+      .get(projectId) as PlannerRow | undefined
+    return row ? plannerFromRow(row) : null
+  }
+
+  createPlannerProbe(projectId: string): PlannerProbeRecord {
+    const active = this.activePlannerProbe(projectId)
+    if (active) return active
+    const row: PlannerRow = {
+      id: `plan_${randomUUID().replaceAll('-', '')}`,
+      project_id: projectId,
+      status: 'pending',
+      run_id: null,
+      workflow_root_bead_id: null,
+      formula_hash: null,
+      error_code: null,
+      error_message: null,
+      requested_at: this.#now().toISOString(),
+      started_at: null,
+      finished_at: null,
+    }
+    return this.#db.transaction(() => {
+      this.#db
+        .prepare(
+          `INSERT INTO planner_probes(
+             id, project_id, status, run_id, workflow_root_bead_id, formula_hash,
+             error_code, error_message, requested_at, started_at, finished_at
+           ) VALUES (@id, @project_id, @status, @run_id, @workflow_root_bead_id, @formula_hash,
+             @error_code, @error_message, @requested_at, @started_at, @finished_at)`,
+        )
+        .run(row)
+      this.#appendEvent('planner.probe_requested', 'planner_probe', projectId, 1, {
+        plannerProbeId: row.id,
+      })
+      return plannerFromRow(row)
+    })()
+  }
+
+  startPlannerProbe(
+    id: string,
+    correlation: { runId: string; workflowRootBeadId: string; formulaHash?: string },
+  ): PlannerProbeRecord {
+    const startedAt = this.#now().toISOString()
+    return this.#db.transaction(() => {
+      const updated = this.#db
+        .prepare(
+          `UPDATE planner_probes SET status = 'running', run_id = ?, workflow_root_bead_id = ?,
+             formula_hash = ?, started_at = ? WHERE id = ? AND status = 'pending'`,
+        )
+        .run(
+          correlation.runId,
+          correlation.workflowRootBeadId,
+          correlation.formulaHash ?? null,
+          startedAt,
+          id,
+        )
+      if (updated.changes !== 1) throw new Error('invalid_planner_probe_state')
+      const result = plannerFromRow(
+        this.#db.prepare('SELECT * FROM planner_probes WHERE id = ?').get(id) as PlannerRow,
+      )
+      this.#appendEvent('planner.probe_started', 'planner_probe', result.projectId, 1, {
+        plannerProbeId: id,
+        runId: correlation.runId,
+      })
+      return result
+    })()
+  }
+
+  requestPlannerCancellation(id: string): PlannerProbeRecord {
+    return this.#db.transaction(() => {
+      const updated = this.#db
+        .prepare(
+          `UPDATE planner_probes SET status = 'cancelling'
+           WHERE id = ? AND status IN ('pending', 'running')`,
+        )
+        .run(id)
+      if (updated.changes !== 1) throw new Error('invalid_planner_probe_state')
+      const result = plannerFromRow(
+        this.#db.prepare('SELECT * FROM planner_probes WHERE id = ?').get(id) as PlannerRow,
+      )
+      this.#appendEvent('planner.probe_cancelling', 'planner_probe', result.projectId, 1, {
+        plannerProbeId: id,
+      })
+      return result
+    })()
+  }
+
+  finishPlannerProbe(
+    id: string,
+    status: 'completed' | 'failed' | 'cancelled',
+    error?: { code: string; message: string },
+  ): PlannerProbeRecord {
+    const finishedAt = this.#now().toISOString()
+    return this.#db.transaction(() => {
+      const updated = this.#db
+        .prepare(
+          `UPDATE planner_probes SET status = ?, error_code = ?, error_message = ?, finished_at = ?
+           WHERE id = ? AND status IN ('pending', 'running', 'cancelling')`,
+        )
+        .run(status, error?.code ?? null, error?.message ?? null, finishedAt, id)
+      if (updated.changes !== 1) throw new Error('invalid_planner_probe_state')
+      const result = plannerFromRow(
+        this.#db.prepare('SELECT * FROM planner_probes WHERE id = ?').get(id) as PlannerRow,
+      )
+      this.#appendEvent('planner.probe_finished', 'planner_probe', result.projectId, 1, {
+        plannerProbeId: id,
+        status,
+        errorCode: error?.code ?? null,
+      })
+      return result
+    })()
+  }
+
+  #advanceConversationCursor(conversationId: string, sequence: number): void {
+    this.#db
+      .prepare(
+        `UPDATE conversations SET transcript_cursor = MAX(transcript_cursor, ?),
+           status = 'ready', last_error_code = NULL, last_error_message = NULL, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(sequence, this.#now().toISOString(), conversationId)
+  }
+
+  #conversationProjectId(conversationId: string): string {
+    const row = this.#db
+      .prepare('SELECT project_id FROM conversations WHERE id = ?')
+      .get(conversationId) as { project_id: string } | undefined
+    if (!row) throw new Error('conversation_not_found')
+    return row.project_id
   }
 
   #appendEvent(

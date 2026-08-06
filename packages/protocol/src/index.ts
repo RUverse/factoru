@@ -55,3 +55,4 @@ export {
 } from './client.js'
 
 export * from './milestone2.js'
+export * from './milestone3.js'

@@ -29,6 +29,8 @@ describe('server configuration', () => {
       dataDir: '/tmp/factoru-test/worktree',
       databaseFile: '/tmp/factoru-test/worktree/factoru.sqlite',
       gasCityPath: '/tmp/factoru-test/worktree/gas-city',
+      gasCitySupervisorUrl: 'http://127.0.0.1:8372',
+      factoruPackPath: path.resolve('packs/factoru-default'),
       repositoryRoots: [],
       trustLoopbackProxy: false,
       logLevel: 'debug',
@@ -75,6 +77,15 @@ describe('server configuration', () => {
   it('rejects an unknown log level', () => {
     expect(() =>
       loadServerConfig({ FACTORU_DATA_DIR: '/tmp/f', FACTORU_LOG_LEVEL: 'loud' }),
+    ).toThrow(ServerConfigError)
+  })
+
+  it('refuses a non-loopback Gas City control plane', () => {
+    expect(() =>
+      loadServerConfig({
+        FACTORU_DATA_DIR: '/tmp/f',
+        FACTORU_GAS_CITY_SUPERVISOR_URL: 'http://192.168.1.2:8372',
+      }),
     ).toThrow(ServerConfigError)
   })
 

@@ -2,6 +2,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
+import { isLoopbackUrl } from '@factoru/gas-city'
 
 export interface RepositoryRootConfig {
   readonly id: string
@@ -17,6 +18,10 @@ export interface ServerConfig {
   readonly dataDir: string
   readonly databaseFile: string
   readonly gasCityPath: string
+  /** Host-local, unauthenticated Gas City supervisor control plane. */
+  readonly gasCitySupervisorUrl: string
+  /** Versioned Factoru pack source used to project generated chat agents. */
+  readonly factoruPackPath: string
   readonly repositoryRoots: readonly RepositoryRootConfig[]
   readonly trustLoopbackProxy: boolean
   readonly logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
@@ -122,12 +127,25 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     )
   }
 
+  const gasCitySupervisorUrl =
+    env.FACTORU_GAS_CITY_SUPERVISOR_URL?.trim() || 'http://127.0.0.1:8372'
+  if (!isLoopbackUrl(gasCitySupervisorUrl)) {
+    throw new ServerConfigError('FACTORU_GAS_CITY_SUPERVISOR_URL must use a loopback address')
+  }
+  const factoruPackPath =
+    env.FACTORU_PACK_PATH?.trim() || path.resolve(process.cwd(), 'packs/factoru-default')
+  if (!path.isAbsolute(factoruPackPath)) {
+    throw new ServerConfigError(`FACTORU_PACK_PATH must be absolute, got ${factoruPackPath}`)
+  }
+
   return {
     host,
     port: parsePort(env.FACTORU_PORT),
     dataDir,
     databaseFile: path.join(dataDir, 'factoru.sqlite'),
     gasCityPath: env.FACTORU_GAS_CITY_PATH?.trim() || path.join(dataDir, 'gas-city'),
+    gasCitySupervisorUrl,
+    factoruPackPath,
     repositoryRoots: parseRepositoryRoots(env.FACTORU_REPOSITORY_ROOTS),
     trustLoopbackProxy: env.FACTORU_TRUST_PROXY?.trim() === 'loopback',
     logLevel: logLevel as ServerConfig['logLevel'],

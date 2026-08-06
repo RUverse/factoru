@@ -2,7 +2,8 @@
 
 > Document type: living implementation map
 > Last reviewed: 2026-08-06
-> Runtime implementation status: Milestone 3 implementation in progress
+> Runtime implementation status: Milestone 3 application slice implemented;
+> Milestone 4 implementation in progress
 
 This document describes both the architecture Factoru intends to build and the
 parts that actually exist. It must change with the code. Product scope and
@@ -28,19 +29,19 @@ inventory below is authoritative.
 
 | Area | Status | Current reality | Next proof |
 | --- | --- | --- | --- |
-| Monorepo | **Implemented** | pnpm workspace with both applications, protocol/domain/config/database/Gas City packages, pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, and isolated per-worktree state/ports. | Add `packages/ui` and templates only when their milestones connect them. |
-| Factoru Server | **Partial** | Fastify now connects SQLite-backed pairing, trusted devices, authenticated one-time WebSocket tickets, scoped live methods, durable projects, command receipts/events/outbox, and restart reconciliation while remaining loopback-bound. Remote proxy and real Gas City acceptance remain. | Pass the remote-machine and real rig-provisioning exit test. |
-| Shared protocol | **Implemented** | `packages/protocol` owns runtime-validated health/handshake, pairing, ticket, project/repository/device, live request/response/event, cursor snapshot, compatibility, and typed HTTP client schemas. | Extend it with conversations/tasks in later milestones. |
-| Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles and OS-encrypted credentials, owns the authenticated live connection and cached project cursor, and exposes named project/device IPC. The renderer provides pairing, approved-root selection, setup preview/status, offline cache, and revocation. | Exercise the packaged Mac app against a remote HTTPS endpoint. |
-| Gas City adapter | **Partial** | `packages/gas-city` exists and is verified against Gas City 1.4.0: pinned compatibility manifest, readiness reporting, loopback-only supervisor client with Problem Details mapping, durable event cursors, rig-registration safety guard, and run dispatch capturing the resolved formula hash. Raw DTOs stay inside the package. Session lifecycle, cancellation, and restart recovery are not yet exercised. | Complete one workflow through `workflow-finalize` and survive a supervisor restart. |
+| Monorepo | **Implemented** | pnpm workspace with both applications, protocol/domain/config/database/Gas City/UI packages, versioned templates and pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, and isolated per-worktree state/ports. | Add only milestone-owned boundaries as their real paths connect. |
+| Factoru Server | **Partial** | Fastify connects SQLite-backed pairing, trusted devices, authenticated one-time WebSocket tickets, scoped live methods, durable projects/workspaces, idempotent product commands, event/outbox reactors, Project Manager conversation delivery, planner observation/cancellation, and restart reconciliation while remaining loopback-bound. Remote proxy and full operator acceptance remain. | Add Milestone 4 task commands, agent-tool authorization, and Queue reconciliation. |
+| Shared protocol | **Implemented** | `packages/protocol` owns runtime-validated health/handshake, pairing, ticket, project/repository/device/workspace/conversation/Worker-Type, live request/response/event, cursor snapshot, compatibility, and typed HTTP client schemas. | Extend it with task, Queue-phase, dependency, and audit contracts in Milestone 4. |
+| Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles, OS-encrypted credentials, projects, selected workspace, conversations, Workers, and cursors; owns the authenticated live connection; and exposes named IPC. The renderer provides the three-pane Factoru shell, persistent PM chat, Worker/model/memory controls, planner status/cancellation, onboarding, and offline cache. | Replace the task placeholder with the Milestone 4 board and complete packaged Mac acceptance. |
+| Gas City adapter | **Partial** | `packages/gas-city` is verified against Gas City 1.4.0: compatibility/readiness, loopback supervisor client, durable event and external-message cursors, guarded rig registration, run dispatch/observation/cancellation, and an idempotent project-runtime configurator for city-local chat identities plus rig-scoped provider/model patches. Raw DTOs and provider option fields stay inside the package. | Run the production Queue formula and complete restart adoption through the real service path. |
 | Agent-tool bridge | **Partial** | Proven through both harnesses. Factoru installs its own MCP config from `session_setup_script` with an absolute server path and a per-session credential; the pack `mcp/` directory is catalogued by Gas City but never delivered, so it is deliberately unused ([ADR 0010](./adr/0010-agent-tool-transport.md)). The probe exposes fixed development data only. | Replace the locally generated token with one minted by Factoru Server, and build the real role-scoped tool gateway with the task model. |
 | Factoru Gas City pack | **Partial** | `packs/factoru-default` defines the four agent roles and one implement/review probe formula, lints clean under `gc lint`, and is imported into a real city pinned by commit SHA. Its steps route to two distinct agent bindings across a real `needs` edge. No run has reached `workflow-finalize`. | Drive one probe workflow to a terminal state. |
-| Factoru database | **Implemented** | `@factoru/database` uses `better-sqlite3`, WAL/foreign keys/busy handling, forward-only SQL migrations, server identity binding, explicit repositories, transactional receipts/events/outbox, checkpoint, and online backup. Migration 0002 adds and backfills Factory settings, Worker Types/model slots, Project Manager conversations/messages, provenance-aware memory, and serialized planner probes. | Connect the Milestone 3 product tables to the authenticated protocol and real Gas City flows. |
+| Factoru database | **Implemented** | `@factoru/database` uses `better-sqlite3`, WAL/foreign keys/busy handling, forward-only SQL migrations, server identity binding, explicit repositories, transactional generic command receipts/events/outbox, checkpoint, and online backup. Migration 0002 adds and backfills Factory settings, Worker Types/model slots, Project Manager conversations/messages, provenance-aware memory, and serialized planner probes. | Add the Milestone 4 task/dependency/run/audit migration and integration tests. |
 | Authentication and pairing | **Partial** | Hashed one-time pairing codes, hashed revocable owner tokens, method scopes, 60-second one-time connection tickets, rate limiting, active-socket revocation, and OS-encrypted desktop storage are connected and tested. | Validate the HTTPS proxy path on another machine. |
 | Projects | **Partial** | Approved-root browsing, canonical-path uniqueness, branch/index preview fingerprints, durable async setup, rig binding, bounded retry, cursor events, cached desktop projection, and restart reopen exist. The real registrar uses the guarded `gc rig add` sequence. | Provision and recover one real project rig across every involved restart. |
-| Project Manager chat | **Partial** | Every project now receives one deterministic, durable conversation identity plus ordered message/cursor storage. The Gas City delivery reactor and Desktop conversation surface are not connected yet. | Persist and resume a real chat while a durable planner probe runs separately. |
+| Project Manager chat | **Partial** | Every project receives one deterministic conversation and city-local Gas City chat identity. Authenticated desktop sends are persisted before a bounded delivery outbox, transcript replies resume by Gas City sequence, status/errors publish to cached clients, and a separate serialized planner probe can run/cancel without blocking chat. The generated configuration resolves under Gas City 1.4.0; packaged operator acceptance remains. | Complete one persistent live provider conversation through the packaged desktop and restart every process. |
 | Four-state tasks | **Planned** | Manual Backlog capture and Queue-trigger semantics are documented only. | User creates a Backlog item and moving it to Queue triggers idempotent PM triage. |
-| Worker types | **Partial** | The built-in `software-project` Factory Template, fixed Project Manager/Software Engineer contracts, named model slots, tool policies, Formula binding points, provenance-required memory policy, and serial capacity are persisted per project. Authenticated editing and Gas City config projection are not connected yet. | Configure model bindings through Desktop and apply them through the adapter. |
+| Worker types | **Implemented** | The built-in `software-project` Factory Template persists fixed Project Manager/Software Engineer contracts, named model slots, tool policies, Formula binding points, provenance-required versioned memory, and serial capacity. Authenticated Desktop edits project through the server into validated Gas City provider plus `option_defaults.model` bindings. | Add real role-scoped task tools and the Queue reconciliation Formula in Milestone 4. |
 | Internal review | **Planned** | Fixed bounded workflow is documented only. | One implementation passes checks and internal review. |
 | Human review | **Planned** | Needs-you semantics are documented only. | Review a real diff with evidence and choose an outcome. |
 | Task-run capsule | **Planned** | One worktree-level capsule per task run is accepted for the single-task loop; no implementation exists. | Correlate one real Formula run, Gas City worktree, implementer, and reviewer to one capsule identity. |
@@ -132,7 +133,8 @@ flowchart LR
     GC <--> CITY
     CITY <--> GDB
     CITY --> RIG
-    RIG --> PM
+    CITY --> PM
+    RIG -. "Factoru project binding" .-> PM
     RIG --> PLAN
     RIG --> WORKERS
     PM --> TOOLS
@@ -234,15 +236,15 @@ flowchart TD
 
 | Component | Status | Responsibility |
 | --- | --- | --- |
-| `apps/desktop` | **Partial** | Electron main owns profiles, OS-encrypted credentials, authenticated live transport, project cache/cursors, and named IPC; the renderer implements Milestone 2 onboarding and project/device surfaces. Managed local launch and the later product shell remain planned. |
-| `apps/server` | **Partial** | Fastify serves health, handshake, pairing/tickets, scoped live methods, project application services, outbox reconciliation, and live project events. Task/PM services remain planned. |
-| `packages/protocol` | **Implemented** | Runtime-validated compatibility, errors, pairing/ticket, repository/project/device, command/query, snapshot/cursor, and live-event contracts plus typed HTTP client. |
+| `apps/desktop` | **Partial** | Electron main owns profiles, OS-encrypted credentials, authenticated live transport, project/workspace cache and cursors, and named IPC; the renderer implements onboarding plus the project sidebar, PM conversation, Tasks/Workers inspector, model/memory controls, planner probe, reconnect, and offline states. The task board becomes live in Milestone 4; managed local launch remains later. |
+| `apps/server` | **Partial** | Fastify serves health, handshake, pairing/tickets, scoped live methods, project/workspace application services, generic idempotent commands, outbox reconciliation, PM transcript/planner reactors, and live product events. Task and agent-tool services arrive in Milestone 4. |
+| `packages/protocol` | **Implemented** | Runtime-validated compatibility, errors, pairing/ticket, repository/project/device/workspace/conversation/Worker-Type, command/query, snapshot/cursor, and live-event contracts plus typed HTTP client. |
 | `packages/domain` | **Partial** | Server identity, application version, client connection state, and the built-in Worker Type/Factory Template invariants exist. Task entities and transitions arrive in Milestone 4. |
 | `packages/config` | **Implemented** | Shared TypeScript compiler configuration for every workspace package. |
 | `packages/database` | **Implemented** | SQLite connection policy, forward migrations, M2 repositories, transactional event/outbox writes, checkpoint, backup, reopen recovery, and M3 product-model persistence/backfill. |
-| `packages/gas-city` | **Partial** | Factoru-owned orchestration port over Gas City 1.4.0. Compatibility, readiness, supervisor client, event cursors, guarded/idempotent CLI rig registration, conversation delivery, and run dispatch/observation exist; production session lifecycle remains later work. |
-| `packages/ui` | **Planned** | Factoru design tokens and reusable visual primitives; no transport or server logic. |
-| `packs/factoru-default` | **Partial** | Provisional pack: four agent roles and one implement/review probe formula, pinned by commit SHA when imported. Production prompts, tool wiring, and the `queue-reconcile`/`software-delivery` formulas are still planned. |
+| `packages/gas-city` | **Partial** | Factoru-owned orchestration port over Gas City 1.4.0. Compatibility, readiness, supervisor client, event and external-message cursors, guarded/idempotent rig registration, conversation delivery, run dispatch/observation/cancellation, and project runtime configuration projection exist; production Queue execution remains Milestone 4. |
+| `packages/ui` | **Implemented** | Factoru visual tokens consumed by the Electron renderer; no transport, product state, or server logic. Reusable React primitives can be promoted only after repeated use appears. |
+| `packs/factoru-default` | **Partial** | Four versioned agent-role contracts, the Milestone 1 implement/review probe, and the separate Milestone 3 planner probe lint under Gas City 1.4.0. Production role-scoped tools and the `queue-reconcile`/`software-delivery` formulas are still planned. |
 | `templates/software-project` | **Partial** | The versioned built-in manifest and schema define the pinned pack reference, two Worker Types, named model slots, Formula defaults, provenance-required memory, and WIP-one Factory capacity. Capsule and UI metadata arrive with their owning milestones. |
 
 `apps/desktop` depends on `packages/domain` directly for the client connection
@@ -292,9 +294,11 @@ domain-specific query, command, and subscription interfaces.
 Implemented today: `contextIsolation` is on, `nodeIntegration` is off, the
 renderer is sandboxed, and navigation and window-open requests are denied by the
 policy described under [security boundaries](#security-boundaries). The preload
-bridge exposes named connection, profile, repository, project, and device
-operations—never raw IPC or transport handles. Electron main owns profiles,
-encrypted tokens, tickets, the live socket, retries, cursors, and cache writes.
+bridge exposes named connection, profile, repository, project, conversation,
+Worker/model, memory, planner, and device operations—never raw IPC or transport
+handles. Electron main owns profiles, encrypted tokens, tickets, the live
+socket, retry/coalesced synchronization, cursors, and per-project workspace
+cache writes.
 
 Retry policy follows the state machine rather than a single timer: `offline` and
 `reconnecting` poll, while `blocked` stops polling entirely because an
@@ -331,13 +335,12 @@ as cached. A socket being open does not mean every subscription is synchronized.
 **Partial.** Factoru Server is a modular monolith. It should remain one process
 and one deployment until evidence requires otherwise.
 
-Implemented today: a Fastify HTTP surface
-([ADR 0002](./adr/0002-server-framework.md)) bound to localhost with two
-unauthenticated read-only operations, `GET /api/v1/health` and
-`POST /api/v1/handshake`. Every layer below the API in the diagram is planned.
-Requests and responses are validated with the shared protocol schemas, and both
-the not-found and error handlers return the structured `Problem` envelope so no
-client ever receives an unstructured failure.
+Implemented today: a Fastify HTTP/live surface
+([ADR 0002](./adr/0002-server-framework.md)) bound to localhost. Health and
+handshake are public; pairing, ticket issuance, project/workspace queries, and
+mutations are authenticated and scoped. Requests and responses are validated
+with shared protocol schemas, and both not-found and error handlers return the
+structured `Problem` envelope so no client receives an unstructured failure.
 
 ```mermaid
 flowchart TB
@@ -358,7 +361,9 @@ flowchart TB
 
 ### Commands, state, and events
 
-**Planned.** Factoru initially uses a transactional state-plus-event model:
+**Implemented for project and Milestone 3 workspace mutations.** Factoru uses a
+transactional state-plus-event model; Milestone 4 extends the same mechanism to
+tasks and agent tools:
 
 1. Every mutation arrives as a typed command with a unique `command_id`.
 2. Authentication and project authorization run before domain decisions.
@@ -380,8 +385,8 @@ Git, a test process, or the network.
 
 ### SQLite ownership
 
-**Implemented for Milestone 2 state.** Only Factoru Server opens the database file, which lives on local
-server storage. Initial requirements:
+**Implemented through Milestone 3 state.** Only Factoru Server opens the
+database file, which lives on local server storage. Initial requirements:
 
 - SQLite WAL mode using a pinned version containing applicable WAL fixes;
 - foreign keys enabled;
@@ -393,17 +398,19 @@ server storage. Initial requirements:
 - cursor pagination and indexes matching real UI queries;
 - large logs, diffs, and artifacts stored outside rows with durable metadata.
 
-Milestone 2 creates only server metadata, trusted devices, pairing codes,
-projects, rig bindings, command receipts, domain events, outbox items,
-projection cursors, and migrations. Conversations, messages, tasks,
-dependencies, Worker Types, memories, and run references arrive with the
-milestones that connect their real application paths.
+Milestones 2–3 create server metadata, trusted devices, pairing codes, projects,
+rig bindings, generic command receipts, domain events, outbox items, projection
+cursors, Factory settings, Worker Types/model bindings, conversations/messages,
+provenance-aware memory, serialized planner probes, and migrations. Tasks,
+dependencies, task runs, and agent-tool audit records arrive in Milestone 4.
 
 ### Worker types, agents, models, memory, and tools
 
-**Planned.** A Factoru **Worker Type** is a product-level factory profile, not a
-Gas City primitive. Gas City still launches every live agent. A worker type may
-compose several Gas City agent templates and a formula:
+**Partial.** The Factory/Worker/model/memory path is implemented; production
+role-scoped task tools arrive in Milestone 4. A Factoru **Worker Type** is a
+product-level factory profile, not a Gas City primitive. Gas City still launches
+every live agent. A worker type may compose several Gas City agent templates and
+a formula:
 
 | Worker Type field | Purpose |
 | --- | --- |
@@ -435,11 +442,14 @@ Initial Factoru tool policy is role-specific:
 Repository editing, tests, and Git operations remain explicit harness/capsule
 capabilities rather than generic Factoru database tools.
 
-The visible **Project Manager** type maps to two rig-scoped Gas City agents: an
-always-on named `project-manager-chat` session and an on-demand
-`project-manager-planner` with a maximum of one active planning session. The
-visible **Software Engineer** type maps initially to an `implementer` pool and
-an independent `reviewer` pool. A worker type can therefore use Claude for its
+The visible **Project Manager** type maps to two Gas City agents: one generated
+city-scoped, always-on chat identity per project and one imported rig-scoped,
+on-demand `project-manager-planner` with a maximum of one active planning
+session. The split is required by the pinned external-message binding contract
+and is recorded in
+[ADR 0012](./adr/0012-project-manager-runtime-identities.md). The visible
+**Software Engineer** type maps initially to an `implementer` pool and an
+independent `reviewer` pool. A worker type can therefore use Claude for its
 `implementation` model binding and Codex for `review`; a formula routes each
 step to the corresponding agent. One Gas City agent still has one effective
 harness/model configuration for a session.
@@ -453,9 +463,10 @@ review, or isolation must instead become a bead routed to a Gas City agent/pool.
 
 Gas City separates five runtime axes: harness (historically the agent
 `provider` field), model, upstream model service, transport (`tmux` or ACP where
-supported), and city-wide session runtime. Provider-specific model names and
-option schemas remain inside `packages/gas-city`; unsupported combinations fail
-validation before config is activated.
+supported), and city-wide session runtime. `packages/gas-city` projects a
+Factoru binding to Gas City's `provider` plus `option_defaults.model` fields;
+provider-specific option schemas remain on the server side. Unsupported
+combinations fail reconciliation before the desired config becomes healthy.
 
 “Worker memory” is not a shared context window. Pool sessions are independent
 processes and Gas City deliberately gives them no direct shared memory or
@@ -484,7 +495,7 @@ merely because a model requested them.
 
 ## Protocol architecture
 
-**Implemented for Milestone 2; recorded in [ADR 0003](./adr/0003-api-transport-and-protocol.md).**
+**Implemented through Milestone 3; recorded in [ADR 0003](./adr/0003-api-transport-and-protocol.md).**
 Use a small HTTP surface for health, pairing, token exchange, and operational
 downloads plus a typed live connection for commands, queries, and subscriptions.
 
@@ -493,8 +504,9 @@ version range, the negotiation rule, the `Problem` error envelope, and a typed
 client. Both peers validate at runtime from the same schemas, and the client
 re-checks compatibility against its own range instead of trusting the server's
 verdict. Pairing and ticket exchange use HTTP; a typed, authenticated WebSocket
-carries scoped queries, idempotent commands, project snapshots, cursor replay,
-and live project events.
+carries scoped queries, idempotent commands, project/workspace snapshots,
+conversation/Worker/model/memory/planner operations, cursor replay, and live
+product events.
 
 The protocol must provide:
 
@@ -564,9 +576,10 @@ consuming loop.
 
 ### Conversation to task
 
-**Planned; transport corrected by the Milestone 1 gate.** Each project
+**Conversation implemented; task tools planned for Milestone 4.** Each project
 conversation has a stable Factoru conversation ID and is bound through Gas
-City's external-messaging protocol to that project's Project Manager identity.
+City's external-messaging protocol to that project's generated city-scoped
+Project Manager identity.
 
 The documented client-registration plus per-conversation SSE `subscribe` stream
 **does not exist in Gas City 1.4.0**. The surface that does exist is a durable
@@ -580,15 +593,14 @@ transcript cursor:
 | `GET /v0/city/{city}/extmsg/transcript` | Read replies with `after_sequence` and `limit` |
 | `POST /v0/city/{city}/extmsg/transcript/ack` | Acknowledge consumption |
 
-Factoru intends to bind to an **agent name** rather than a session ID, because
-Gas City documents that binding as surviving session restarts and cold-waking a
-session at delivery time. **That behaviour is documented, not yet observed** —
-the gate mapped the API surface but did not drive a conversation through it.
-`ConversationTranscriptRecord.Sequence` is intended as the durable cursor both
-sides persist, with an adapter `callback_url` as a latency optimisation rather
-than the record of what was delivered. Factoru persists accepted user and
-assistant messages in its own database and the desktop never receives a Gas City
-address or token. See
+Factoru binds to an **agent name** rather than a session ID so the identity is
+stable while Gas City replaces sessions. Accepted user messages, bounded
+delivery attempts, assistant messages, delivery state, and transcript sequence
+are persisted in Factoru SQLite. The reactor resumes reads after that sequence,
+deduplicates replay, publishes product events, and treats callback delivery only
+as a future latency optimization. The desktop never receives a Gas City address
+or token. The generated identity/config decision is in
+[ADR 0012](./adr/0012-project-manager-runtime-identities.md); the transport is in
 [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md).
 
 The Project Manager uses a Factoru-owned, project-scoped tool surface to inspect
@@ -705,13 +717,16 @@ Gas City's six primitives and related runtime concepts map to Factoru as follows
 
 #### Agent and session shape
 
-The default pack contains rig-scoped `project-manager-chat`,
+The default pack contains rig-scoped `project-manager-chat` source material,
 `project-manager-planner`, `software-implementer`, and `software-reviewer`
-agents. Gas City's current configuration supports rig-scoped named sessions, so
-the chat template is declared as `mode="always"` once per rig. The planner has
+agents. Gas City 1.4.0 external-message bindings require a city-scoped agent, so
+Factoru generates one deterministic city-local chat agent per project and a
+root-pack `mode="always"` named session for it. The portable chat definition is
+the versioned prompt/policy source, not the live rig target. The planner has
 `max_active_sessions=1`; implementer and reviewer templates are on-demand pools.
-The foundation spike still verifies external-message routing and context
-isolation end to end.
+Factoru applies project model choices through bounded root-pack/city managed
+blocks and reloads only after a byte change
+([ADR 0012](./adr/0012-project-manager-runtime-identities.md)).
 
 Do not configure a pool minimum on the chat template. Gas City treats an
 always-on named session and `min_active_sessions` as independent sources of live
@@ -958,9 +973,11 @@ independently editable second truth.
 
 ## Reliability and recovery
 
-**Partial.** Milestone 2 implements transactional command receipts/events/outbox,
-bounded provisioning retries, immediate restart recovery, cursor resumption,
-and online verified backups. Later orchestration adds the remaining behavior:
+**Partial.** Milestones 2–3 implement transactional command
+receipts/events/outbox, bounded provisioning and chat-delivery retries,
+immediate outbox recovery, project and transcript cursor resumption, coalesced
+desktop synchronization, planner cancellation/observation, and online verified
+backups. Later orchestration adds the remaining behavior:
 
 - idempotent commands survive retries after uncertain responses;
 - accepted intent is persisted before external work starts;
@@ -1094,8 +1111,9 @@ not prose that can remain untouched after implementation changes.
 
 Accepted decisions live in [`docs/adr/`](./adr/README.md). Milestone 0 recorded
 the monorepo toolchain (0001), server framework (0002), API transport and
-protocol contract (0003), database and migrations (0004), packaging (0005), and
-per-worktree development state (0006).
+protocol contract (0003), database and migrations (0004), packaging (0005),
+per-worktree development state (0006), Gas City boundaries (0007–0010), remote
+onboarding (0011), and Project Manager runtime identities (0012).
 
 | Decision | Status | Required evidence |
 | --- | --- | --- |
@@ -1103,17 +1121,17 @@ per-worktree development state (0006).
 | Protocol/RPC library | **Accepted** — [ADR 0003](./adr/0003-api-transport-and-protocol.md) | HTTP/JSON with shared Zod schemas, validated on both sides. Subscriptions, auth hooks, and reconnection are proven in Milestone 2 before the choice is treated as settled for live traffic. |
 | SQLite driver and migration tool | **Accepted, partially proven** — [ADR 0004](./adr/0004-database-and-migrations.md) | `better-sqlite3` with hand-written forward-only migrations now passes WAL, foreign-key, busy handling, rollback, identity binding, checkpoint, online-backup, integrity-restore, and restart tests. Native packaging and recovery benchmarks on every early target remain. |
 | Desktop and server packaging | **Accepted, unproven** — [ADR 0005](./adr/0005-packaging.md) | electron-builder plus a bundled Node service and container image; signing, notarization, and per-platform builds are Milestone 7 evidence. |
-| Worker Type binding compiler | **Validate** | Apply prompt, model-slot, tool, memory, formula, and capacity settings to the correct Gas City agents without leaking raw config into the domain. |
+| Worker Type binding compiler | **Partial** — [ADR 0012](./adr/0012-project-manager-runtime-identities.md) | Provider and `option_defaults.model` bindings project to the correct city/rig agents without leaking raw config into the domain. Prompt/tool/formula and provider-catalog UI integration remain. |
 | Gas City supervision/install strategy | **Validate** | macOS and Linux installs, version pinning, upgrades, health, and recovery. |
 | Dedicated city and project-rig lifecycle | **Validate** | Coexist with unrelated supervisor cities, stable naming, rig add/remove, repository `.beads/` effects, and safe recovery. |
 | Supervisor trust-domain deployment | **Validate** | Loopback-only listeners, warning for unrelated cities, and whether confidential coexistence requires a dedicated OS user/supervisor. |
-| Project Manager session isolation | **Validate** | Rig-qualified always-on sessions, external-message binding/replay, concurrent project chats, and no context leakage. |
-| Project Manager chat/planner split | **Validate** | Chat remains responsive while one serialized durable queue-reconciliation bead runs, with shared Factoru memory but no assumed shared context window. |
+| Project Manager session isolation | **Accepted, partially proven** — [ADR 0012](./adr/0012-project-manager-runtime-identities.md) | Stable per-project city-local named agents satisfy external-message binding and generated config resolves under 1.4.0. Concurrent real project chats and restart acceptance remain. |
+| Project Manager chat/planner split | **Partial** — [ADR 0012](./adr/0012-project-manager-runtime-identities.md) | Durable chat and one coalesced planner probe are separate production paths; unit coverage proves chat acceptance during the probe. Real provider/restart acceptance and the Queue formula remain. |
 | Factoru agent-tool transport | **Accepted** — [ADR 0010](./adr/0010-agent-tool-transport.md) | Factoru writes each harness's MCP config from `session_setup_script` with a per-session, role-scoped credential. Proven through Claude and Codex. Gas City catalogues pack MCP but does not attach it, exactly as suspected. |
-| Durable memory storage/retrieval | **Validate** | Provenance, optimistic updates, bounded prompt injection, relevance, deletion, and resistance to poisoned task/model content. |
+| Durable memory storage/retrieval | **Partial** | Provenance-required versioned project/role storage and Desktop editing exist. Bounded retrieval/prompt injection, deletion, relevance, and resistance to poisoned model content remain. |
 | Capacity mapping | **Validate** | Factoru implementation cap maps correctly to agent/rig/workspace session caps while reserving PM, reviewer, and control capacity. |
-| Factory Template manifest | **Validate** | Small versioned schema composing a pinned pack, Worker Types, models, tools/memory, Formula defaults, capsule requirements, and UI metadata without duplicating Gas City config. |
-| Default pack installation and patching | **Validate** | Pinned import/lock behavior, worker model updates, config reload, rollback, and doctor checks. |
+| Factory Template manifest | **Implemented for the built-in template** | Versioned schema composes the pinned pack reference, fixed Worker Types/model slots, tool/memory policies, Formula defaults, and WIP-one capacity. Capsule/UI extension fields remain milestone-owned. |
+| Default pack installation and patching | **Partial** — [ADR 0012](./adr/0012-project-manager-runtime-identities.md) | Worker model updates generate bounded idempotent city/root-pack regions, preserve unrelated config, reload on change, and resolve under Gas City 1.4.0. Live rollback and doctor acceptance remain. |
 | Gas City API compatibility policy | **Accepted** — [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md) | Pinned to 1.4.0 with a `>=1.4.0 <1.5.0` range. The authoritative contract is the OpenAPI document served by the running supervisor at `/openapi.json`, which diverges from the documentation site. |
 | Formula semantic validator | **Validate** | Enforce Factoru variable schemas and reject inert/deprecated/unsupported v2 constructs and cross-store routes for the pinned release. |
 | Gas City versus Factoru capsule lifecycle | **Accepted** — [ADR 0008](./adr/0008-worktree-ownership.md) | A real run created no worktree, because Gas City only creates them for `drain` fan-out units. Factoru owns worktree lifecycle for the single-task loop; re-examined in Milestone 8. |

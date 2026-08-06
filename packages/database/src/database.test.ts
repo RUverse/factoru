@@ -92,6 +92,24 @@ describe('FactoruDatabase', () => {
     db.close()
   })
 
+  it('replays generic product commands and rejects command id reuse with different input', () => {
+    const { db } = fixture()
+    db.createPairingCode('ABCD-EFGH-JKMN', new Date(Date.now() + 60_000))
+    const device = db.exchangePairingCode('ABCD-EFGH-JKMN', 'Mac')!.device
+    let executions = 0
+    const execute = (text: string) =>
+      db.executeCommand('cmd_message_1', device.id, 'conversations.send', { text }, () => {
+        executions += 1
+        return { id: 'msg_1', text }
+      })
+
+    expect(execute('Ship it')).toEqual({ id: 'msg_1', text: 'Ship it' })
+    expect(execute('Ship it')).toEqual({ id: 'msg_1', text: 'Ship it' })
+    expect(executions).toBe(1)
+    expect(() => execute('Change it')).toThrow('command_id_conflict')
+    db.close()
+  })
+
   it('backs up a consistent database that can be reopened', async () => {
     const { directory, db } = fixture()
     const backup = path.join(directory, 'backup.sqlite')

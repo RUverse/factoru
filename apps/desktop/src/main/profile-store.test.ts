@@ -35,6 +35,8 @@ describe('connection profiles', () => {
       createdAt: new Date().toISOString(),
       lastConnectedAt: null,
       projects: [],
+      selectedProjectId: null,
+      workspaces: {},
       cursor: 0,
     }
     store.save(profile)

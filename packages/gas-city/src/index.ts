@@ -89,6 +89,14 @@ export {
 } from './registration.js'
 
 export {
+  GasCityProjectConfigurator,
+  type GasCityProjectConfiguratorOptions,
+  type ProjectAgentBinding,
+  type ProjectRuntimeConfiguration,
+  type ProjectRuntimeConfigurator,
+} from './configuration.js'
+
+export {
   compareVersions,
   parseVersion,
   satisfiesMinimum,

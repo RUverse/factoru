@@ -127,6 +127,10 @@ function hashSecret(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
+function hashCommandRequest(value: unknown): string {
+  return hashSecret(JSON.stringify(value))
+}
+
 function equalSecretHash(left: string, right: string): boolean {
   const leftBytes = Buffer.from(left, 'hex')
   const rightBytes = Buffer.from(right, 'hex')
@@ -352,6 +356,59 @@ export class FactoruDatabase {
     return JSON.parse(receipt.response_json) as ProjectRecord
   }
 
+  replayCommand<T>(commandId: string, method: string, request: unknown): T | undefined {
+    const receipt = this.connection
+      .prepare(
+        'SELECT method, request_hash, response_json FROM command_receipts WHERE command_id = ?',
+      )
+      .get(commandId) as { method: string; request_hash: string; response_json: string } | undefined
+    if (!receipt) return undefined
+    if (receipt.method !== method || receipt.request_hash !== hashCommandRequest(request)) {
+      throw new Error('command_id_conflict')
+    }
+    return JSON.parse(receipt.response_json) as T
+  }
+
+  recordCommand<T>(
+    commandId: string,
+    deviceId: string,
+    method: string,
+    request: unknown,
+    response: T,
+  ): T {
+    const replay = this.replayCommand<T>(commandId, method, request)
+    if (replay !== undefined) return replay
+    this.connection
+      .prepare(
+        `INSERT INTO command_receipts(
+           command_id, device_id, method, request_hash, response_json, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        commandId,
+        deviceId,
+        method,
+        hashCommandRequest(request),
+        JSON.stringify(response),
+        this.#now().toISOString(),
+      )
+    return response
+  }
+
+  executeCommand<T>(
+    commandId: string,
+    deviceId: string,
+    method: string,
+    request: unknown,
+    action: () => T,
+  ): T {
+    const replay = this.replayCommand<T>(commandId, method, request)
+    if (replay !== undefined) return replay
+    return this.connection.transaction(() =>
+      this.recordCommand(commandId, deviceId, method, request, action()),
+    )()
+  }
+
   createProject(input: CreateProjectInput): ProjectRecord {
     const existing = this.replayProjectCommand(
       input.commandId,
@@ -479,7 +536,8 @@ export class FactoruDatabase {
       const rows = this.connection
         .prepare(
           `SELECT id, aggregate_id, attempt_count FROM outbox_items
-           WHERE status IN ('pending', 'processing') AND available_at <= ?
+           WHERE kind = 'project.provision_rig'
+             AND status IN ('pending', 'processing') AND available_at <= ?
              AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
            ORDER BY created_at LIMIT ?`,
         )

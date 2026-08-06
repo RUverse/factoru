@@ -109,6 +109,12 @@ export const liveMethodSchema = z.enum([
   'projects.subscribe',
   'devices.list',
   'devices.revoke',
+  'workspaces.get',
+  'conversations.send',
+  'workers.updateModelBinding',
+  'memory.add',
+  'planner.start',
+  'planner.cancel',
 ])
 export type LiveMethod = z.infer<typeof liveMethodSchema>
 export const liveRequestSchema = z.object({

@@ -14,8 +14,10 @@ import {
 } from '../shared/connection'
 import {
   IPC_PRODUCT_ACTIVATE,
+  IPC_PRODUCT_ADD_MEMORY,
   IPC_PRODUCT_BROWSE,
   IPC_PRODUCT_CHANGED,
+  IPC_PRODUCT_CANCEL_PLANNER,
   IPC_PRODUCT_CREATE,
   IPC_PRODUCT_DEVICES,
   IPC_PRODUCT_GET,
@@ -26,6 +28,10 @@ import {
   IPC_PRODUCT_RETRY,
   IPC_PRODUCT_REVOKE,
   IPC_PRODUCT_ROOTS,
+  IPC_PRODUCT_SELECT_PROJECT,
+  IPC_PRODUCT_SEND_MESSAGE,
+  IPC_PRODUCT_START_PLANNER,
+  IPC_PRODUCT_UPDATE_MODEL,
 } from '../shared/product'
 
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:8787'
@@ -125,6 +131,26 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC_PRODUCT_DEVICES, () => product.devices())
   ipcMain.handle(IPC_PRODUCT_REVOKE, (_event, deviceId: string) => product.revoke(deviceId))
+  ipcMain.handle(IPC_PRODUCT_SELECT_PROJECT, (_event, projectId: string) =>
+    product.selectProject(projectId),
+  )
+  ipcMain.handle(IPC_PRODUCT_SEND_MESSAGE, (_event, projectId: string, message: string) =>
+    product.sendMessage(projectId, message),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_UPDATE_MODEL,
+    (_event, input: Parameters<ProductRuntime['updateModel']>[0]) => product.updateModel(input),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_ADD_MEMORY,
+    (_event, input: Parameters<ProductRuntime['addMemory']>[0]) => product.addMemory(input),
+  )
+  ipcMain.handle(IPC_PRODUCT_START_PLANNER, (_event, projectId: string) =>
+    product.startPlanner(projectId),
+  )
+  ipcMain.handle(IPC_PRODUCT_CANCEL_PLANNER, (_event, projectId: string, plannerProbeId: string) =>
+    product.cancelPlanner(projectId, plannerProbeId),
+  )
   product.subscribe((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_PRODUCT_CHANGED, snapshot)

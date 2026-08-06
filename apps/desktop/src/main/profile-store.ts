@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Project } from '@factoru/protocol'
+import type { Project, Workspace } from '@factoru/protocol'
 
 export interface ServerProfile {
   serverId: string
@@ -10,6 +10,8 @@ export interface ServerProfile {
   createdAt: string
   lastConnectedAt: string | null
   projects: Project[]
+  selectedProjectId: string | null
+  workspaces: Record<string, Workspace>
   cursor: number
 }
 
@@ -66,7 +68,18 @@ export class ProfileStore {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.#file, 'utf8')) as StoredProfiles
       if (!Array.isArray(parsed.profiles)) throw new Error('invalid profiles')
-      return parsed
+      return {
+        activeServerId: parsed.activeServerId,
+        profiles: parsed.profiles.map((profile) => ({
+          ...profile,
+          selectedProjectId:
+            typeof profile.selectedProjectId === 'string' ? profile.selectedProjectId : null,
+          workspaces:
+            typeof profile.workspaces === 'object' && profile.workspaces !== null
+              ? profile.workspaces
+              : {},
+        })),
+      }
     } catch {
       return { activeServerId: null, profiles: [] }
     }

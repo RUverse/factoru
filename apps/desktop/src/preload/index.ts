@@ -10,8 +10,10 @@ import {
   IPC_PRODUCT_ACTIVATE,
   IPC_PRODUCT_BROWSE,
   IPC_PRODUCT_CHANGED,
+  IPC_PRODUCT_CANCEL_PLANNER,
   IPC_PRODUCT_CREATE,
   IPC_PRODUCT_DEVICES,
+  IPC_PRODUCT_ADD_MEMORY,
   IPC_PRODUCT_GET,
   IPC_PRODUCT_PAIR,
   IPC_PRODUCT_PREVIEW,
@@ -20,6 +22,10 @@ import {
   IPC_PRODUCT_RETRY,
   IPC_PRODUCT_REVOKE,
   IPC_PRODUCT_ROOTS,
+  IPC_PRODUCT_SELECT_PROJECT,
+  IPC_PRODUCT_SEND_MESSAGE,
+  IPC_PRODUCT_START_PLANNER,
+  IPC_PRODUCT_UPDATE_MODEL,
   type ProductBridge,
 } from '../shared/product'
 
@@ -37,6 +43,14 @@ const product: ProductBridge = {
   retry: (projectId) => ipcRenderer.invoke(IPC_PRODUCT_RETRY, projectId),
   devices: () => ipcRenderer.invoke(IPC_PRODUCT_DEVICES),
   revoke: (deviceId) => ipcRenderer.invoke(IPC_PRODUCT_REVOKE, deviceId),
+  selectProject: (projectId) => ipcRenderer.invoke(IPC_PRODUCT_SELECT_PROJECT, projectId),
+  sendMessage: (projectId, message) =>
+    ipcRenderer.invoke(IPC_PRODUCT_SEND_MESSAGE, projectId, message),
+  updateModel: (input) => ipcRenderer.invoke(IPC_PRODUCT_UPDATE_MODEL, input),
+  addMemory: (input) => ipcRenderer.invoke(IPC_PRODUCT_ADD_MEMORY, input),
+  startPlanner: (projectId) => ipcRenderer.invoke(IPC_PRODUCT_START_PLANNER, projectId),
+  cancelPlanner: (projectId, plannerProbeId) =>
+    ipcRenderer.invoke(IPC_PRODUCT_CANCEL_PLANNER, projectId, plannerProbeId),
   subscribe: (listener) => {
     const handler = (_event: unknown, snapshot: Parameters<typeof listener>[0]) =>
       listener(snapshot)

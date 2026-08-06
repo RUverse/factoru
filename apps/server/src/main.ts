@@ -1,14 +1,24 @@
 import { randomBytes } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import fs from 'node:fs'
 import path from 'node:path'
 import { FactoruDatabase } from '@factoru/database'
-import { GasCityRigRegistrar } from '@factoru/gas-city'
+import {
+  GasCityAdapter,
+  GasCityProjectConfigurator,
+  GasCityRigRegistrar,
+  SupervisorClient,
+} from '@factoru/gas-city'
 import { buildServer } from './app.js'
 import { loadServerConfig } from './config.js'
 import { ensureServerId } from './identity.js'
 import { ProjectService } from './project-service.js'
 import { RepositoryService } from './repositories.js'
 import { SERVER_VERSION } from './version.js'
+import { WorkspaceService } from './workspace-service.js'
+
+const execFileAsync = promisify(execFile)
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 
@@ -47,19 +57,62 @@ async function main(): Promise<void> {
   }
 
   const repositories = new RepositoryService(config.repositoryRoots)
+  const cityName = `factoru-${serverId.slice(4, 16)}`
   const projectService = new ProjectService({
     database,
     repositories,
     registrar: new GasCityRigRegistrar(),
-    cityName: `factoru-${serverId.slice(4, 16)}`,
+    cityName,
     cityPath: config.gasCityPath,
   })
+  const gasCity = new GasCityAdapter({
+    client: new SupervisorClient({ baseUrl: config.gasCitySupervisorUrl }),
+    cityName,
+    probe: async (command) => {
+      try {
+        const result = await execFileAsync(command, ['--version'], {
+          timeout: 10_000,
+          encoding: 'utf8',
+        })
+        return { found: true, output: `${result.stdout}${result.stderr}` }
+      } catch (error) {
+        const missing =
+          typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
+        return {
+          found: !missing,
+          output: error instanceof Error ? error.message : String(error),
+        }
+      }
+    },
+  })
+  const workspaceService = new WorkspaceService(
+    database,
+    gasCity,
+    new GasCityProjectConfigurator({
+      cityPath: config.gasCityPath,
+      projectManagerPromptPath: path.join(
+        config.factoruPackPath,
+        'agents/project-manager-chat/prompt.template.md',
+      ),
+      executor: {
+        async run(executable, args, cwd) {
+          const result = await execFileAsync(executable, [...args], {
+            cwd,
+            encoding: 'utf8',
+            maxBuffer: 4 * 1024 * 1024,
+          })
+          return { stdout: result.stdout, stderr: result.stderr }
+        },
+      },
+    }),
+  )
   const app = buildServer({
     serverId,
     logLevel: config.logLevel,
     trustProxy: config.trustLoopbackProxy,
     database,
     projectService,
+    workspaceService,
   })
 
   const shutdown = (signal: NodeJS.Signals) => {

@@ -5,9 +5,17 @@ import {
   projectSchema,
   projectSnapshotSchema,
   trustedDeviceSchema,
+  conversationMessageSchema,
+  memoryEntrySchema,
+  plannerProbeSchema,
+  workerTypeSchema,
+  workspaceSchema,
+  type MemoryEntry,
+  type PlannerProbe,
   type Project,
   type ProjectPreview,
   type TrustedDevice,
+  type WorkerType,
 } from '@factoru/protocol'
 import { DESKTOP_NAME, DESKTOP_VERSION } from './version'
 import { normalizeProfileUrl } from './profile-store'
@@ -22,6 +30,7 @@ export class ProductRuntime {
   #listeners = new Set<(snapshot: ProductSnapshot) => void>()
   #snapshot: ProductSnapshot
   #reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  #synchronizePromise: Promise<ProductSnapshot> | null = null
 
   constructor(profiles: ProfileStore, credentials: CredentialStore) {
     this.#profiles = profiles
@@ -31,6 +40,10 @@ export class ProductRuntime {
       profiles: this.#publicProfiles(),
       activeServerId: active?.serverId ?? null,
       projects: active?.projects ?? [],
+      activeProjectId: active?.selectedProjectId ?? null,
+      workspace: active?.selectedProjectId
+        ? (active.workspaces[active.selectedProjectId] ?? null)
+        : null,
       connected: false,
       cached: active !== null,
       error: null,
@@ -72,6 +85,8 @@ export class ProductRuntime {
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       lastConnectedAt: null,
       projects: existing?.projects ?? [],
+      selectedProjectId: existing?.selectedProjectId ?? null,
+      workspaces: existing?.workspaces ?? {},
       cursor: existing?.cursor ?? 0,
     })
     await this.connect()
@@ -154,13 +169,40 @@ export class ProductRuntime {
     }
   }
 
-  async synchronize(): Promise<ProductSnapshot> {
+  synchronize(): Promise<ProductSnapshot> {
+    if (this.#synchronizePromise) return this.#synchronizePromise
+    const tracked = this.#performSynchronize().finally(() => {
+      if (this.#synchronizePromise === tracked) this.#synchronizePromise = null
+    })
+    this.#synchronizePromise = tracked
+    return tracked
+  }
+
+  async #performSynchronize(): Promise<ProductSnapshot> {
     const profile = this.#profiles.active()
-    if (!profile || !this.#live) return this.#snapshot
+    const live = this.#live
+    if (!profile || !live) return this.#snapshot
     const snapshot = projectSnapshotSchema.parse(
-      await this.#live.request('projects.subscribe', { afterCursor: profile.cursor }),
+      await live.request('projects.subscribe', { afterCursor: profile.cursor }),
     )
+    if (this.#live !== live || this.#profiles.active()?.serverId !== profile.serverId) {
+      return this.#snapshot
+    }
     profile.projects = snapshot.projects
+    if (
+      !profile.selectedProjectId ||
+      !profile.projects.some((project) => project.id === profile.selectedProjectId)
+    ) {
+      profile.selectedProjectId = profile.projects[0]?.id ?? null
+    }
+    if (profile.selectedProjectId) {
+      profile.workspaces[profile.selectedProjectId] = workspaceSchema.parse(
+        await live.request('workspaces.get', { projectId: profile.selectedProjectId }),
+      )
+    }
+    if (this.#live !== live || this.#profiles.active()?.serverId !== profile.serverId) {
+      return this.#snapshot
+    }
     profile.cursor = snapshot.cursor
     profile.lastConnectedAt = new Date().toISOString()
     this.#profiles.save(profile)
@@ -190,7 +232,11 @@ export class ProductRuntime {
     })) as ProjectPreview
   }
   async create(params: unknown): Promise<Project> {
-    return projectSchema.parse(await this.request('projects.create', params, `cmd_${randomUUID()}`))
+    const project = projectSchema.parse(
+      await this.request('projects.create', params, `cmd_${randomUUID()}`),
+    )
+    await this.selectProject(project.id)
+    return project
   }
   async devices(): Promise<TrustedDevice[]> {
     return trustedDeviceSchema.array().parse(await this.request('devices.list'))
@@ -219,10 +265,87 @@ export class ProductRuntime {
     return result
   }
 
+  async selectProject(projectId: string): Promise<ProductSnapshot> {
+    const profile = this.#profiles.active()
+    if (!profile?.projects.some((project) => project.id === projectId)) {
+      throw new Error('Project not found in the active server profile')
+    }
+    profile.selectedProjectId = projectId
+    if (this.#live) {
+      profile.workspaces[projectId] = workspaceSchema.parse(
+        await this.#live.request('workspaces.get', { projectId }),
+      )
+      profile.lastConnectedAt = new Date().toISOString()
+    }
+    this.#profiles.save(profile)
+    return this.#updateFromStore(this.#live !== null)
+  }
+
+  async sendMessage(projectId: string, text: string) {
+    const result = conversationMessageSchema.parse(
+      await this.request('conversations.send', { projectId, text }, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(projectId)
+    return result
+  }
+
+  async updateModel(input: {
+    projectId: string
+    workerTypeKind: WorkerType['kind']
+    slot: WorkerType['modelBindings'][number]['slot']
+    provider: string | null
+    model: string | null
+  }): Promise<WorkerType> {
+    const result = workerTypeSchema.parse(
+      await this.request('workers.updateModelBinding', input, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(input.projectId)
+    return result
+  }
+
+  async addMemory(input: {
+    projectId: string
+    scope: MemoryEntry['scope']
+    workerTypeKind?: WorkerType['kind']
+    content: string
+    provenanceRef: string
+    supersedesId?: string
+  }): Promise<MemoryEntry> {
+    const result = memoryEntrySchema.parse(
+      await this.request('memory.add', input, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(input.projectId)
+    return result
+  }
+
+  async startPlanner(projectId: string): Promise<PlannerProbe> {
+    const result = plannerProbeSchema.parse(
+      await this.request('planner.start', { projectId }, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(projectId)
+    return result
+  }
+
+  async cancelPlanner(projectId: string, plannerProbeId: string): Promise<PlannerProbe> {
+    const result = plannerProbeSchema.parse(
+      await this.request('planner.cancel', { projectId, plannerProbeId }, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(projectId)
+    return result
+  }
+
   #publicProfiles() {
     return this.#profiles
       .list()
-      .map(({ projects: _projects, cursor: _cursor, ...profile }) => profile)
+      .map(
+        ({
+          projects: _projects,
+          selectedProjectId: _selectedProjectId,
+          workspaces: _workspaces,
+          cursor: _cursor,
+          ...profile
+        }) => profile,
+      )
   }
   #updateFromStore(connected: boolean): ProductSnapshot {
     const active = this.#profiles.active()
@@ -230,6 +353,10 @@ export class ProductRuntime {
       profiles: this.#publicProfiles(),
       activeServerId: active?.serverId ?? null,
       projects: active?.projects ?? [],
+      activeProjectId: active?.selectedProjectId ?? null,
+      workspace: active?.selectedProjectId
+        ? (active.workspaces[active.selectedProjectId] ?? null)
+        : null,
       connected,
       cached: !connected && active !== null,
       error: null,
@@ -239,5 +366,16 @@ export class ProductRuntime {
     this.#snapshot = { ...this.#snapshot, ...patch }
     for (const listener of this.#listeners) listener(this.#snapshot)
     return this.#snapshot
+  }
+
+  async #refreshWorkspace(projectId: string): Promise<void> {
+    const profile = this.#profiles.active()
+    if (!profile || !this.#live) return
+    profile.workspaces[projectId] = workspaceSchema.parse(
+      await this.#live.request('workspaces.get', { projectId }),
+    )
+    profile.lastConnectedAt = new Date().toISOString()
+    this.#profiles.save(profile)
+    this.#updateFromStore(true)
   }
 }

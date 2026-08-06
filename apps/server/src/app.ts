@@ -10,6 +10,9 @@ import {
   CAPABILITY_PAIRING,
   CAPABILITY_PROJECTS,
   CAPABILITY_TRUSTED_DEVICES,
+  CAPABILITY_CONVERSATIONS,
+  CAPABILITY_WORKSPACES,
+  CAPABILITY_WORKER_TYPES,
   CONNECTION_TICKET_PATH,
   HANDSHAKE_PATH,
   HEALTH_PATH,
@@ -21,10 +24,13 @@ import {
   connectionTicketResponseSchema,
   descriptorFromHealth,
   deviceRevokeParamsSchema,
+  conversationSendParamsSchema,
   handshakeRequestSchema,
   handshakeResponseSchema,
   healthResponseSchema,
   liveRequestSchema,
+  memoryAddParamsSchema,
+  modelBindingUpdateParamsSchema,
   pairingExchangeRequestSchema,
   pairingExchangeResponseSchema,
   problem,
@@ -33,6 +39,7 @@ import {
   projectPreviewParamsSchema,
   projectSnapshotSchema,
   projectSubscribeParamsSchema,
+  plannerCancelParamsSchema,
   repositoryBrowseParamsSchema,
   type HealthResponse,
   type LiveRequest,
@@ -42,6 +49,7 @@ import { SERVER_VERSION } from './version.js'
 import { bearerDevice, requireScope, TicketStore } from './auth.js'
 import { ApplicationError, type ProjectService } from './project-service.js'
 import { RepositoryError } from './repositories.js'
+import type { WorkspaceService } from './workspace-service.js'
 
 export interface BuildServerOptions {
   serverId: ServerId
@@ -52,6 +60,7 @@ export interface BuildServerOptions {
   trustProxy?: boolean
   database?: FactoruDatabase
   projectService?: ProjectService
+  workspaceService?: WorkspaceService
 }
 
 export const BASE_SERVER_CAPABILITIES = [CAPABILITY_HEALTH, CAPABILITY_HANDSHAKE]
@@ -82,6 +91,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   const now = options.now ?? (() => new Date())
   const database = options.database
   const projects = options.projectService
+  const workspaces = options.workspaceService
   const capabilities =
     projects && database
       ? [
@@ -90,6 +100,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           CAPABILITY_LIVE,
           CAPABILITY_PROJECTS,
           CAPABILITY_TRUSTED_DEVICES,
+          ...(workspaces
+            ? [CAPABILITY_WORKSPACES, CAPABILITY_CONVERSATIONS, CAPABILITY_WORKER_TYPES]
+            : []),
         ]
       : BASE_SERVER_CAPABILITIES
   const tickets = new TicketStore()
@@ -274,6 +287,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'projects.subscribe': 'events:read',
       'devices.list': 'devices:read',
       'devices.revoke': 'devices:revoke',
+      'workspaces.get': 'projects:read',
+      'conversations.send': 'projects:write',
+      'workers.updateModelBinding': 'projects:write',
+      'memory.add': 'projects:write',
+      'planner.start': 'projects:write',
+      'planner.cancel': 'projects:write',
     }
     try {
       requireScope(currentDevice, requiredScopes[request.method])
@@ -350,12 +369,119 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           }
           break
         }
+        case 'workspaces.get': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          result = workspaces.get(projectIdParamsSchema.parse(request.params).projectId)
+          break
+        }
+        case 'conversations.send': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = conversationSendParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Sending a message requires commandId',
+            )
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => workspaces.sendMessage(params.projectId, params.text, currentDevice.name),
+          )
+          break
+        }
+        case 'workers.updateModelBinding': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = modelBindingUpdateParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Updating a model binding requires commandId',
+            )
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => workspaces.updateModelBinding(params),
+          )
+          break
+        }
+        case 'memory.add': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = memoryAddParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Adding memory requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => workspaces.addMemory(params),
+          )
+          break
+        }
+        case 'planner.start': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = projectIdParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Starting a planner requires commandId',
+            )
+          const replay = database.replayCommand(request.commandId, request.method, params)
+          result =
+            replay ??
+            database.recordCommand(
+              request.commandId,
+              currentDevice.id,
+              request.method,
+              params,
+              await workspaces.startPlannerProbe(params.projectId),
+            )
+          break
+        }
+        case 'planner.cancel': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = plannerCancelParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Cancelling a planner requires commandId',
+            )
+          const replay = database.replayCommand(request.commandId, request.method, params)
+          result =
+            replay ??
+            database.recordCommand(
+              request.commandId,
+              currentDevice.id,
+              request.method,
+              params,
+              await workspaces.cancelPlannerProbe(params.projectId, params.plannerProbeId),
+            )
+          break
+        }
       }
       socket.send(JSON.stringify({ id: request.id, ok: true, result }))
       if (request.method === 'devices.revoke' && (result as { self?: boolean }).self === true) {
         setTimeout(() => socket.close(1008, 'revoked'), 0)
       }
-      if (request.method === 'projects.create' || request.method === 'projects.retrySetup')
+      if (
+        request.method === 'projects.create' ||
+        request.method === 'projects.retrySetup' ||
+        request.method === 'conversations.send' ||
+        request.method === 'workers.updateModelBinding' ||
+        request.method === 'memory.add' ||
+        request.method === 'planner.start' ||
+        request.method === 'planner.cancel'
+      )
         publishEvents()
     } catch (error) {
       if (error instanceof ApplicationError || error instanceof RepositoryError) {
@@ -373,6 +499,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           request.id,
           'forbidden',
           'Device is not authorized for this operation',
+        )
+      if (error instanceof Error && error.message === 'command_id_conflict')
+        return responseError(
+          socket,
+          request.id,
+          'command_id_conflict',
+          'The command id was already used for a different operation',
         )
       const message = error instanceof Error ? error.message : String(error)
       app.log.error({ err: error, method: request.method }, 'live request failed')
@@ -395,7 +528,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       processingOutbox = true
       try {
         await projects.processOutbox()
+        await workspaces?.process()
         publishEvents()
+      } catch (error) {
+        app.log.error({ err: error }, 'background reactor pass failed')
       } finally {
         processingOutbox = false
       }

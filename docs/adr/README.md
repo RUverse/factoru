@@ -11,7 +11,7 @@ the historical reasoning behind one decision.
 | [0001](./0001-monorepo-toolchain.md) | pnpm workspaces, TypeScript, and the shared verification commands | Accepted |
 | [0002](./0002-server-framework.md) | Fastify as the Factoru Server framework | Accepted |
 | [0003](./0003-api-transport-and-protocol.md) | HTTP/JSON with Zod-validated shared schemas; live transport deferred | Accepted |
-| [0004](./0004-database-and-migrations.md) | SQLite via `better-sqlite3` with hand-written forward-only migrations | Accepted, not yet implemented |
+| [0004](./0004-database-and-migrations.md) | SQLite via `better-sqlite3` with hand-written forward-only migrations | Accepted, implemented |
 | [0005](./0005-packaging.md) | electron-builder for Desktop; bundled Node service and container for Server | Accepted, not yet implemented |
 | [0006](./0006-per-worktree-development-state.md) | Per-worktree development state and derived ports | Accepted |
 | [0007](./0007-gas-city-compatibility-and-transport.md) | Gas City 1.4.0 pin, supervisor-served OpenAPI, and the adapter transport map | Accepted |
@@ -19,6 +19,7 @@ the historical reasoning behind one decision.
 | [0009](./0009-rig-registration-safety.md) | Rig registration requires a clean index and discloses its mutations | Accepted |
 | [0010](./0010-agent-tool-transport.md) | Factoru installs its own agent tools from `session_setup_script` | Accepted |
 | [0011](./0011-milestone-2-remote-access-and-project-onboarding.md) | Milestone 2 remote access and project onboarding | Accepted |
+| [0012](./0012-project-manager-runtime-identities.md) | One generated city-scoped Project Manager chat identity per project | Accepted |
 
 ## Writing a new ADR
 

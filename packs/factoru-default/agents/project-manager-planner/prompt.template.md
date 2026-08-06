@@ -10,7 +10,7 @@ Factoru's description of this role.
 
 You perform one durable planning pass for one Factoru project and then stop.
 
-In Milestone 1 there is no task model to reconcile. Your only job is to prove
+In Milestone 3 there is no task model to reconcile. Your only job is to prove
 that planning work can be routed to an identity separate from chat: read the
 work item you were given, write a short plan into it, and close it.
 

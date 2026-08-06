@@ -1,34 +1,50 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import type { ProjectPreview, TrustedDevice } from '@factoru/protocol'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import type { ProjectPreview, TrustedDevice, WorkerType } from '@factoru/protocol'
 import type { ProductSnapshot } from '../../shared/product'
 
 type Root = { id: string; label: string }
 type Entry = { name: string; relativePath: string; kind: 'directory' | 'repository' }
 
+const taskColumns = [
+  ['needs_you', 'Needs you'],
+  ['in_progress', 'In progress'],
+  ['queue', 'Queue'],
+  ['backlog', 'Backlog'],
+] as const
+
+function statusLabel(value: string): string {
+  return value.replaceAll('_', ' ')
+}
+
 export function App() {
   const [snapshot, setSnapshot] = useState<ProductSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<'tasks' | 'workers'>('tasks')
+  const [showPairing, setShowPairing] = useState(false)
+  const [showProjectSetup, setShowProjectSetup] = useState(false)
+  const [serverUrl, setServerUrl] = useState('http://127.0.0.1:8787')
   const [roots, setRoots] = useState<Root[]>([])
   const [rootId, setRootId] = useState('')
   const [directory, setDirectory] = useState('')
   const [entries, setEntries] = useState<Entry[]>([])
   const [preview, setPreview] = useState<ProjectPreview | null>(null)
   const [devices, setDevices] = useState<TrustedDevice[]>([])
-  const [serverUrl, setServerUrl] = useState('http://127.0.0.1:8787')
-  const [showPairing, setShowPairing] = useState(false)
 
   useEffect(() => {
     let active = true
-    void window.factoru.product.get().then((value) => {
-      if (active) setSnapshot(value)
-    })
+    void window.factoru.product.get().then((value) => active && setSnapshot(value))
     const unsubscribe = window.factoru.product.subscribe(setSnapshot)
     return () => {
       active = false
       unsubscribe()
     }
   }, [])
+
+  const activeProject = useMemo(
+    () => snapshot?.projects.find((project) => project.id === snapshot.activeProjectId) ?? null,
+    [snapshot],
+  )
 
   const run = async <T,>(operation: () => Promise<T>): Promise<T | undefined> => {
     setBusy(true)
@@ -67,7 +83,8 @@ export function App() {
     const first = loaded[0]?.id ?? ''
     setRootId(first)
     setDirectory('')
-    if (first) setEntries((await run(() => window.factoru.product.browse(first, ''))) ?? [])
+    setEntries(first ? ((await run(() => window.factoru.product.browse(first, ''))) ?? []) : [])
+    setShowProjectSetup(true)
   }
 
   const browse = async (nextRoot: string, nextDirectory: string) => {
@@ -75,11 +92,6 @@ export function App() {
     setDirectory(nextDirectory)
     setPreview(null)
     setEntries((await run(() => window.factoru.product.browse(nextRoot, nextDirectory))) ?? [])
-  }
-
-  const previewRepository = async (entry: Entry) => {
-    const value = await run(() => window.factoru.product.preview(rootId, entry.relativePath))
-    if (value) setPreview(value)
   }
 
   const createProject = (event: FormEvent<HTMLFormElement>) => {
@@ -97,52 +109,87 @@ export function App() {
       }),
     ).then((created) => {
       if (created) {
+        setShowProjectSetup(false)
         setPreview(null)
-        setEntries([])
       }
     })
   }
 
-  if (!snapshot)
-    return (
-      <main className="shell">
-        <p className="muted">Starting Factoru Desktop…</p>
-      </main>
+  const sendMessage = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!snapshot?.activeProjectId) return
+    const form = event.currentTarget
+    const data = new FormData(form)
+    const text = String(data.get('message')).trim()
+    if (!text) return
+    void run(() => window.factoru.product.sendMessage(snapshot.activeProjectId!, text)).then(
+      (sent) => sent && form.reset(),
     )
+  }
 
-  return (
-    <main className="shell product-shell">
-      <header className="header">
-        <div>
-          <h1>Factoru</h1>
-          <p className="muted">Your development team, on your infrastructure.</p>
-        </div>
-        {snapshot.activeServerId && (
-          <span
-            className={`badge badge-${snapshot.connected ? 'connected' : 'offline'}`}
-            role="status"
-          >
-            {snapshot.connected ? 'Connected' : 'Offline'}
-          </span>
-        )}
-      </header>
+  const updateModel = (
+    event: FormEvent<HTMLFormElement>,
+    worker: WorkerType,
+    slot: WorkerType['modelBindings'][number]['slot'],
+  ) => {
+    event.preventDefault()
+    if (!snapshot?.activeProjectId) return
+    const data = new FormData(event.currentTarget)
+    const provider = String(data.get('provider')).trim()
+    const model = String(data.get('model')).trim()
+    void run(() =>
+      window.factoru.product.updateModel({
+        projectId: snapshot.activeProjectId!,
+        workerTypeKind: worker.kind,
+        slot,
+        provider: provider || null,
+        model: model || null,
+      }),
+    )
+  }
 
-      {snapshot.profiles.length === 0 || showPairing ? (
-        <section className="card" aria-labelledby="connect-heading">
-          <h2 id="connect-heading">Connect to Factoru Server</h2>
-          <div className="toolbar" role="group" aria-label="Connection type">
-            <button type="button" onClick={() => setServerUrl('https://')}>
-              Connect to a remote server
-            </button>
+  const addMemory = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!snapshot?.activeProjectId) return
+    const form = event.currentTarget
+    const data = new FormData(form)
+    void run(() =>
+      window.factoru.product.addMemory({
+        projectId: snapshot.activeProjectId!,
+        scope: String(data.get('scope')) as 'project' | 'worker_type',
+        workerTypeKind:
+          data.get('scope') === 'worker_type'
+            ? (String(data.get('workerTypeKind')) as WorkerType['kind'])
+            : undefined,
+        content: String(data.get('content')),
+        provenanceRef: 'desktop:workers-memory-editor',
+      }),
+    ).then((value) => value && form.reset())
+  }
+
+  if (!snapshot) return <main className="startup muted">Starting Factoru Desktop…</main>
+
+  if (snapshot.profiles.length === 0 || showPairing) {
+    return (
+      <main className="onboarding">
+        <section className="onboarding-card" aria-labelledby="connect-heading">
+          <div className="brand-mark" aria-hidden="true">
+            F
+          </div>
+          <p className="eyebrow">Factoru Desktop</p>
+          <h1 id="connect-heading">Connect to your development team</h1>
+          <p className="muted">
+            Pair with the Factoru Server that owns your repositories, workers, and project history.
+          </p>
+          <div className="segmented" role="group" aria-label="Connection type">
             <button type="button" onClick={() => setServerUrl('http://127.0.0.1:8787')}>
-              Run on this device
+              This device
+            </button>
+            <button type="button" onClick={() => setServerUrl('https://')}>
+              Remote server
             </button>
           </div>
-          <p className="muted">
-            Run <code>factoru-server pair</code> on the server, then enter its one-time code. Remote
-            addresses must use HTTPS.
-          </p>
-          <form className="form-grid" onSubmit={pair}>
+          <form className="form-stack" onSubmit={pair}>
             <label>
               Server address
               <input
@@ -154,7 +201,7 @@ export function App() {
               />
             </label>
             <label>
-              Pairing code
+              One-time pairing code
               <input
                 name="code"
                 required
@@ -166,161 +213,174 @@ export function App() {
               Device name
               <input name="deviceName" required defaultValue="My Mac" />
             </label>
-            <button disabled={busy}>{busy ? 'Connecting…' : 'Pair and connect'}</button>
+            <button className="primary" disabled={busy}>
+              {busy ? 'Connecting…' : 'Pair and connect'}
+            </button>
             {snapshot.profiles.length > 0 && (
-              <button type="button" onClick={() => setShowPairing(false)} disabled={busy}>
+              <button type="button" onClick={() => setShowPairing(false)}>
                 Cancel
               </button>
             )}
           </form>
+          {(error || snapshot.error) && <p className="error">{error ?? snapshot.error}</p>}
         </section>
-      ) : (
-        <>
-          <section className="toolbar card" aria-label="Server profile">
-            <label>
-              Server
-              <select
-                value={snapshot.activeServerId ?? ''}
-                onChange={(event) =>
-                  void run(() => window.factoru.product.activate(event.target.value)).then(
-                    (value) => {
-                      if (value) setSnapshot(value)
-                    },
+      </main>
+    )
+  }
+
+  return (
+    <main className="workspace-shell">
+      <aside className="sidebar">
+        <header className="sidebar-brand">
+          <span className="brand-mark small" aria-hidden="true">
+            F
+          </span>
+          <div>
+            <strong>Factoru</strong>
+            <span className="muted">Personal factory</span>
+          </div>
+        </header>
+
+        <div className="connection-row">
+          <span className={`status-dot ${snapshot.connected ? 'online' : 'offline'}`} />
+          <span>{snapshot.connected ? 'Server connected' : 'Working offline'}</span>
+        </div>
+
+        <div className="sidebar-section-head">
+          <span>Projects</span>
+          <button
+            className="icon-button"
+            aria-label="Add project"
+            title="Add project"
+            onClick={() => void loadRoots()}
+            disabled={!snapshot.connected || busy}
+          >
+            +
+          </button>
+        </div>
+        <nav className="project-nav" aria-label="Projects">
+          {snapshot.projects.length === 0 ? (
+            <p className="empty-sidebar">Add a server-local repository to begin.</p>
+          ) : (
+            snapshot.projects.map((project) => (
+              <button
+                key={project.id}
+                className={project.id === snapshot.activeProjectId ? 'active' : ''}
+                onClick={() =>
+                  void run(() => window.factoru.product.selectProject(project.id)).then(
+                    (value) => value && setSnapshot(value),
                   )
                 }
               >
-                {snapshot.profiles.map((profile) => (
-                  <option key={profile.serverId} value={profile.serverId}>
-                    {profile.name}
+                <span className="project-glyph">{project.name.slice(0, 1).toUpperCase()}</span>
+                <span>
+                  <strong>{project.name}</strong>
+                  <small>{statusLabel(project.setupState)}</small>
+                </span>
+              </button>
+            ))
+          )}
+        </nav>
+
+        <details className="server-settings">
+          <summary>Server & devices</summary>
+          <label>
+            Server
+            <select
+              value={snapshot.activeServerId ?? ''}
+              onChange={(event) =>
+                void run(() => window.factoru.product.activate(event.target.value)).then(
+                  (value) => value && setSnapshot(value),
+                )
+              }
+            >
+              {snapshot.profiles.map((profile) => (
+                <option key={profile.serverId} value={profile.serverId}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button onClick={() => void run(() => window.factoru.product.reconnect())}>
+            Reconnect
+          </button>
+          <button onClick={() => setShowPairing(true)}>Add server</button>
+          <button
+            onClick={() =>
+              void run(() => window.factoru.product.devices()).then(
+                (value) => value && setDevices(value),
+              )
+            }
+          >
+            Trusted devices
+          </button>
+        </details>
+      </aside>
+
+      <section className="conversation-pane">
+        <header className="pane-header">
+          <div>
+            <p className="eyebrow">Project Manager</p>
+            <h1>{activeProject?.name ?? 'Choose a project'}</h1>
+          </div>
+          {snapshot.workspace && (
+            <span className={`health-pill ${snapshot.workspace.conversation.status}`}>
+              {statusLabel(snapshot.workspace.conversation.status)}
+            </span>
+          )}
+        </header>
+
+        {snapshot.cached && (
+          <p className="offline-banner">Showing cached history. Sending and editing are paused.</p>
+        )}
+
+        {showProjectSetup ? (
+          <section className="setup-panel">
+            <header>
+              <div>
+                <p className="eyebrow">New project</p>
+                <h2>Choose an approved repository</h2>
+              </div>
+              <button onClick={() => setShowProjectSetup(false)}>Close</button>
+            </header>
+            <div className="browser-toolbar">
+              <select value={rootId} onChange={(event) => void browse(event.target.value, '')}>
+                {roots.map((root) => (
+                  <option key={root.id} value={root.id}>
+                    {root.label}
                   </option>
                 ))}
               </select>
-            </label>
-            <button
-              onClick={() =>
-                void run(() => window.factoru.product.reconnect()).then((value) => {
-                  if (value) setSnapshot(value)
-                })
-              }
-              disabled={busy}
-            >
-              Reconnect
-            </button>
-            <button type="button" onClick={() => setShowPairing(true)} disabled={busy}>
-              Add server
-            </button>
-            <button
-              type="button"
-              disabled={busy || !snapshot.activeServerId}
-              onClick={() => {
-                if (
-                  snapshot.activeServerId &&
-                  window.confirm('Remove this server profile from this Mac? Server data is kept.')
-                ) {
-                  void run(() => window.factoru.product.remove(snapshot.activeServerId!)).then(
-                    (value) => {
-                      if (value) {
-                        setSnapshot(value)
-                        setRoots([])
-                        setPreview(null)
-                        setDevices([])
-                      }
-                    },
-                  )
-                }
-              }}
-            >
-              Remove profile
-            </button>
-            <button onClick={() => void loadRoots()} disabled={!snapshot.connected || busy}>
-              Add project
-            </button>
-            <button
-              onClick={() =>
-                void run(() => window.factoru.product.devices()).then(
-                  (value) => value && setDevices(value),
-                )
-              }
-              disabled={!snapshot.connected || busy}
-            >
-              Trusted devices
-            </button>
-          </section>
-
-          {snapshot.cached && (
-            <p className="notice" role="note">
-              Showing the last synchronized project list. Changes are disabled until the server
-              reconnects.
-              {snapshot.profiles.find((profile) => profile.serverId === snapshot.activeServerId)
-                ?.lastConnectedAt && (
-                <>
-                  {' '}
-                  Last synchronized{' '}
-                  {new Date(
-                    snapshot.profiles.find(
-                      (profile) => profile.serverId === snapshot.activeServerId,
-                    )!.lastConnectedAt!,
-                  ).toLocaleString()}
-                  .
-                </>
-              )}
-            </p>
-          )}
-
-          {roots.length > 0 && (
-            <section className="card" aria-labelledby="repository-heading">
-              <h2 id="repository-heading">Choose an approved repository</h2>
-              <div className="toolbar">
-                <select
-                  aria-label="Repository root"
-                  value={rootId}
-                  disabled={!snapshot.connected || busy}
-                  onChange={(event) => void browse(event.target.value, '')}
+              {directory && (
+                <button
+                  onClick={() => void browse(rootId, directory.split('/').slice(0, -1).join('/'))}
                 >
-                  {roots.map((root) => (
-                    <option key={root.id} value={root.id}>
-                      {root.label}
-                    </option>
-                  ))}
-                </select>
-                {directory && (
-                  <button
-                    disabled={!snapshot.connected || busy}
-                    onClick={() => void browse(rootId, directory.split('/').slice(0, -1).join('/'))}
-                  >
-                    Up
-                  </button>
-                )}
-                <span className="mono muted">/{directory}</span>
-              </div>
-              <ul className="repository-list">
-                {entries.map((entry) => (
-                  <li key={`${entry.kind}:${entry.relativePath}`}>
-                    <button
-                      disabled={!snapshot.connected || busy}
-                      onClick={() =>
-                        entry.kind === 'directory'
-                          ? void browse(rootId, entry.relativePath)
-                          : void previewRepository(entry)
-                      }
-                    >
-                      {entry.kind === 'directory' ? 'Folder' : 'Repository'} · {entry.name}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {preview && (
-            <section className="card" aria-labelledby="preview-heading">
-              <h2 id="preview-heading">Confirm project setup</h2>
-              {!preview.safe && (
-                <p className="error" role="alert">
-                  {preview.blockedReason}
-                </p>
+                  Up
+                </button>
               )}
+              <code>/{directory}</code>
+            </div>
+            <ul className="repository-list">
+              {entries.map((entry) => (
+                <li key={`${entry.kind}:${entry.relativePath}`}>
+                  <button
+                    onClick={() =>
+                      entry.kind === 'directory'
+                        ? void browse(rootId, entry.relativePath)
+                        : void run(() =>
+                            window.factoru.product.preview(rootId, entry.relativePath),
+                          ).then((value) => value && setPreview(value))
+                    }
+                  >
+                    <span>{entry.kind === 'directory' ? 'Folder' : 'Git'}</span>
+                    {entry.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {preview && (
               <form className="form-grid" onSubmit={createProject}>
+                {!preview.safe && <p className="error">{preview.blockedReason}</p>}
                 <label>
                   Project name
                   <input name="name" required defaultValue={preview.suggestedName} />
@@ -331,126 +391,271 @@ export function App() {
                 </label>
                 <label>
                   Default branch
-                  <select
-                    name="branch"
-                    disabled={!snapshot.connected || busy}
-                    value={preview.defaultBranch}
-                    onChange={(event) =>
-                      void run(() =>
-                        window.factoru.product.preview(
-                          preview.rootId,
-                          preview.relativePath,
-                          event.target.value,
-                        ),
-                      ).then((value) => {
-                        if (value) setPreview(value)
-                      })
-                    }
-                  >
+                  <select name="branch" defaultValue={preview.defaultBranch}>
                     {preview.branches.map((branch) => (
                       <option key={branch}>{branch}</option>
                     ))}
                   </select>
                 </label>
-                <div>
-                  <strong>Gas City will make these repository changes:</strong>
-                  <ul>
-                    {preview.repositoryMutations.map((mutation) => (
-                      <li key={mutation}>{mutation}</li>
-                    ))}
-                  </ul>
-                </div>
-                {preview.status.length > 0 && (
-                  <div>
-                    <strong>Current working-tree changes:</strong>
-                    <ul>
-                      {preview.status.map((item) => (
-                        <li key={item.path}>
-                          {item.staged ? 'Staged' : item.untracked ? 'Untracked' : 'Unstaged'} ·{' '}
-                          {item.path}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                <button disabled={!snapshot.connected || !preview.safe || busy}>
-                  {busy ? 'Creating…' : 'Create project'}
+                <button className="primary" disabled={!preview.safe || busy}>
+                  Create project
                 </button>
               </form>
-            </section>
-          )}
-
-          {devices.length > 0 && (
-            <section className="card">
-              <h2>Trusted devices</h2>
-              <ul>
-                {devices.map((device) => (
-                  <li key={device.id} className="device-row">
-                    <span>
-                      {device.name}
-                      {device.revokedAt ? ' · Revoked' : ''}
-                    </span>
-                    {!device.revokedAt && (
-                      <button
-                        onClick={() => {
-                          if (window.confirm(`Revoke ${device.name}?`))
-                            void run(() => window.factoru.product.revoke(device.id)).then(() =>
-                              window.factoru.product.devices().then(setDevices),
-                            )
-                        }}
-                      >
-                        Revoke
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          <section className="card" aria-labelledby="projects-heading">
-            <h2 id="projects-heading">Projects</h2>
-            {snapshot.projects.length === 0 ? (
-              <p className="muted">
-                No projects yet. Add an existing repository from the server’s approved roots.
-              </p>
-            ) : (
-              <ul className="project-list">
-                {snapshot.projects.map((project) => (
-                  <li key={project.id}>
-                    <div>
-                      <strong>{project.name}</strong>
-                      <span className="mono muted">
-                        {project.repository.label}/{project.repository.relativePath}
-                      </span>
-                    </div>
-                    <span className={`badge badge-${project.setupState}`}>
-                      {project.setupState.replaceAll('_', ' ')}
-                    </span>
-                    <p>
-                      Default branch: {project.defaultBranch} · Rig: {project.rig.rigName}
-                    </p>
-                    {project.setupError && <p className="error">{project.setupError.message}</p>}
-                    {project.setupState === 'needs_attention' && (
-                      <button
-                        disabled={!snapshot.connected || busy}
-                        onClick={() => void run(() => window.factoru.product.retry(project.id))}
-                      >
-                        Retry setup
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
             )}
           </section>
-        </>
+        ) : !snapshot.workspace ? (
+          <section className="empty-state">
+            <h2>No project selected</h2>
+            <p>Add an existing repository or choose a project from the sidebar.</p>
+          </section>
+        ) : (
+          <>
+            <div className="message-list" aria-live="polite">
+              {snapshot.workspace.conversation.messages.length === 0 ? (
+                <section className="conversation-empty">
+                  <span className="avatar">PM</span>
+                  <h2>What should we work on?</h2>
+                  <p>
+                    Discuss the repository, clarify a direction, or ask the Project Manager to help
+                    shape the next task.
+                  </p>
+                </section>
+              ) : (
+                snapshot.workspace.conversation.messages.map((message) => (
+                  <article key={message.id} className={`message ${message.role}`}>
+                    <header>
+                      <strong>{message.role === 'assistant' ? 'Project Manager' : 'You'}</strong>
+                      <time>{new Date(message.createdAt).toLocaleTimeString()}</time>
+                    </header>
+                    <p>{message.text}</p>
+                    <footer>
+                      {statusLabel(message.deliveryState)}
+                      {message.tokenUsage &&
+                        ` · ${message.tokenUsage.input + message.tokenUsage.output} tokens`}
+                      {message.toolActivity.length > 0 &&
+                        ` · ${message.toolActivity.length} tool activities`}
+                    </footer>
+                  </article>
+                ))
+              )}
+            </div>
+            <form className="composer" onSubmit={sendMessage}>
+              <textarea
+                name="message"
+                rows={3}
+                maxLength={32_000}
+                placeholder="Message your Project Manager…"
+                disabled={!snapshot.connected || busy}
+              />
+              <button className="primary" disabled={!snapshot.connected || busy}>
+                Send
+              </button>
+            </form>
+          </>
+        )}
+      </section>
+
+      <aside className="inspector-pane">
+        <header className="inspector-tabs">
+          <button className={tab === 'tasks' ? 'active' : ''} onClick={() => setTab('tasks')}>
+            Tasks
+          </button>
+          <button className={tab === 'workers' ? 'active' : ''} onClick={() => setTab('workers')}>
+            Workers
+          </button>
+        </header>
+
+        {tab === 'tasks' ? (
+          <div className="task-board" aria-label="Tasks">
+            {taskColumns.map(([id, label]) => (
+              <section key={id} className="task-column">
+                <header>
+                  <span className={`column-dot ${id}`} />
+                  <h2>{label}</h2>
+                  <span>0</span>
+                </header>
+                <p>No tasks</p>
+              </section>
+            ))}
+            <p className="board-note">
+              Persistent task capture and Queue reconciliation arrive in Milestone 4.
+            </p>
+          </div>
+        ) : snapshot.workspace ? (
+          <div className="workers-panel">
+            <section className="factory-card">
+              <div>
+                <p className="eyebrow">Factory capacity</p>
+                <strong>1 implementation at a time</strong>
+              </div>
+              <span className="health-pill ready">Serial MVP</span>
+            </section>
+
+            {snapshot.workspace.workerTypes.map((worker) => (
+              <section className="worker-card" key={worker.kind}>
+                <header>
+                  <span className="avatar">{worker.kind === 'project_manager' ? 'PM' : 'SE'}</span>
+                  <div>
+                    <h2>{worker.displayName}</h2>
+                    <p>{worker.defaultFormula}</p>
+                  </div>
+                  <span className="health-pill ready">capacity {worker.capacity}</span>
+                </header>
+                <details open>
+                  <summary>Model slots</summary>
+                  {worker.modelBindings.map((binding) => (
+                    <form
+                      className="model-row"
+                      key={`${binding.slot}:${binding.version}`}
+                      onSubmit={(event) => updateModel(event, worker, binding.slot)}
+                    >
+                      <strong>{statusLabel(binding.slot)}</strong>
+                      <input
+                        name="provider"
+                        aria-label={`${binding.slot} provider`}
+                        placeholder="Provider adapter"
+                        defaultValue={binding.provider ?? ''}
+                        disabled={!snapshot.connected}
+                      />
+                      <input
+                        name="model"
+                        aria-label={`${binding.slot} model`}
+                        placeholder="Model ID"
+                        defaultValue={binding.model ?? ''}
+                        disabled={!snapshot.connected}
+                      />
+                      <button disabled={!snapshot.connected || busy}>Save</button>
+                    </form>
+                  ))}
+                </details>
+                <details>
+                  <summary>Policy & tools</summary>
+                  <p>{worker.memoryPolicy.replaceAll('_', ' ')}</p>
+                  <ul>
+                    {worker.allowedTools.map((tool) => (
+                      <li key={tool}>{tool}</li>
+                    ))}
+                  </ul>
+                </details>
+              </section>
+            ))}
+
+            <section className="worker-card planner-card">
+              <header>
+                <div>
+                  <h2>Planner isolation probe</h2>
+                  <p>Runs separately while chat stays responsive.</p>
+                </div>
+                {snapshot.workspace.plannerProbe && (
+                  <span className={`health-pill ${snapshot.workspace.plannerProbe.status}`}>
+                    {statusLabel(snapshot.workspace.plannerProbe.status)}
+                  </span>
+                )}
+              </header>
+              {snapshot.workspace.plannerProbe &&
+              ['pending', 'running', 'cancelling'].includes(
+                snapshot.workspace.plannerProbe.status,
+              ) ? (
+                <button
+                  disabled={!snapshot.connected || busy}
+                  onClick={() =>
+                    void run(() =>
+                      window.factoru.product.cancelPlanner(
+                        snapshot.workspace!.projectId,
+                        snapshot.workspace!.plannerProbe!.id,
+                      ),
+                    )
+                  }
+                >
+                  Cancel planner probe
+                </button>
+              ) : (
+                <button
+                  disabled={!snapshot.connected || busy}
+                  onClick={() =>
+                    void run(() =>
+                      window.factoru.product.startPlanner(snapshot.workspace!.projectId),
+                    )
+                  }
+                >
+                  Run planner probe
+                </button>
+              )}
+            </section>
+
+            <section className="worker-card memory-card">
+              <header>
+                <div>
+                  <h2>Durable memory</h2>
+                  <p>Every entry keeps explicit provenance and version history.</p>
+                </div>
+              </header>
+              <ul>
+                {snapshot.workspace.memory.map((entry) => (
+                  <li key={entry.id}>
+                    <span>{entry.content}</span>
+                    <small>
+                      {entry.scope} · v{entry.version} · {entry.provenance.ref}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+              <form className="form-stack compact" onSubmit={addMemory}>
+                <label>
+                  Scope
+                  <select name="scope" defaultValue="project">
+                    <option value="project">Project</option>
+                    <option value="worker_type">Worker Type</option>
+                  </select>
+                </label>
+                <label>
+                  Worker Type
+                  <select name="workerTypeKind" defaultValue="project_manager">
+                    <option value="project_manager">Project Manager</option>
+                    <option value="software_engineer">Software Engineer</option>
+                  </select>
+                </label>
+                <textarea name="content" required rows={3} placeholder="A durable project fact…" />
+                <button disabled={!snapshot.connected || busy}>Add memory</button>
+              </form>
+            </section>
+          </div>
+        ) : (
+          <div className="empty-state small">Choose a project to inspect its workers.</div>
+        )}
+      </aside>
+
+      {devices.length > 0 && (
+        <section className="device-drawer">
+          <header>
+            <h2>Trusted devices</h2>
+            <button onClick={() => setDevices([])}>Close</button>
+          </header>
+          {devices.map((device) => (
+            <div key={device.id}>
+              <span>{device.name}</span>
+              {!device.revokedAt && (
+                <button
+                  onClick={() =>
+                    window.confirm(`Revoke ${device.name}?`) &&
+                    void run(() => window.factoru.product.revoke(device.id)).then(() =>
+                      window.factoru.product.devices().then(setDevices),
+                    )
+                  }
+                >
+                  Revoke
+                </button>
+              )}
+            </div>
+          ))}
+        </section>
       )}
 
       {(error || snapshot.error) && (
-        <p className="error" role="alert">
-          {error ?? snapshot.error}
-        </p>
+        <div className="toast error" role="alert">
+          <span>{error ?? snapshot.error}</span>
+          <button onClick={() => setError(null)}>Dismiss</button>
+        </div>
       )}
     </main>
   )
