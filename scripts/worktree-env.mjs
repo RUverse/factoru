@@ -100,6 +100,17 @@ export function devEnvFor(worktreeRoot, { portBase } = {}) {
   }
 }
 
+/**
+ * Keeps identity, state, and ports owned by the worktree harness while allowing
+ * an operator to point development project browsing at disposable repositories.
+ */
+export function processEnvForDevelopment(devEnvironment, parentEnvironment = process.env) {
+  const merged = { ...parentEnvironment, ...devEnvironment }
+  const repositoryRoots = parentEnvironment.FACTORU_REPOSITORY_ROOTS?.trim()
+  if (repositoryRoots) merged.FACTORU_REPOSITORY_ROOTS = repositoryRoots
+  return merged
+}
+
 function isPortFree(port, host = DEV_HOST) {
   return new Promise((resolve) => {
     const probe = net

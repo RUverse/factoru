@@ -7,15 +7,16 @@ durable state. **Factoru Desktop** is an unprivileged Electron client that
 connects to it. See [docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the living system map.
 
-> **Status: Milestone 2 in progress.** SQLite persistence, pairing, trusted
-> devices, authenticated live transport, approved repository roots, durable
-> project setup, and guarded Gas City rig registration are implemented. Remote
-> HTTPS and real Gas City restart acceptance remain milestone gates.
+> **Status: Milestones 0–4 implemented.** The development app includes durable
+> projects, persistent Project Manager chat, Worker/model/memory controls, the
+> four-state task board, and serialized Queue reconciliation. Provider-backed
+> operator acceptance, remote HTTPS, and the Milestone 5 delivery loop remain.
 
 ## Requirements
 
 - Node.js 22.12 or newer
 - pnpm 11 (`corepack enable pnpm`, or install it however you manage Node tools)
+- Gas City 1.4.x and its dependencies for project/chat/Queue testing
 
 ## Getting started
 
@@ -29,9 +30,16 @@ Run both applications against this worktree's isolated development state:
 pnpm dev
 ```
 
-The server and the Electron window start together. Generate a pairing code in
-another terminal with `pnpm --filter @factoru/server start pair`, then enter it
-in the desktop. Individually:
+The server and the Electron window start together. Its URL and isolated state
+directory are printed in the terminal. Generate a pairing code in another
+terminal with:
+
+```bash
+pnpm dev:pair
+```
+
+Enter the printed development server URL and pairing code in the desktop.
+Individually:
 
 ```bash
 pnpm dev:server
@@ -43,6 +51,20 @@ pnpm dev:desktop
 
 `pnpm dev:desktop` expects a server already listening on this worktree's derived
 port.
+
+For project-creation testing, prefer a clean disposable Git repository because
+Gas City rig registration intentionally creates Beads metadata and may commit it
+in the selected repository. Point the development server at a containing folder
+instead of this source worktree:
+
+```bash
+FACTORU_REPOSITORY_ROOTS='["/absolute/path/to/disposable-repositories"]' pnpm dev
+```
+
+After pairing, add the disposable repository, open Tasks, capture a Backlog
+card, move it to Queue, and observe the planning phase badge. Queue planning and
+Project Manager chat additionally require the dedicated Gas City city and chosen
+provider harness to be configured and authenticated.
 
 ## Per-worktree development state
 
@@ -90,9 +112,10 @@ scripts/           Development harness and per-worktree environment
 docs/              Roadmap, architecture, and decision records
 ```
 
-`packages/ui` and `templates/` remain planned boundaries.
-`packs/factoru-default` contains the Milestone 1 Gas City pack; database and Gas
-City packages now ship production code.
+`packages/ui` provides the visual tokens used by the renderer. `templates/`
+contains the built-in Software Project Factory Template, and
+`packs/factoru-default` contains the versioned Project Manager and Software
+Engineer roles plus the production Queue reconciliation Formula.
 
 ## Working in this repository
 

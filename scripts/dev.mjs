@@ -15,6 +15,7 @@ import {
   portBaseFor,
   readAllocatedPortBase,
   resolveWorktreeRoot,
+  processEnvForDevelopment,
   worktreeIdFor,
   writeAllocatedPortBase,
 } from './worktree-env.mjs'
@@ -106,7 +107,7 @@ function shutdown(exitCode) {
 const children = targets.map(({ name, filter }) => {
   const child = spawn('pnpm', ['--filter', filter, 'run', 'dev'], {
     cwd: worktreeRoot,
-    env: { ...process.env, ...dev.env },
+    env: processEnvForDevelopment(dev.env),
     stdio: 'inherit',
   })
   child.on('exit', (code, signal) => {

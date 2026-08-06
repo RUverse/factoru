@@ -14,6 +14,7 @@ import {
   findFreePortBlock,
   portBaseFor,
   portsFor,
+  processEnvForDevelopment,
   readAllocatedPortBase,
   worktreeIdFor,
   writeAllocatedPortBase,
@@ -80,6 +81,18 @@ describe('worktree development environment', () => {
 
   it('requires an absolute worktree path', () => {
     assert.throws(() => worktreeIdFor('relative/path'), /absolute path/)
+  })
+
+  it('allows disposable repository roots without overriding worktree identity or state', () => {
+    const dev = devEnvFor('/Users/dev/factoru')
+    const merged = processEnvForDevelopment(dev.env, {
+      FACTORU_DATA_DIR: '/unsafe/shared-state',
+      FACTORU_PORT: '9999',
+      FACTORU_REPOSITORY_ROOTS: '["/tmp/disposable-repositories"]',
+    })
+    assert.equal(merged.FACTORU_DATA_DIR, dev.dataDir)
+    assert.equal(merged.FACTORU_PORT, String(dev.serverPort))
+    assert.equal(merged.FACTORU_REPOSITORY_ROOTS, '["/tmp/disposable-repositories"]')
   })
 })
 
