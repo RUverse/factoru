@@ -1,9 +1,13 @@
 # Milestones 5 and 6 acceptance
 
-Date: 2026-08-06  
-Host: macOS arm64  
-Gas City: 1.4.0  
-Pack: `factoru-default` 0.3.0  
+Date: 2026-08-06
+
+Host: macOS arm64
+
+Gas City: 1.4.0
+
+Pack: `factoru-default` 0.3.0
+
 Formula hash: `5c1ac19927e7ee14865fe11cf423c6c0e707f7ce6cf01a7e84f3aefa02cde7fb`
 
 ## Milestone 5 result
