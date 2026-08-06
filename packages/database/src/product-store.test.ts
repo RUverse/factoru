@@ -45,6 +45,8 @@ describe('Milestone 3 product persistence', () => {
       templateId: 'software-project',
       templateVersion: 1,
       maxParallelImplementationWorkers: 1,
+      executionWipLimit: 1,
+      queueRevision: 0,
     })
     const workers = db.product.listWorkerTypes(project.id)
     expect(workers.map((worker) => worker.kind)).toEqual(['project_manager', 'software_engineer'])

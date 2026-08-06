@@ -17,6 +17,7 @@ import { ProjectService } from './project-service.js'
 import { RepositoryService } from './repositories.js'
 import { SERVER_VERSION } from './version.js'
 import { WorkspaceService } from './workspace-service.js'
+import { TaskService } from './task-service.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -113,6 +114,7 @@ async function main(): Promise<void> {
     database,
     projectService,
     workspaceService,
+    taskService: new TaskService(database),
   })
 
   const shutdown = (signal: NodeJS.Signals) => {

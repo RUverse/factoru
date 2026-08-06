@@ -4,6 +4,9 @@ import {
   SOFTWARE_PROJECT_TEMPLATE,
   isModelSlotForWorker,
   validateWorkerType,
+  queuePhaseForStatus,
+  taskCandidateScore,
+  validateTaskState,
 } from './product.js'
 
 describe('software project template', () => {
@@ -36,5 +39,49 @@ describe('software project template', () => {
         memoryPolicy: 'automatic' as never,
       }),
     ).toThrow(/provenance/)
+  })
+})
+
+describe('task lifecycle', () => {
+  it('keeps Queue phase detail separate from the four active statuses', () => {
+    expect(queuePhaseForStatus('queue')).toBe('awaiting_triage')
+    expect(queuePhaseForStatus('backlog')).toBeNull()
+    expect(() =>
+      validateTaskState({
+        status: 'queue',
+        queuePhase: null,
+        needsYouAction: null,
+        needsYouMessage: null,
+        resolution: null,
+      }),
+    ).toThrow(/Queue phase/)
+  })
+
+  it('requires Needs you to name the exact requested action', () => {
+    expect(() =>
+      validateTaskState({
+        status: 'needs_you',
+        queuePhase: null,
+        needsYouAction: 'clarify',
+        needsYouMessage: 'Which platforms must this support?',
+        resolution: null,
+      }),
+    ).not.toThrow()
+    expect(() =>
+      validateTaskState({
+        status: 'needs_you',
+        queuePhase: null,
+        needsYouAction: null,
+        needsYouMessage: null,
+        resolution: null,
+      }),
+    ).toThrow(/exact user action/)
+  })
+
+  it('scores simple duplicate candidates without a model dependency', () => {
+    expect(taskCandidateScore('Add dark mode settings', 'Dark mode for settings')).toBeGreaterThan(
+      0.7,
+    )
+    expect(taskCandidateScore('Add dark mode', 'Fix database migration')).toBe(0)
   })
 })

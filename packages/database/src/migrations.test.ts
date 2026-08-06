@@ -94,4 +94,23 @@ describe('forward migrations', () => {
     ).toEqual({ id: 'conv_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', transcript_cursor: 0 })
     database.close()
   })
+
+  it('adds the Milestone 4 task model without inventing a terminal board status', () => {
+    const { directory, database } = fixture()
+    for (const name of [
+      '0001_milestone_2.sql',
+      '0002_milestone_3_product_model.sql',
+      '0003_milestone_4_tasks.sql',
+    ]) {
+      fs.copyFileSync(new URL(`../migrations/${name}`, import.meta.url), path.join(directory, name))
+    }
+    applyMigrations(database, directory)
+    const taskSql = database
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'")
+      .get() as { sql: string }
+    expect(taskSql.sql).toContain("'backlog', 'queue', 'in_progress', 'needs_you'")
+    expect(taskSql.sql).not.toContain("'done'")
+    expect(database.prepare('SELECT execution_wip_limit FROM factory_settings').all()).toEqual([])
+    database.close()
+  })
 })

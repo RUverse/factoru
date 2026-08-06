@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { queueReconciliationSchema, taskSchema } from './milestone4.js'
 
 export const CAPABILITY_WORKSPACES = 'workspaces-v1'
 export const CAPABILITY_CONVERSATIONS = 'conversations-v1'
@@ -35,6 +36,8 @@ export const factorySettingsSchema = z.object({
   templateId: z.literal('software-project'),
   templateVersion: z.number().int().positive(),
   maxParallelImplementationWorkers: z.literal(1),
+  executionWipLimit: z.literal(1).default(1),
+  queueRevision: z.number().int().nonnegative().default(0),
 })
 
 export const toolActivitySchema = z.object({
@@ -99,6 +102,9 @@ export const workspaceSchema = z.object({
   conversation: conversationSchema,
   memory: z.array(memoryEntrySchema),
   plannerProbe: plannerProbeSchema.nullable(),
+  tasks: z.array(taskSchema).default([]),
+  recentTaskResolutions: z.array(taskSchema).default([]),
+  queueReconciliation: queueReconciliationSchema.nullable().default(null),
 })
 
 export const workspaceParamsSchema = z.object({ projectId: z.string().min(1) })

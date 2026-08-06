@@ -97,3 +97,72 @@ export function validateWorkerType(definition: WorkerTypeDefinition): void {
     throw new Error('Durable memory must require provenance')
   }
 }
+
+export const TASK_STATUSES = ['backlog', 'queue', 'in_progress', 'needs_you'] as const
+export type TaskStatus = (typeof TASK_STATUSES)[number]
+
+export const QUEUE_PHASES = [
+  'awaiting_triage',
+  'triaging',
+  'ready',
+  'waiting_dependency',
+  'waiting_capacity',
+] as const
+export type QueuePhase = (typeof QUEUE_PHASES)[number]
+
+export const TASK_RESOLUTIONS = ['accepted', 'rejected', 'cancelled', 'superseded'] as const
+export type TaskResolution = (typeof TASK_RESOLUTIONS)[number]
+
+export const NEEDS_YOU_ACTIONS = [
+  'clarify',
+  'approve',
+  'review',
+  'resolve_conflict',
+  'recover_failure',
+] as const
+export type NeedsYouAction = (typeof NEEDS_YOU_ACTIONS)[number]
+
+export interface TaskState {
+  readonly status: TaskStatus
+  readonly queuePhase: QueuePhase | null
+  readonly needsYouAction: NeedsYouAction | null
+  readonly needsYouMessage: string | null
+  readonly resolution: TaskResolution | null
+}
+
+export function validateTaskState(task: TaskState): void {
+  if ((task.status === 'queue') !== (task.queuePhase !== null)) {
+    throw new Error('Only Queue tasks have a Queue phase')
+  }
+  const requestsUser = task.needsYouAction !== null || task.needsYouMessage !== null
+  if ((task.status === 'needs_you') !== requestsUser) {
+    throw new Error('Needs you tasks require an exact user action and message')
+  }
+  if (
+    task.status === 'needs_you' &&
+    (task.needsYouAction === null || !task.needsYouMessage?.trim())
+  ) {
+    throw new Error('Needs you tasks require an exact user action and message')
+  }
+}
+
+export function queuePhaseForStatus(status: TaskStatus): QueuePhase | null {
+  return status === 'queue' ? 'awaiting_triage' : null
+}
+
+export function taskCandidateScore(query: string, candidate: string): number {
+  const tokens = (value: string) =>
+    new Set(
+      value
+        .normalize('NFKD')
+        .toLocaleLowerCase('en-US')
+        .split(/[^a-z0-9]+/u)
+        .filter((token) => token.length > 1),
+    )
+  const left = tokens(query)
+  const right = tokens(candidate)
+  if (left.size === 0 || right.size === 0) return 0
+  let intersection = 0
+  for (const token of left) if (right.has(token)) intersection += 1
+  return (2 * intersection) / (left.size + right.size)
+}

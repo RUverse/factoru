@@ -4,6 +4,7 @@ import type {
   FactoruDatabase,
   PlannerProbeRecord,
   WorkerTypeRecord,
+  TaskRecord,
 } from '@factoru/database'
 import {
   workspaceSchema,
@@ -12,6 +13,7 @@ import {
   type PlannerProbe,
   type WorkerType,
   type Workspace,
+  type Task,
 } from '@factoru/protocol'
 import type {
   ConversationMessage as OrchestrationConversationMessage,
@@ -99,6 +101,32 @@ function plannerProjection(record: PlannerProbeRecord | null): PlannerProbe | nu
     : null
 }
 
+function taskProjection(record: TaskRecord): Task {
+  return {
+    id: record.id,
+    projectId: record.projectId,
+    title: record.title,
+    description: record.description,
+    status: record.status,
+    queuePhase: record.queuePhase,
+    priority: record.priority,
+    queueOrder: record.queueOrder,
+    workerTypeKind: record.workerTypeKind,
+    formulaName: record.formulaName,
+    needsYouAction: record.needsYouAction,
+    needsYouMessage: record.needsYouMessage,
+    resolution: record.resolution,
+    resolutionSummary: record.resolutionSummary,
+    resolvedAt: record.resolvedAt,
+    mergedIntoTaskId: record.mergedIntoTaskId,
+    source: record.source,
+    dependencyIds: record.dependencyIds,
+    version: record.version,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }
+}
+
 export class WorkspaceService {
   readonly #database: FactoruDatabase
   readonly #orchestrator: ProjectManagerOrchestrator
@@ -141,6 +169,29 @@ export class WorkspaceService {
       conversation: this.#conversationProjection(conversation),
       memory,
       plannerProbe: plannerProjection(this.#database.product.latestPlannerProbe(projectId)),
+      tasks: this.#database.tasks.listActive(projectId).map(taskProjection),
+      recentTaskResolutions: this.#database.tasks.listRecentResolved(projectId).map(taskProjection),
+      queueReconciliation: (() => {
+        const reconciliation =
+          this.#database.tasks.activeReconciliation(projectId) ??
+          this.#database.tasks.pendingReconciliation(projectId) ??
+          this.#database.tasks.latestReconciliation(projectId)
+        return reconciliation
+          ? {
+              id: reconciliation.id,
+              requestedRevision: reconciliation.requestedRevision,
+              coalescedThroughRevision: reconciliation.coalescedThroughRevision,
+              status: reconciliation.status,
+              error:
+                reconciliation.errorCode && reconciliation.errorMessage
+                  ? { code: reconciliation.errorCode, message: reconciliation.errorMessage }
+                  : null,
+              requestedAt: reconciliation.requestedAt,
+              startedAt: reconciliation.startedAt,
+              finishedAt: reconciliation.finishedAt,
+            }
+          : null
+      })(),
     })
   }
 

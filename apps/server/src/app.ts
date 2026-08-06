@@ -13,6 +13,8 @@ import {
   CAPABILITY_CONVERSATIONS,
   CAPABILITY_WORKSPACES,
   CAPABILITY_WORKER_TYPES,
+  CAPABILITY_TASKS,
+  CAPABILITY_QUEUE_RECONCILIATION,
   CONNECTION_TICKET_PATH,
   HANDSHAKE_PATH,
   HEALTH_PATH,
@@ -43,6 +45,11 @@ import {
   repositoryBrowseParamsSchema,
   type HealthResponse,
   type LiveRequest,
+  taskCreateParamsSchema,
+  taskMoveParamsSchema,
+  taskResolveParamsSchema,
+  taskSearchParamsSchema,
+  taskUpdateParamsSchema,
 } from '@factoru/protocol'
 import type { ServerConfig } from './config.js'
 import { SERVER_VERSION } from './version.js'
@@ -50,6 +57,7 @@ import { bearerDevice, requireScope, TicketStore } from './auth.js'
 import { ApplicationError, type ProjectService } from './project-service.js'
 import { RepositoryError } from './repositories.js'
 import type { WorkspaceService } from './workspace-service.js'
+import type { TaskService } from './task-service.js'
 
 export interface BuildServerOptions {
   serverId: ServerId
@@ -61,6 +69,7 @@ export interface BuildServerOptions {
   database?: FactoruDatabase
   projectService?: ProjectService
   workspaceService?: WorkspaceService
+  taskService?: TaskService
 }
 
 export const BASE_SERVER_CAPABILITIES = [CAPABILITY_HEALTH, CAPABILITY_HANDSHAKE]
@@ -92,6 +101,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   const database = options.database
   const projects = options.projectService
   const workspaces = options.workspaceService
+  const tasks = options.taskService
   const capabilities =
     projects && database
       ? [
@@ -103,6 +113,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           ...(workspaces
             ? [CAPABILITY_WORKSPACES, CAPABILITY_CONVERSATIONS, CAPABILITY_WORKER_TYPES]
             : []),
+          ...(tasks ? [CAPABILITY_TASKS, CAPABILITY_QUEUE_RECONCILIATION] : []),
         ]
       : BASE_SERVER_CAPABILITIES
   const tickets = new TicketStore()
@@ -293,6 +304,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'memory.add': 'projects:write',
       'planner.start': 'projects:write',
       'planner.cancel': 'projects:write',
+      'tasks.create': 'projects:write',
+      'tasks.update': 'projects:write',
+      'tasks.move': 'projects:write',
+      'tasks.resolve': 'projects:write',
+      'tasks.search': 'projects:read',
     }
     try {
       requireScope(currentDevice, requiredScopes[request.method])
@@ -468,6 +484,68 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
             )
           break
         }
+        case 'tasks.create': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = taskCreateParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Creating a task requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => tasks.create(params, currentDevice.id),
+          )
+          break
+        }
+        case 'tasks.update': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = taskUpdateParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Updating a task requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => tasks.update(params, currentDevice.id),
+          )
+          break
+        }
+        case 'tasks.move': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = taskMoveParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Moving a task requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => tasks.move(params, currentDevice.id),
+          )
+          break
+        }
+        case 'tasks.resolve': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = taskResolveParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Resolving a task requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => tasks.resolve(params, currentDevice.id),
+          )
+          break
+        }
+        case 'tasks.search': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = taskSearchParamsSchema.parse(request.params)
+          result = tasks.search(params.projectId, params.query, params.limit)
+          break
+        }
       }
       socket.send(JSON.stringify({ id: request.id, ok: true, result }))
       if (request.method === 'devices.revoke' && (result as { self?: boolean }).self === true) {
@@ -480,7 +558,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         request.method === 'workers.updateModelBinding' ||
         request.method === 'memory.add' ||
         request.method === 'planner.start' ||
-        request.method === 'planner.cancel'
+        request.method === 'planner.cancel' ||
+        request.method === 'tasks.create' ||
+        request.method === 'tasks.update' ||
+        request.method === 'tasks.move' ||
+        request.method === 'tasks.resolve'
       )
         publishEvents()
     } catch (error) {

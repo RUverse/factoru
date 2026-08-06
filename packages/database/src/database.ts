@@ -5,6 +5,7 @@ import Database from 'better-sqlite3'
 import type { ServerId } from '@factoru/domain'
 import { applyMigrations } from './migrations.js'
 import { initializeProjectProductModel, ProductStore } from './product-store.js'
+import { TaskStore } from './task-store.js'
 
 export const OWNER_SCOPES = [
   'projects:read',
@@ -178,6 +179,7 @@ function projectFromRow(row: ProjectRow): ProjectRecord {
 export class FactoruDatabase {
   readonly connection: Database.Database
   readonly product: ProductStore
+  readonly tasks: TaskStore
   readonly #now: () => Date
   readonly #filePath: string
 
@@ -193,6 +195,7 @@ export class FactoruDatabase {
       applyMigrations(this.connection)
       this.#bindServerIdentity(serverId)
       this.product = new ProductStore(this.connection, this.#now)
+      this.tasks = new TaskStore(this.connection, this.#now)
     } catch (error) {
       this.connection.close()
       throw error

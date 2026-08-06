@@ -300,10 +300,13 @@ export class ProductStore {
     templateId: string
     templateVersion: number
     maxParallelImplementationWorkers: 1
+    executionWipLimit: 1
+    queueRevision: number
   } | null {
     const row = this.#db
       .prepare(
-        `SELECT template_id, template_version, max_parallel_implementation_workers
+        `SELECT template_id, template_version, max_parallel_implementation_workers,
+                execution_wip_limit, queue_revision
          FROM factory_settings WHERE project_id = ?`,
       )
       .get(projectId) as
@@ -311,6 +314,8 @@ export class ProductStore {
           template_id: string
           template_version: number
           max_parallel_implementation_workers: 1
+          execution_wip_limit: 1
+          queue_revision: number
         }
       | undefined
     return row
@@ -318,6 +323,8 @@ export class ProductStore {
           templateId: row.template_id,
           templateVersion: row.template_version,
           maxParallelImplementationWorkers: row.max_parallel_implementation_workers,
+          executionWipLimit: row.execution_wip_limit,
+          queueRevision: row.queue_revision,
         }
       : null
   }
