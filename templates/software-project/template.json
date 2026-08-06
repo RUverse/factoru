@@ -1,0 +1,25 @@
+{
+  "$schema": "../template.schema.json",
+  "id": "software-project",
+  "version": 1,
+  "name": "Software project",
+  "pack": {
+    "id": "factoru-default",
+    "lock": "../../packs/factoru-default/packs.lock"
+  },
+  "factory": {
+    "maxParallelImplementationWorkers": 1
+  },
+  "workerTypes": {
+    "project_manager": {
+      "modelSlots": ["chat", "planning"],
+      "defaultFormula": "queue-reconcile",
+      "memoryPolicy": "provenance_required"
+    },
+    "software_engineer": {
+      "modelSlots": ["implementation", "review"],
+      "defaultFormula": "software-delivery",
+      "memoryPolicy": "provenance_required"
+    }
+  }
+}

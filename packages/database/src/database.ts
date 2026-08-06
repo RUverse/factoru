@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import Database from 'better-sqlite3'
 import type { ServerId } from '@factoru/domain'
 import { applyMigrations } from './migrations.js'
+import { initializeProjectProductModel, ProductStore } from './product-store.js'
 
 export const OWNER_SCOPES = [
   'projects:read',
@@ -172,6 +173,7 @@ function projectFromRow(row: ProjectRow): ProjectRecord {
 
 export class FactoruDatabase {
   readonly connection: Database.Database
+  readonly product: ProductStore
   readonly #now: () => Date
   readonly #filePath: string
 
@@ -186,6 +188,7 @@ export class FactoruDatabase {
     try {
       applyMigrations(this.connection)
       this.#bindServerIdentity(serverId)
+      this.product = new ProductStore(this.connection, this.#now)
     } catch (error) {
       this.connection.close()
       throw error
@@ -384,6 +387,7 @@ export class FactoruDatabase {
            ) VALUES (?, ?, ?, ?, 'pending')`,
         )
         .run(input.projectId, input.cityName, input.rigName, input.beadPrefix)
+      initializeProjectProductModel(this.connection, input.projectId, now)
       const event = this.#appendEvent(
         'project.created',
         input.projectId,

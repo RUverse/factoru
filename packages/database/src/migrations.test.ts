@@ -57,4 +57,41 @@ describe('forward migrations', () => {
     expect(() => applyMigrations(database, directory)).toThrow(/newer than this Factoru binary/)
     database.close()
   })
+
+  it('backfills Milestone 3 product state for an existing Milestone 2 project', () => {
+    const { directory, database } = fixture()
+    fs.copyFileSync(
+      new URL('../migrations/0001_milestone_2.sql', import.meta.url),
+      path.join(directory, '0001_milestone_2.sql'),
+    )
+    applyMigrations(database, directory)
+    database
+      .prepare(
+        `INSERT INTO projects(
+           id, name, repository_root_id, repository_relative_path, repository_real_path,
+           default_branch, setup_state, created_at, updated_at
+         ) VALUES (?, 'Existing', 'root', 'existing', '/repos/existing', 'dev', 'ready', ?, ?)`,
+      )
+      .run(
+        'prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        '2026-08-06T10:00:00.000Z',
+        '2026-08-06T10:00:00.000Z',
+      )
+    fs.copyFileSync(
+      new URL('../migrations/0002_milestone_3_product_model.sql', import.meta.url),
+      path.join(directory, '0002_milestone_3_product_model.sql'),
+    )
+    applyMigrations(database, directory)
+    expect(
+      database
+        .prepare('SELECT kind FROM worker_types WHERE project_id = ? ORDER BY kind')
+        .all('prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    ).toEqual([{ kind: 'project_manager' }, { kind: 'software_engineer' }])
+    expect(
+      database
+        .prepare('SELECT id, transcript_cursor FROM conversations WHERE project_id = ?')
+        .get('prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    ).toEqual({ id: 'conv_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', transcript_cursor: 0 })
+    database.close()
+  })
 })
