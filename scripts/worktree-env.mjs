@@ -93,6 +93,7 @@ export function devEnvFor(worktreeRoot, { portBase } = {}) {
       FACTORU_PORT: String(ports.serverPort),
       FACTORU_REPOSITORY_ROOTS: JSON.stringify([worktreeRoot]),
       FACTORU_GAS_CITY_PATH: path.join(dataDir, 'gas-city'),
+      FACTORU_PACK_PATH: path.join(worktreeRoot, 'packs', 'factoru-default'),
       FACTORU_SERVER_URL: serverUrl,
       FACTORU_RENDERER_PORT: String(ports.rendererPort),
       FACTORU_LOG_LEVEL: process.env.FACTORU_LOG_LEVEL ?? 'debug',

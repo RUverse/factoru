@@ -705,7 +705,8 @@ The integration deliberately preserves Gas City's three configuration layers:
 | City deployment | Factoru-managed city root | Root `pack.toml`, `city.toml`, rig declarations, provider/harness registrations, runtime policy, and import lock |
 | Machine-local site/runtime | City `.gc/` and Gas City-managed runtime directories | Rig path bindings, caches, sockets, logs, sessions, generated state, and Gas City worktrees |
 
-The development harness can initialize this topology only after the tester
+The development harness projects the absolute versioned pack path independently
+of pnpm's per-package working directory. It can initialize this topology only after the tester
 explicitly supplies one or more provider names. It uses pinned Gas City 1.4.0
 commands to create the city without starting it, adds the local
 `factoru-default` pack as a pinned import, installs imports, and then registers
