@@ -1,6 +1,6 @@
 [pack]
 name = "factoru-default"
-version = "0.2.0"
+version = "0.2.1"
 schema = 2
 
 # Factoru's versioned default orchestration pack.
