@@ -38,6 +38,23 @@ terminal with:
 pnpm dev:pair
 ```
 
+For a fresh development state, explicitly initialize its dedicated Gas City
+city with the provider harnesses you want to test. Nothing is chosen silently:
+
+```bash
+pnpm dev:city --provider codex
+```
+
+Select several providers and one default when needed:
+
+```bash
+pnpm dev:city --provider claude --provider codex --default-provider codex
+```
+
+The command pins the local `factoru-default` pack, installs its imports, and
+registers the city without automatically restarting a drifting machine-wide
+supervisor. The selected harnesses must already be authenticated.
+
 Enter the printed development server URL and pairing code in the desktop.
 Individually:
 
@@ -63,8 +80,8 @@ FACTORU_REPOSITORY_ROOTS='["/absolute/path/to/disposable-repositories"]' pnpm de
 
 After pairing, add the disposable repository, open Tasks, capture a Backlog
 card, move it to Queue, and observe the planning phase badge. Queue planning and
-Project Manager chat additionally require the dedicated Gas City city and chosen
-provider harness to be configured and authenticated.
+Project Manager chat additionally require the chosen provider harness to be
+authenticated.
 
 ## Per-worktree development state
 

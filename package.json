@@ -27,6 +27,7 @@
     "dev:server": "node scripts/dev.mjs --only server",
     "dev:desktop": "node scripts/dev.mjs --only desktop",
     "dev:pair": "node scripts/dev-pair.mjs",
+    "dev:city": "node scripts/dev-city.mjs",
     "dev:env": "node scripts/dev-env.mjs",
     "clean": "pnpm -r exec rm -rf dist out .turbo node_modules/.cache"
   },

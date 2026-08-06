@@ -29,7 +29,7 @@ inventory below is authoritative.
 
 | Area | Status | Current reality | Next proof |
 | --- | --- | --- | --- |
-| Monorepo | **Implemented** | pnpm workspace with both applications, protocol/domain/config/database/Gas City/UI packages, versioned templates and pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, isolated per-worktree state/ports and pairing, plus an explicit disposable-repository-root override for safe project acceptance. | Add only milestone-owned boundaries as their real paths connect. |
+| Monorepo | **Implemented** | pnpm workspace with both applications, protocol/domain/config/database/Gas City/UI packages, versioned templates and pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, isolated per-worktree state/ports/pairing, an explicit provider-selected development-city bootstrap, plus a disposable-repository-root override for safe project acceptance. | Add only milestone-owned boundaries as their real paths connect. |
 | Factoru Server | **Partial** | Fastify connects SQLite-backed pairing, trusted devices, authenticated one-time WebSocket tickets, scoped live methods, durable projects/workspaces/tasks, idempotent product commands, event/outbox reactors, Project Manager conversation delivery, production Queue reconciliation, and restart observation while remaining loopback-bound. Direct task commands, explicit merge decisions, and the internal agent-tool gateway are connected; remote proxy and full operator acceptance remain. | Exercise one provider-driven reconciliation and then add the Milestone 5 delivery loop. |
 | Shared protocol | **Implemented** | `packages/protocol` owns runtime-validated health/handshake, pairing, ticket, project/repository/device/workspace/conversation/Worker-Type/task/Queue-phase/merge-decision, live request/response/event, cursor snapshot, compatibility, and typed HTTP client schemas. Older cached workspaces receive safe empty task and merge-proposal defaults. | Extend the contract only with Milestone 5 execution evidence. |
 | Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles, OS-encrypted credentials, projects, selected workspace, conversations, Workers, tasks, and cursors; owns the authenticated live connection; and exposes named IPC. The renderer provides the three-pane Factoru shell, persistent PM chat, Worker/model/memory controls, a responsive four-state board with direct capture/edit/move/resolve, Queue phases, exact Needs-you requests, merge confirmation, planner status/cancellation, onboarding, and offline cache. | Complete user acceptance in development; managed launch and packaged Mac acceptance remain later milestones. |
@@ -704,6 +704,14 @@ The integration deliberately preserves Gas City's three configuration layers:
 | Portable pack | Versioned `packs/factoru-default` source and pinned deployed import | Agents, prompts, formulas, tool metadata/harness wiring assets, commands, doctor checks, and reusable assets |
 | City deployment | Factoru-managed city root | Root `pack.toml`, `city.toml`, rig declarations, provider/harness registrations, runtime policy, and import lock |
 | Machine-local site/runtime | City `.gc/` and Gas City-managed runtime directories | Rig path bindings, caches, sockets, logs, sessions, generated state, and Gas City worktrees |
+
+The development harness can initialize this topology only after the tester
+explicitly supplies one or more provider names. It uses pinned Gas City 1.4.0
+commands to create the city without starting it, adds the local
+`factoru-default` pack as a pinned import, installs imports, and then registers
+the city with `--no-auto-restart` so it never restarts a drifting machine-wide
+supervisor that may host unrelated cities. This is a testing path, not a decision
+about the production first-run provider experience.
 
 Registering a rig also creates Gas City/Beads metadata in the repository (for
 example `.beads/` configuration pointing to the city endpoint). Project setup
