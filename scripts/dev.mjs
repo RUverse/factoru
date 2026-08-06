@@ -61,7 +61,18 @@ const dev = devEnvFor(worktreeRoot, { portBase })
 // need them compiled before the watchers start.
 const build = spawnSync(
   'pnpm',
-  ['--filter', '@factoru/domain', '--filter', '@factoru/protocol', 'run', 'build'],
+  [
+    '--filter',
+    '@factoru/domain',
+    '--filter',
+    '@factoru/protocol',
+    '--filter',
+    '@factoru/database',
+    '--filter',
+    '@factoru/gas-city',
+    'run',
+    'build',
+  ],
   { cwd: worktreeRoot, stdio: 'inherit' },
 )
 if (build.status !== 0) {

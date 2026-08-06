@@ -32,6 +32,12 @@ function fakeClient(options: FakeClientOptions = {}): FactoruClient {
   const server = descriptorFromHealth(health)
   return {
     baseUrl: 'http://127.0.0.1:20000',
+    pair: vi.fn(async () => {
+      throw new Error('pairing is outside connection-runtime tests')
+    }),
+    createConnectionTicket: vi.fn(async () => {
+      throw new Error('ticketing is outside connection-runtime tests')
+    }),
     handshake:
       options.handshake ??
       vi.fn(async () => ({

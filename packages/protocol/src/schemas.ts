@@ -41,6 +41,13 @@ export const healthResponseSchema = z
     capabilities: z.array(z.string().min(1)),
     startedAt: z.iso.datetime(),
     uptimeMs: z.number().int().nonnegative(),
+    storage: z
+      .object({
+        freeBytes: z.number().int().nonnegative(),
+        databaseBytes: z.number().int().nonnegative(),
+        walBytes: z.number().int().nonnegative(),
+      })
+      .optional(),
   })
   .refine((value) => value.minProtocolVersion <= value.protocolVersion, {
     message: 'minProtocolVersion must not exceed protocolVersion',

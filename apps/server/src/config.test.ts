@@ -27,6 +27,10 @@ describe('server configuration', () => {
       host: '127.0.0.1',
       port: 41234,
       dataDir: '/tmp/factoru-test/worktree',
+      databaseFile: '/tmp/factoru-test/worktree/factoru.sqlite',
+      gasCityPath: '/tmp/factoru-test/worktree/gas-city',
+      repositoryRoots: [],
+      trustLoopbackProxy: false,
       logLevel: 'debug',
     })
   })

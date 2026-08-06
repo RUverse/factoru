@@ -5,10 +5,11 @@ packages:
   - templates/*
 
 # Build scripts are opt-in. esbuild ships a platform-specific binary and is the
-# only dependency that legitimately needs one. Electron 43 no longer uses an
+# dependencies that legitimately need one. Electron 43 no longer uses an
 # install hook; `apps/desktop` downloads its runtime through `install-electron`
 # when the application is actually run.
 allowBuilds:
+  better-sqlite3: true
   electron: false
   esbuild: true
 

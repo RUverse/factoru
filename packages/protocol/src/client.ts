@@ -16,6 +16,14 @@ import {
   MIN_SUPPORTED_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
 } from './version.js'
+import {
+  CONNECTION_TICKET_PATH,
+  PAIRING_EXCHANGE_PATH,
+  connectionTicketResponseSchema,
+  pairingExchangeRequestSchema,
+  pairingExchangeResponseSchema,
+  type PairingExchangeResponse,
+} from './milestone2.js'
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -45,6 +53,11 @@ export interface FactoruClient {
   readonly baseUrl: string
   health(options?: RequestOptions): Promise<HealthResponse>
   handshake(options?: RequestOptions): Promise<HandshakeOutcome>
+  pair(code: string, deviceName: string, options?: RequestOptions): Promise<PairingExchangeResponse>
+  createConnectionTicket(
+    token: string,
+    options?: RequestOptions,
+  ): Promise<{ ticket: string; expiresAt: string }>
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000
@@ -182,6 +195,49 @@ export function createFactoruClient(options: FactoruClientOptions): FactoruClien
         response: parsed.data,
         compatibility: checkCompatibility(LOCAL_PROTOCOL_RANGE, parsed.data.server),
       }
+    },
+
+    async pair(code, deviceName, requestOptions = {}) {
+      const requestBody = pairingExchangeRequestSchema.parse({ code, deviceName })
+      const body = await request(
+        PAIRING_EXCHANGE_PATH,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        },
+        requestOptions.signal,
+      )
+      const parsed = pairingExchangeResponseSchema.safeParse(body)
+      if (!parsed.success) {
+        throw new FactoruProtocolError(
+          'invalid_response',
+          'Factoru Server sent an invalid pairing response',
+          {
+            details: parsed.error.issues,
+          },
+        )
+      }
+      return parsed.data
+    },
+
+    async createConnectionTicket(token, requestOptions = {}) {
+      const body = await request(
+        CONNECTION_TICKET_PATH,
+        { method: 'POST', headers: { authorization: `Bearer ${token}` } },
+        requestOptions.signal,
+      )
+      const parsed = connectionTicketResponseSchema.safeParse(body)
+      if (!parsed.success) {
+        throw new FactoruProtocolError(
+          'invalid_response',
+          'Factoru Server sent an invalid connection ticket',
+          {
+            details: parsed.error.issues,
+          },
+        )
+      }
+      return parsed.data
     },
   }
 }

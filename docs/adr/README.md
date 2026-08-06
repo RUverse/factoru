@@ -18,6 +18,7 @@ the historical reasoning behind one decision.
 | [0008](./0008-worktree-ownership.md) | Factoru owns worktree lifecycle for the single-task loop | Accepted |
 | [0009](./0009-rig-registration-safety.md) | Rig registration requires a clean index and discloses its mutations | Accepted |
 | [0010](./0010-agent-tool-transport.md) | Factoru installs its own agent tools from `session_setup_script` | Accepted |
+| [0011](./0011-milestone-2-remote-access-and-project-onboarding.md) | Milestone 2 remote access and project onboarding | Accepted |
 
 ## Writing a new ADR
 

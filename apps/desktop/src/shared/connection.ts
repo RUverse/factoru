@@ -1,5 +1,6 @@
 import type { BlockedReason, ConnectionState } from '@factoru/domain'
 import type { FactoruErrorCode, HealthResponse } from '@factoru/protocol'
+import type { ProductBridge } from './product'
 
 /**
  * The connection view shared by Electron main, the preload bridge, and the
@@ -36,6 +37,7 @@ export interface FactoruBridge {
     refresh(): Promise<ConnectionSnapshot>
     subscribe(listener: (snapshot: ConnectionSnapshot) => void): () => void
   }
+  readonly product: ProductBridge
 }
 
 /** True while displayed server data is a cached copy rather than live state. */

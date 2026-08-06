@@ -1,7 +1,7 @@
 # Factoru Roadmap
 
 > Status: implementation starting point
-> Last updated: 2026-08-04
+> Last updated: 2026-08-06
 
 This is the single delivery roadmap for Factoru. It intentionally starts with a
 small, coherent product and keeps the broader graph-orchestration vision as a
@@ -659,6 +659,9 @@ Build durable Factoru ownership only after the Gas City feasibility gate passes.
   revocation.
 - Add local and remote server profiles to first launch; require TLS outside
   localhost and expose only the authenticated Factoru API.
+  **Resolved for Milestone 2:** terminate HTTPS through an operator-controlled
+  private overlay or loopback reverse proxy; native certificate management is
+  deferred ([ADR 0011](./adr/0011-milestone-2-remote-access-and-project-onboarding.md)).
 - Persist projects and their Gas City city/rig binding in SQLite.
 - Add/list/open projects from the desktop.
 - Validate a server-local repository path and default branch before registering
@@ -938,8 +941,6 @@ maximizing concurrent agent count. Track from the first executable task:
 - Which Gas City harnesses/models are the supported initial compatibility
   matrix, and how does Factoru expose discovery without leaking raw option
   schemas into its domain?
-- What is the safest practical TLS/private-network onboarding experience for a
-  personal server?
 - Should local setup run the server as a login service, managed child process,
   or container?
 

@@ -24,6 +24,8 @@ export interface RepositoryStatusEntry {
   readonly path: string
   /** Whether the path has changes in the index (would be swept into a commit). */
   readonly staged: boolean
+  /** Whether Git reports this path as untracked. */
+  readonly untracked?: boolean
 }
 
 export interface RigRegistrationPreview {
@@ -107,6 +109,30 @@ export function parsePorcelainStatus(output: string): RepositoryStatusEntry[] {
       const renameSeparator = path.indexOf(' -> ')
       if (renameSeparator !== -1) path = path.slice(renameSeparator + 4)
 
-      return { path, staged: indexStatus !== ' ' && indexStatus !== '?' }
+      return {
+        path,
+        staged: indexStatus !== ' ' && indexStatus !== '?',
+        ...(indexStatus === '?' ? { untracked: true } : {}),
+      }
     })
+}
+
+/** Parse porcelain v1 `-z` output without path quoting or rename ambiguity. */
+export function parsePorcelainStatusZ(output: Buffer | Uint8Array): RepositoryStatusEntry[] {
+  const fields = Buffer.from(output).toString('utf8').split('\0')
+  const entries: RepositoryStatusEntry[] = []
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index]!
+    if (field.length < 4) continue
+    const indexStatus = field[0]!
+    const worktreeStatus = field[1]!
+    entries.push({
+      path: field.slice(3),
+      staged: indexStatus !== ' ' && indexStatus !== '?',
+      ...(indexStatus === '?' && worktreeStatus === '?' ? { untracked: true } : {}),
+    })
+    // Rename/copy records carry the old path as the next NUL field.
+    if (indexStatus === 'R' || indexStatus === 'C') index += 1
+  }
+  return entries
 }

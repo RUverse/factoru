@@ -75,10 +75,18 @@ export {
 export {
   GAS_CITY_REPOSITORY_MUTATIONS,
   parsePorcelainStatus,
+  parsePorcelainStatusZ,
   previewRigRegistration,
   type RepositoryStatusEntry,
   type RigRegistrationPreview,
 } from './rig-safety.js'
+
+export {
+  GasCityRigRegistrar,
+  type CommandExecutor,
+  type RegisterProjectRigRequest,
+  type RigRegistrar,
+} from './registration.js'
 
 export {
   compareVersions,

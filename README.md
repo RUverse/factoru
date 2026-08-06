@@ -7,9 +7,10 @@ durable state. **Factoru Desktop** is an unprivileged Electron client that
 connects to it. See [docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the living system map.
 
-> **Status: Milestone 0 — walking skeleton.** The desktop connects to a local
-> server and displays its health and version through shared, runtime-validated
-> protocol types. There are no projects, conversations, tasks, or agents yet.
+> **Status: Milestone 2 in progress.** SQLite persistence, pairing, trusted
+> devices, authenticated live transport, approved repository roots, durable
+> project setup, and guarded Gas City rig registration are implemented. Remote
+> HTTPS and real Gas City restart acceptance remain milestone gates.
 
 ## Requirements
 
@@ -28,8 +29,9 @@ Run both applications against this worktree's isolated development state:
 pnpm dev
 ```
 
-The server and the Electron window start together, the desktop points at the
-local server, and the window shows the connection state. Individually:
+The server and the Electron window start together. Generate a pairing code in
+another terminal with `pnpm --filter @factoru/server start pair`, then enter it
+in the desktop. Individually:
 
 ```bash
 pnpm dev:server
@@ -81,14 +83,16 @@ apps/desktop       Electron main, preload, and renderer
 apps/server        API, application services, orchestration
 packages/protocol  Versioned wire schemas, compatibility rules, typed client
 packages/domain    Framework-independent entities, value objects, and rules
+packages/database  SQLite migrations and persistence adapters
+packages/gas-city  Factoru-owned Gas City integration
 packages/config    Shared TypeScript configuration
 scripts/           Development harness and per-worktree environment
 docs/              Roadmap, architecture, and decision records
 ```
 
-`packages/database`, `packages/gas-city`, `packages/ui`, `packs/`, and
-`templates/` are placeholders. Each contains a README naming the milestone that
-introduces it; none of them ship code yet.
+`packages/ui` and `templates/` remain planned boundaries.
+`packs/factoru-default` contains the Milestone 1 Gas City pack; database and Gas
+City packages now ship production code.
 
 ## Working in this repository
 
