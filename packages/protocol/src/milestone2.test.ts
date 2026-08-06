@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   deviceRevokeParamsSchema,
+  localEnrollmentDescriptorSchema,
+  localEnrollmentRequestSchema,
   liveRequestSchema,
   pairingExchangeRequestSchema,
   projectSnapshotSchema,
@@ -13,6 +15,30 @@ describe('Milestone 2 protocol', () => {
     ).toBe(true)
     expect(
       pairingExchangeRequestSchema.safeParse({ code: 'ABCI-EFGH-JKMN', deviceName: 'Mac' }).success,
+    ).toBe(false)
+  })
+
+  it('validates a loopback-only local enrollment descriptor and proof', () => {
+    const proof = 'a'.repeat(43)
+    expect(localEnrollmentRequestSchema.parse({ proof, deviceName: 'My Mac' })).toEqual({
+      proof,
+      deviceName: 'My Mac',
+    })
+    expect(
+      localEnrollmentDescriptorSchema.safeParse({
+        version: 1,
+        serverId: 'srv_11111111111111111111111111111111',
+        serverUrl: 'http://127.0.0.1:8787',
+        proof,
+      }).success,
+    ).toBe(true)
+    expect(
+      localEnrollmentDescriptorSchema.safeParse({
+        version: 1,
+        serverId: 'srv_11111111111111111111111111111111',
+        serverUrl: 'https://factoru.example.com',
+        proof,
+      }).success,
     ).toBe(false)
   })
 

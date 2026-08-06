@@ -35,6 +35,9 @@ function fakeClient(options: FakeClientOptions = {}): FactoruClient {
     pair: vi.fn(async () => {
       throw new Error('pairing is outside connection-runtime tests')
     }),
+    pairLocal: vi.fn(async () => {
+      throw new Error('local enrollment is outside connection-runtime tests')
+    }),
     createConnectionTicket: vi.fn(async () => {
       throw new Error('ticketing is outside connection-runtime tests')
     }),

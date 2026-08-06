@@ -16,6 +16,7 @@ import {
   IPC_PRODUCT_ADD_MEMORY,
   IPC_PRODUCT_GET,
   IPC_PRODUCT_PAIR,
+  IPC_PRODUCT_PAIR_LOCAL,
   IPC_PRODUCT_PREVIEW,
   IPC_PRODUCT_RECONNECT,
   IPC_PRODUCT_REMOVE,
@@ -37,6 +38,7 @@ import {
 const product: ProductBridge = {
   get: () => ipcRenderer.invoke(IPC_PRODUCT_GET),
   pair: (url, code, deviceName) => ipcRenderer.invoke(IPC_PRODUCT_PAIR, url, code, deviceName),
+  pairLocal: (deviceName) => ipcRenderer.invoke(IPC_PRODUCT_PAIR_LOCAL, deviceName),
   activate: (serverId) => ipcRenderer.invoke(IPC_PRODUCT_ACTIVATE, serverId),
   remove: (serverId) => ipcRenderer.invoke(IPC_PRODUCT_REMOVE, serverId),
   reconnect: () => ipcRenderer.invoke(IPC_PRODUCT_RECONNECT),

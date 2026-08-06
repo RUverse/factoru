@@ -2,16 +2,39 @@ import { z } from 'zod'
 import { serverIdSchema } from './schemas.js'
 
 export const CAPABILITY_PAIRING = 'pairing-v1'
+export const CAPABILITY_LOCAL_ENROLLMENT = 'local-enrollment-v1'
 export const CAPABILITY_LIVE = 'live-v1'
 export const CAPABILITY_PROJECTS = 'projects-v1'
 export const CAPABILITY_TRUSTED_DEVICES = 'trusted-devices-v1'
 export const PAIRING_EXCHANGE_PATH = '/api/v1/pairing/exchange'
+export const LOCAL_ENROLLMENT_PATH = '/api/v1/pairing/local'
 export const CONNECTION_TICKET_PATH = '/api/v1/auth/ticket'
 export const LIVE_PATH = '/api/v1/live'
 
 export const pairingExchangeRequestSchema = z.object({
   code: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/),
   deviceName: z.string().trim().min(1).max(80),
+})
+export const localEnrollmentRequestSchema = z.object({
+  proof: z.string().regex(/^[0-9A-Za-z_-]{43,128}$/),
+  deviceName: z.string().trim().min(1).max(80),
+})
+export const localEnrollmentDescriptorSchema = z.object({
+  version: z.literal(1),
+  serverId: serverIdSchema,
+  serverUrl: z.url().refine((value) => {
+    const url = new URL(value)
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]') &&
+      url.username === '' &&
+      url.password === '' &&
+      (url.pathname === '' || url.pathname === '/') &&
+      url.search === '' &&
+      url.hash === ''
+    )
+  }, 'Local enrollment server URL must use a loopback host'),
+  proof: localEnrollmentRequestSchema.shape.proof,
 })
 export const trustedDeviceSchema = z.object({
   id: z.string().min(1),
@@ -167,6 +190,7 @@ export const deviceRevokeParamsSchema = z.object({
 })
 
 export type PairingExchangeResponse = z.infer<typeof pairingExchangeResponseSchema>
+export type LocalEnrollmentDescriptor = z.infer<typeof localEnrollmentDescriptorSchema>
 export type TrustedDevice = z.infer<typeof trustedDeviceSchema>
 export type ProjectSnapshot = z.infer<typeof projectSnapshotSchema>
 export type LiveRequest = z.infer<typeof liveRequestSchema>

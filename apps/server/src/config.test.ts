@@ -28,6 +28,7 @@ describe('server configuration', () => {
       port: 41234,
       dataDir: '/tmp/factoru-test/worktree',
       databaseFile: '/tmp/factoru-test/worktree/factoru.sqlite',
+      localEnrollmentFile: '/tmp/factoru-test/worktree/local-enrollment.json',
       gasCityPath: '/tmp/factoru-test/worktree/gas-city',
       gasCitySupervisorUrl: 'http://127.0.0.1:8372',
       factoruPackPath: path.resolve('packs/factoru-default'),
@@ -72,6 +73,15 @@ describe('server configuration', () => {
     expect(() => loadServerConfig({ FACTORU_DATA_DIR: 'relative/state' })).toThrow(
       ServerConfigError,
     )
+  })
+
+  it('rejects a relative local enrollment file', () => {
+    expect(() =>
+      loadServerConfig({
+        FACTORU_DATA_DIR: '/tmp/f',
+        FACTORU_LOCAL_ENROLLMENT_FILE: 'local-enrollment.json',
+      }),
+    ).toThrow(ServerConfigError)
   })
 
   it('rejects an unknown log level', () => {

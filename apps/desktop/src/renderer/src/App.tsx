@@ -23,7 +23,8 @@ export function App() {
   const [tab, setTab] = useState<'tasks' | 'workers'>('tasks')
   const [showPairing, setShowPairing] = useState(false)
   const [showProjectSetup, setShowProjectSetup] = useState(false)
-  const [serverUrl, setServerUrl] = useState('http://127.0.0.1:8787')
+  const [connectionType, setConnectionType] = useState<'local' | 'remote'>('local')
+  const [serverUrl, setServerUrl] = useState('https://')
   const [roots, setRoots] = useState<Root[]>([])
   const [rootId, setRootId] = useState('')
   const [directory, setDirectory] = useState('')
@@ -74,6 +75,19 @@ export function App() {
         setShowPairing(false)
       }
     })
+  }
+
+  const pairLocal = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    void run(() => window.factoru.product.pairLocal(String(data.get('deviceName')))).then(
+      (value) => {
+        if (value) {
+          setSnapshot(value)
+          setShowPairing(false)
+        }
+      },
+    )
   }
 
   const loadRoots = async () => {
@@ -259,46 +273,95 @@ export function App() {
             Pair with the Factoru Server that owns your repositories, workers, and project history.
           </p>
           <div className="segmented" role="group" aria-label="Connection type">
-            <button type="button" onClick={() => setServerUrl('http://127.0.0.1:8787')}>
+            <button
+              type="button"
+              className={connectionType === 'local' ? 'active' : ''}
+              aria-pressed={connectionType === 'local'}
+              onClick={() => {
+                setConnectionType('local')
+                setError(null)
+              }}
+            >
               This device
             </button>
-            <button type="button" onClick={() => setServerUrl('https://')}>
+            <button
+              type="button"
+              className={connectionType === 'remote' ? 'active' : ''}
+              aria-pressed={connectionType === 'remote'}
+              onClick={() => {
+                setConnectionType('remote')
+                setError(null)
+              }}
+            >
               Remote server
             </button>
           </div>
-          <form className="form-stack" onSubmit={pair}>
-            <label>
-              Server address
-              <input
-                name="url"
-                type="url"
-                required
-                value={serverUrl}
-                onChange={(event) => setServerUrl(event.target.value)}
-              />
-            </label>
-            <label>
-              One-time pairing code
-              <input
-                name="code"
-                required
-                pattern="[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}"
-                placeholder="ABCD-EFGH-JKMN"
-              />
-            </label>
-            <label>
-              Device name
-              <input name="deviceName" required defaultValue="My Mac" />
-            </label>
-            <button className="primary" disabled={busy}>
-              {busy ? 'Connecting…' : 'Pair and connect'}
-            </button>
-            {snapshot.profiles.length > 0 && (
-              <button type="button" onClick={() => setShowPairing(false)}>
-                Cancel
+          {connectionType === 'local' ? (
+            <>
+              <div className="local-intro">
+                <strong>Connect to Factoru Server on this computer</strong>
+                <p className="muted">
+                  No address or pairing code needed. Start the server and Factoru will discover it
+                  securely.
+                </p>
+              </div>
+              <form className="form-stack" onSubmit={pairLocal}>
+                <label>
+                  Device name
+                  <input name="deviceName" required defaultValue="My Mac" />
+                </label>
+                <button className="primary" disabled={busy}>
+                  {busy ? 'Connecting…' : 'Connect on this device'}
+                </button>
+              </form>
+              <details className="server-install" open>
+                <summary>Install or start Factoru Server</summary>
+                <p className="muted">
+                  Developer preview for macOS and Linux. In the Factoru repository, run:
+                </p>
+                <pre aria-label="Local server setup commands">
+                  <code>pnpm install{`\n`}pnpm dev:server</code>
+                </pre>
+                <p className="install-note">
+                  A packaged server installer is planned for Milestone 7.
+                </p>
+              </details>
+            </>
+          ) : (
+            <form className="form-stack" onSubmit={pair}>
+              <label>
+                Server address
+                <input
+                  name="url"
+                  type="url"
+                  required
+                  value={serverUrl}
+                  onChange={(event) => setServerUrl(event.target.value)}
+                />
+              </label>
+              <label>
+                One-time pairing code
+                <input
+                  name="code"
+                  required
+                  pattern="[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}"
+                  placeholder="ABCD-EFGH-JKMN"
+                />
+              </label>
+              <label>
+                Device name
+                <input name="deviceName" required defaultValue="My Mac" />
+              </label>
+              <button className="primary" disabled={busy}>
+                {busy ? 'Connecting…' : 'Pair and connect'}
               </button>
-            )}
-          </form>
+            </form>
+          )}
+          {snapshot.profiles.length > 0 && (
+            <button type="button" onClick={() => setShowPairing(false)}>
+              Cancel
+            </button>
+          )}
           {(error || snapshot.error) && <p className="error">{error ?? snapshot.error}</p>}
         </section>
       </main>

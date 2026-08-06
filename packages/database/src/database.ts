@@ -268,28 +268,36 @@ export class FactoruDatabase {
         )
         .get(hashSecret(code), now) as { id: string } | undefined
       if (!pairing) return null
-
-      const token = randomBytes(32).toString('base64url')
-      const row: DeviceRow = {
-        id: `dev_${randomUUID().replaceAll('-', '')}`,
-        name: deviceName,
-        token_hash: hashSecret(token),
-        scopes_json: JSON.stringify(OWNER_SCOPES),
-        created_at: now,
-        last_seen_at: now,
-        revoked_at: null,
-      }
       this.connection
         .prepare('UPDATE pairing_codes SET used_at = ? WHERE id = ?')
         .run(now, pairing.id)
-      this.connection
-        .prepare(
-          `INSERT INTO trusted_devices(id, name, token_hash, scopes_json, created_at, last_seen_at)
-           VALUES (@id, @name, @token_hash, @scopes_json, @created_at, @last_seen_at)`,
-        )
-        .run(row)
-      return { device: deviceFromRow(row), token: `${row.id}.${token}` }
+      return this.#issueTrustedDevice(deviceName, now)
     })()
+  }
+
+  createTrustedDevice(deviceName: string): { device: TrustedDevice; token: string } {
+    const now = this.#now().toISOString()
+    return this.connection.transaction(() => this.#issueTrustedDevice(deviceName, now))()
+  }
+
+  #issueTrustedDevice(deviceName: string, now: string): { device: TrustedDevice; token: string } {
+    const token = randomBytes(32).toString('base64url')
+    const row: DeviceRow = {
+      id: `dev_${randomUUID().replaceAll('-', '')}`,
+      name: deviceName,
+      token_hash: hashSecret(token),
+      scopes_json: JSON.stringify(OWNER_SCOPES),
+      created_at: now,
+      last_seen_at: now,
+      revoked_at: null,
+    }
+    this.connection
+      .prepare(
+        `INSERT INTO trusted_devices(id, name, token_hash, scopes_json, created_at, last_seen_at)
+         VALUES (@id, @name, @token_hash, @scopes_json, @created_at, @last_seen_at)`,
+      )
+      .run(row)
+    return { device: deviceFromRow(row), token: `${row.id}.${token}` }
   }
 
   authenticateDevice(rawToken: string): TrustedDevice | null {

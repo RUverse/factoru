@@ -19,6 +19,7 @@ import { SERVER_VERSION } from './version.js'
 import { WorkspaceService } from './workspace-service.js'
 import { TaskService } from './task-service.js'
 import { AgentToolService } from './agent-tool-service.js'
+import { writeLocalEnrollmentFile } from './local-enrollment.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -59,6 +60,11 @@ async function main(): Promise<void> {
   }
 
   const repositories = new RepositoryService(config.repositoryRoots)
+  const serverUrl = `http://${config.host.includes(':') ? `[${config.host}]` : config.host}:${config.port}`
+  const localEnrollment = writeLocalEnrollmentFile(config.localEnrollmentFile, {
+    serverId,
+    serverUrl,
+  })
   const cityName = `factoru-${serverId.slice(4, 16)}`
   const projectService = new ProjectService({
     database,
@@ -92,7 +98,7 @@ async function main(): Promise<void> {
     gasCity,
     new GasCityProjectConfigurator({
       cityPath: config.gasCityPath,
-      factoruServerUrl: `http://${config.host.includes(':') ? `[${config.host}]` : config.host}:${config.port}`,
+      factoruServerUrl: serverUrl,
       projectManagerPromptPath: path.join(
         config.factoruPackPath,
         'agents/project-manager-chat/prompt.template.md',
@@ -118,6 +124,7 @@ async function main(): Promise<void> {
     workspaceService,
     taskService: new TaskService(database),
     agentToolService: new AgentToolService(database),
+    localEnrollmentProof: localEnrollment.proof,
   })
 
   const shutdown = (signal: NodeJS.Signals) => {
@@ -141,7 +148,7 @@ async function main(): Promise<void> {
       serverId,
       serverVersion: SERVER_VERSION,
       dataDir: config.dataDir,
-      url: `http://${config.host}:${config.port}`,
+      url: serverUrl,
     },
     'Factoru Server is listening',
   )

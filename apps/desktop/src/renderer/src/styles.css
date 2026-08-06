@@ -155,7 +155,7 @@ code {
 
 .onboarding-card {
   display: grid;
-  width: min(460px, 100%);
+  width: min(500px, 100%);
   gap: 15px;
   border: 1px solid var(--factoru-border);
   border-radius: var(--factoru-radius-lg);
@@ -192,6 +192,58 @@ code {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
+}
+
+.segmented button.active {
+  border-color: rgba(138, 180, 255, 0.5);
+  background: var(--factoru-accent-soft);
+  color: var(--factoru-accent);
+}
+
+.local-intro {
+  display: grid;
+  gap: 5px;
+  padding-top: 3px;
+}
+
+.local-intro p,
+.server-install p {
+  margin: 0;
+}
+
+.server-install {
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  background: var(--factoru-surface-raised);
+  padding: 12px 14px;
+}
+
+.server-install summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.server-install[open] summary {
+  margin-bottom: 10px;
+}
+
+.server-install pre {
+  overflow-x: auto;
+  margin: 10px 0;
+  border: 1px solid var(--factoru-border);
+  border-radius: 8px;
+  background: var(--factoru-bg);
+  padding: 11px 12px;
+}
+
+.server-install pre code {
+  color: var(--factoru-text);
+  font-size: 12px;
+}
+
+.server-install .install-note {
+  color: var(--factoru-text-faint);
+  font-size: 11px;
 }
 
 .form-stack,

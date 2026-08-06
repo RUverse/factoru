@@ -78,11 +78,13 @@ export function devEnvFor(worktreeRoot, { portBase } = {}) {
   const ports = portsFor(base)
   const dataDir = path.join(worktreeRoot, DEV_STATE_DIRNAME, worktreeId)
   const serverUrl = `http://${DEV_HOST}:${ports.serverPort}`
+  const localEnrollmentFile = path.join(dataDir, 'local-enrollment.json')
 
   return {
     worktreeRoot,
     worktreeId,
     dataDir,
+    localEnrollmentFile,
     serverUrl,
     portBase: base,
     ...ports,
@@ -95,6 +97,7 @@ export function devEnvFor(worktreeRoot, { portBase } = {}) {
       FACTORU_GAS_CITY_PATH: path.join(dataDir, 'gas-city'),
       FACTORU_PACK_PATH: path.join(worktreeRoot, 'packs', 'factoru-default'),
       FACTORU_SERVER_URL: serverUrl,
+      FACTORU_LOCAL_ENROLLMENT_FILE: localEnrollmentFile,
       FACTORU_RENDERER_PORT: String(ports.rendererPort),
       FACTORU_LOG_LEVEL: process.env.FACTORU_LOG_LEVEL ?? 'debug',
     },

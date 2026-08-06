@@ -6,7 +6,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { FactoruDatabase } from '@factoru/database'
 import { parseServerId } from '@factoru/domain'
 import type { RigRegistrar } from '@factoru/gas-city'
-import { CONNECTION_TICKET_PATH, PAIRING_EXCHANGE_PATH } from '@factoru/protocol'
+import {
+  CAPABILITY_LOCAL_ENROLLMENT,
+  CONNECTION_TICKET_PATH,
+  HANDSHAKE_PATH,
+  LOCAL_ENROLLMENT_PATH,
+  PAIRING_EXCHANGE_PATH,
+} from '@factoru/protocol'
 import { buildServer } from './app.js'
 import { ProjectService } from './project-service.js'
 import { RepositoryService } from './repositories.js'
@@ -78,6 +84,53 @@ describe('Milestone 2 server slice', () => {
     })
     expect(ticket.statusCode).toBe(200)
     expect(ticket.json().ticket).toHaveLength(43)
+    await app.close()
+    database.close()
+  })
+
+  it('enrolls a same-machine desktop without a user-entered pairing code', async () => {
+    const directory = fixtureDirectory()
+    const serverId = parseServerId('srv_11111111111111111111111111111111')
+    const database = new FactoruDatabase(path.join(directory, 'factoru.sqlite'), serverId)
+    const projects = new ProjectService({
+      database,
+      repositories: new RepositoryService([]),
+      registrar: { register: async () => undefined },
+      cityName: 'factoru-test',
+      cityPath: path.join(directory, 'city'),
+    })
+    const proof = 'a'.repeat(43)
+    const app = buildServer({
+      serverId,
+      database,
+      projectService: projects,
+      localEnrollmentProof: proof,
+      logLevel: 'silent',
+    })
+    const handshake = await app.inject({
+      method: 'POST',
+      url: HANDSHAKE_PATH,
+      payload: {
+        clientName: 'factoru-desktop',
+        clientVersion: '0.0.0',
+        protocolVersion: 1,
+        minProtocolVersion: 1,
+      },
+    })
+    expect(handshake.json().server.capabilities).toContain(CAPABILITY_LOCAL_ENROLLMENT)
+    const rejected = await app.inject({
+      method: 'POST',
+      url: LOCAL_ENROLLMENT_PATH,
+      payload: { proof: 'b'.repeat(43), deviceName: 'Mac' },
+    })
+    expect(rejected.statusCode).toBe(401)
+    const enrolled = await app.inject({
+      method: 'POST',
+      url: LOCAL_ENROLLMENT_PATH,
+      payload: { proof, deviceName: 'Mac' },
+    })
+    expect(enrolled.statusCode).toBe(200)
+    expect(database.authenticateDevice(enrolled.json().token)?.name).toBe('Mac')
     await app.close()
     database.close()
   })

@@ -17,6 +17,8 @@ export interface ServerConfig {
   /** Directory that owns this server's durable state, including its identity. */
   readonly dataDir: string
   readonly databaseFile: string
+  /** Private restart-scoped proof used only for same-machine desktop enrollment. */
+  readonly localEnrollmentFile: string
   readonly gasCityPath: string
   /** Host-local, unauthenticated Gas City supervisor control plane. */
   readonly gasCitySupervisorUrl: string
@@ -137,12 +139,20 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   if (!path.isAbsolute(factoruPackPath)) {
     throw new ServerConfigError(`FACTORU_PACK_PATH must be absolute, got ${factoruPackPath}`)
   }
+  const localEnrollmentFile =
+    env.FACTORU_LOCAL_ENROLLMENT_FILE?.trim() || path.join(dataDir, 'local-enrollment.json')
+  if (!path.isAbsolute(localEnrollmentFile)) {
+    throw new ServerConfigError(
+      `FACTORU_LOCAL_ENROLLMENT_FILE must be absolute, got ${localEnrollmentFile}`,
+    )
+  }
 
   return {
     host,
     port: parsePort(env.FACTORU_PORT),
     dataDir,
     databaseFile: path.join(dataDir, 'factoru.sqlite'),
+    localEnrollmentFile,
     gasCityPath: env.FACTORU_GAS_CITY_PATH?.trim() || path.join(dataDir, 'gas-city'),
     gasCitySupervisorUrl,
     factoruPackPath,

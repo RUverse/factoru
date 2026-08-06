@@ -22,6 +22,7 @@ import {
   IPC_PRODUCT_DEVICES,
   IPC_PRODUCT_GET,
   IPC_PRODUCT_PAIR,
+  IPC_PRODUCT_PAIR_LOCAL,
   IPC_PRODUCT_PREVIEW,
   IPC_PRODUCT_RECONNECT,
   IPC_PRODUCT_REMOVE,
@@ -118,6 +119,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC_PRODUCT_PAIR, (_event, url: string, code: string, deviceName: string) =>
     product.pair(url, code, deviceName),
   )
+  ipcMain.handle(IPC_PRODUCT_PAIR_LOCAL, (_event, deviceName: string) =>
+    product.pairLocal(deviceName),
+  )
   ipcMain.handle(IPC_PRODUCT_ACTIVATE, (_event, serverId: string) => product.activate(serverId))
   ipcMain.handle(IPC_PRODUCT_REMOVE, (_event, serverId: string) => product.remove(serverId))
   ipcMain.handle(IPC_PRODUCT_RECONNECT, () => product.connect())
@@ -189,6 +193,7 @@ void app.whenReady().then(() => {
   product = new ProductRuntime(
     new ProfileStore(dataDirectory),
     new CredentialStore(dataDirectory, safeStorage),
+    { localEnrollmentFile: process.env.FACTORU_LOCAL_ENROLLMENT_FILE?.trim() },
   )
   registerIpc()
   if (product.snapshot.activeServerId) void product.connect()

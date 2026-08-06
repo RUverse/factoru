@@ -61,6 +61,17 @@ describe('FactoruDatabase', () => {
     db.close()
   })
 
+  it('issues a trusted device without consuming a remote pairing code', () => {
+    const { db } = fixture()
+    const issued = db.createTrustedDevice('Local desktop')
+    expect(issued.device.name).toBe('Local desktop')
+    expect(db.authenticateDevice(issued.token)?.id).toBe(issued.device.id)
+    expect(
+      JSON.stringify(db.connection.prepare('SELECT * FROM trusted_devices').get()),
+    ).not.toContain(issued.token)
+    db.close()
+  })
+
   it('commits project state, event, receipt, and outbox atomically and replays a receipt', () => {
     const { db } = fixture()
     db.createPairingCode('ABCD-EFGH-JKMN', new Date(Date.now() + 60_000))

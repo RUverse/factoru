@@ -18,8 +18,10 @@ import {
 } from './version.js'
 import {
   CONNECTION_TICKET_PATH,
+  LOCAL_ENROLLMENT_PATH,
   PAIRING_EXCHANGE_PATH,
   connectionTicketResponseSchema,
+  localEnrollmentRequestSchema,
   pairingExchangeRequestSchema,
   pairingExchangeResponseSchema,
   type PairingExchangeResponse,
@@ -54,6 +56,11 @@ export interface FactoruClient {
   health(options?: RequestOptions): Promise<HealthResponse>
   handshake(options?: RequestOptions): Promise<HandshakeOutcome>
   pair(code: string, deviceName: string, options?: RequestOptions): Promise<PairingExchangeResponse>
+  pairLocal(
+    proof: string,
+    deviceName: string,
+    options?: RequestOptions,
+  ): Promise<PairingExchangeResponse>
   createConnectionTicket(
     token: string,
     options?: RequestOptions,
@@ -216,6 +223,28 @@ export function createFactoruClient(options: FactoruClientOptions): FactoruClien
           {
             details: parsed.error.issues,
           },
+        )
+      }
+      return parsed.data
+    },
+
+    async pairLocal(proof, deviceName, requestOptions = {}) {
+      const requestBody = localEnrollmentRequestSchema.parse({ proof, deviceName })
+      const body = await request(
+        LOCAL_ENROLLMENT_PATH,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        },
+        requestOptions.signal,
+      )
+      const parsed = pairingExchangeResponseSchema.safeParse(body)
+      if (!parsed.success) {
+        throw new FactoruProtocolError(
+          'invalid_response',
+          'Factoru Server sent an invalid local enrollment response',
+          { details: parsed.error.issues },
         )
       }
       return parsed.data

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import Fastify, { LogController, type FastifyError, type FastifyInstance } from 'fastify'
 import websocket from '@fastify/websocket'
 import type { WebSocket } from 'ws'
@@ -7,6 +8,7 @@ import {
   CAPABILITY_HANDSHAKE,
   CAPABILITY_HEALTH,
   CAPABILITY_LIVE,
+  CAPABILITY_LOCAL_ENROLLMENT,
   CAPABILITY_PAIRING,
   CAPABILITY_PROJECTS,
   CAPABILITY_TRUSTED_DEVICES,
@@ -19,6 +21,7 @@ import {
   HANDSHAKE_PATH,
   HEALTH_PATH,
   LIVE_PATH,
+  LOCAL_ENROLLMENT_PATH,
   MIN_SUPPORTED_PROTOCOL_VERSION,
   PAIRING_EXCHANGE_PATH,
   PROTOCOL_VERSION,
@@ -31,6 +34,7 @@ import {
   handshakeResponseSchema,
   healthResponseSchema,
   liveRequestSchema,
+  localEnrollmentRequestSchema,
   memoryAddParamsSchema,
   modelBindingUpdateParamsSchema,
   pairingExchangeRequestSchema,
@@ -79,12 +83,20 @@ export interface BuildServerOptions {
   workspaceService?: WorkspaceService
   taskService?: TaskService
   agentToolService?: AgentToolService
+  /** Restart-scoped same-user proof. Never expose this through health or handshake. */
+  localEnrollmentProof?: string
 }
 
 export const BASE_SERVER_CAPABILITIES = [CAPABILITY_HEALTH, CAPABILITY_HANDSHAKE]
 
 function isLoopbackIp(ip: string): boolean {
   return ip === '127.0.0.1' || ip === '::1' || ip === '0:0:0:0:0:0:0:1'
+}
+
+function equalProof(expected: string, actual: string): boolean {
+  const expectedBytes = Buffer.from(expected)
+  const actualBytes = Buffer.from(actual)
+  return expectedBytes.length === actualBytes.length && timingSafeEqual(expectedBytes, actualBytes)
 }
 
 function responseError(
@@ -117,6 +129,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       ? [
           ...BASE_SERVER_CAPABILITIES,
           CAPABILITY_PAIRING,
+          ...(options.localEnrollmentProof ? [CAPABILITY_LOCAL_ENROLLMENT] : []),
           CAPABILITY_LIVE,
           CAPABILITY_PROJECTS,
           CAPABILITY_TRUSTED_DEVICES,
@@ -241,6 +254,24 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   })
 
   if (database && projects) {
+    if (options.localEnrollmentProof) {
+      app.post(LOCAL_ENROLLMENT_PATH, async (request, reply) => {
+        if (!isLoopbackIp(request.ip)) {
+          return reply.code(403).send(problem('forbidden', 'Local enrollment is host-local'))
+        }
+        const parsed = localEnrollmentRequestSchema.safeParse(request.body)
+        if (!parsed.success || !equalProof(options.localEnrollmentProof!, parsed.data.proof)) {
+          return reply
+            .code(401)
+            .send(problem('unauthorized', 'Local enrollment proof is invalid or expired'))
+        }
+        const issued = database.createTrustedDevice(parsed.data.deviceName)
+        return reply
+          .code(200)
+          .send(pairingExchangeResponseSchema.parse({ serverId: options.serverId, ...issued }))
+      })
+    }
+
     app.post(PAIRING_EXCHANGE_PATH, async (request, reply) => {
       if (!protectedTransport(request))
         return reply

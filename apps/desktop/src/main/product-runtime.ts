@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   createFactoruClient,
+  CAPABILITY_LOCAL_ENROLLMENT,
   FactoruProtocolError,
   projectSchema,
   projectSnapshotSchema,
@@ -13,6 +14,7 @@ import {
   taskSchema,
   taskMergeProposalSchema,
   type MemoryEntry,
+  type PairingExchangeResponse,
   type PlannerProbe,
   type Project,
   type ProjectPreview,
@@ -26,6 +28,11 @@ import { normalizeProfileUrl } from './profile-store'
 import type { CredentialStore, ProfileStore } from './profile-store'
 import { LiveFactoruClient } from './live-client'
 import type { ProductSnapshot } from '../shared/product'
+import { readLocalEnrollmentFile } from './local-enrollment'
+
+export interface ProductRuntimeOptions {
+  readonly localEnrollmentFile?: string
+}
 
 export class ProductRuntime {
   readonly #profiles: ProfileStore
@@ -35,10 +42,16 @@ export class ProductRuntime {
   #snapshot: ProductSnapshot
   #reconnectTimer: ReturnType<typeof setTimeout> | null = null
   #synchronizePromise: Promise<ProductSnapshot> | null = null
+  readonly #localEnrollmentFile: string | undefined
 
-  constructor(profiles: ProfileStore, credentials: CredentialStore) {
+  constructor(
+    profiles: ProfileStore,
+    credentials: CredentialStore,
+    options: ProductRuntimeOptions = {},
+  ) {
     this.#profiles = profiles
     this.#credentials = credentials
+    this.#localEnrollmentFile = options.localEnrollmentFile
     const active = profiles.active()
     this.#snapshot = {
       profiles: this.#publicProfiles(),
@@ -79,6 +92,34 @@ export class ProductRuntime {
     const paired = await client.pair(code, deviceName)
     if (paired.serverId !== handshake.response.server.serverId)
       throw new Error('Server identity changed during pairing')
+    return this.#acceptPairing(url, paired)
+  }
+
+  async pairLocal(deviceName: string): Promise<ProductSnapshot> {
+    const enrollment = await readLocalEnrollmentFile(this.#localEnrollmentFile)
+    const url = normalizeProfileUrl(enrollment.serverUrl)
+    const client = createFactoruClient({
+      baseUrl: url,
+      clientName: DESKTOP_NAME,
+      clientVersion: DESKTOP_VERSION,
+    })
+    const handshake = await client.handshake()
+    if (!handshake.compatibility.compatible)
+      throw new Error(handshake.compatibility.incompatibility.message)
+    if (handshake.response.server.serverId !== enrollment.serverId) {
+      throw new Error('The local server identity does not match its enrollment file')
+    }
+    if (!handshake.response.server.capabilities.includes(CAPABILITY_LOCAL_ENROLLMENT)) {
+      throw new Error('This local Factoru Server does not support one-click connection')
+    }
+    const paired = await client.pairLocal(enrollment.proof, deviceName)
+    if (paired.serverId !== enrollment.serverId) {
+      throw new Error('Server identity changed during local enrollment')
+    }
+    return this.#acceptPairing(url, paired)
+  }
+
+  async #acceptPairing(url: string, paired: PairingExchangeResponse): Promise<ProductSnapshot> {
     const existing = this.#profiles.list().find((profile) => profile.serverId === paired.serverId)
     this.#credentials.set(paired.serverId, paired.token)
     this.#profiles.save({

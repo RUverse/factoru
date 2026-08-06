@@ -39,3 +39,19 @@ pnpm --filter @factoru/server start pair
 
 Enter the HTTPS hostname and displayed code in Factoru Desktop. The code is
 one-time; the issued device can later be revoked from **Trusted devices**.
+
+Same-machine Desktop setup does not use a pairing code. Choose **This device**
+in Desktop; Electron main discovers the running local Server through its private
+restart-scoped enrollment file and creates the same revocable device credential
+without exposing the proof to the renderer.
+
+In a source checkout on macOS or Linux, install dependencies and start the local
+Server with:
+
+```sh
+pnpm install
+pnpm dev:server
+```
+
+The packaged Server installer and Desktop-managed local lifecycle are Milestone
+7 work; the source-build instructions above are the currently implemented path.

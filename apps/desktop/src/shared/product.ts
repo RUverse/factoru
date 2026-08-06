@@ -33,6 +33,7 @@ export interface ProductSnapshot {
 
 export const IPC_PRODUCT_GET = 'factoru:product:get'
 export const IPC_PRODUCT_PAIR = 'factoru:product:pair'
+export const IPC_PRODUCT_PAIR_LOCAL = 'factoru:product:pair-local'
 export const IPC_PRODUCT_ACTIVATE = 'factoru:product:activate'
 export const IPC_PRODUCT_REMOVE = 'factoru:product:remove'
 export const IPC_PRODUCT_RECONNECT = 'factoru:product:reconnect'
@@ -59,6 +60,7 @@ export const IPC_PRODUCT_DECIDE_TASK_MERGE = 'factoru:product:decide-task-merge'
 export interface ProductBridge {
   get(): Promise<ProductSnapshot>
   pair(url: string, code: string, deviceName: string): Promise<ProductSnapshot>
+  pairLocal(deviceName: string): Promise<ProductSnapshot>
   activate(serverId: string): Promise<ProductSnapshot>
   remove(serverId: string): Promise<ProductSnapshot>
   reconnect(): Promise<ProductSnapshot>
