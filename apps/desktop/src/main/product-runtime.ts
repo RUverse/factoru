@@ -13,6 +13,7 @@ import {
   workspaceSchema,
   taskSchema,
   taskMergeProposalSchema,
+  executionRunSchema,
   type MemoryEntry,
   type PairingExchangeResponse,
   type PlannerProbe,
@@ -22,6 +23,7 @@ import {
   type WorkerType,
   type Task,
   type TaskMergeProposal,
+  type ExecutionRun,
 } from '@factoru/protocol'
 import { DESKTOP_NAME, DESKTOP_VERSION } from './version'
 import { normalizeProfileUrl } from './profile-store'
@@ -440,6 +442,50 @@ export class ProductRuntime {
       await this.request('tasks.decideMerge', input, `cmd_${randomUUID()}`),
     )
     await this.#refreshWorkspace(input.projectId)
+    return result
+  }
+
+  async cancelRun(projectId: string, runId: string): Promise<ExecutionRun> {
+    const result = executionRunSchema.parse(
+      await this.request('runs.cancel', { projectId, runId }, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(projectId)
+    return result
+  }
+
+  async retryRun(projectId: string, runId: string): Promise<Task> {
+    const result = taskSchema.parse(
+      await this.request('runs.retry', { projectId, runId }, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(projectId)
+    return result
+  }
+
+  async requestRunChanges(projectId: string, runId: string, feedback: string): Promise<Task> {
+    const result = taskSchema.parse(
+      await this.request(
+        'runs.requestChanges',
+        { projectId, runId, feedback },
+        `cmd_${randomUUID()}`,
+      ),
+    )
+    await this.#refreshWorkspace(projectId)
+    return result
+  }
+
+  async approveRun(projectId: string, runId: string, summary: string): Promise<Task> {
+    const result = taskSchema.parse(
+      await this.request('runs.approve', { projectId, runId, summary }, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(projectId)
+    return result
+  }
+
+  async archiveRun(projectId: string, runId: string): Promise<ExecutionRun> {
+    const result = executionRunSchema.parse(
+      await this.request('runs.archive', { projectId, runId }, `cmd_${randomUUID()}`),
+    )
+    await this.#refreshWorkspace(projectId)
     return result
   }
 

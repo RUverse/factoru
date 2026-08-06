@@ -7,6 +7,7 @@ import { parseServerId } from '@factoru/domain'
 import type { ProjectRuntimeConfigurator } from '@factoru/gas-city'
 import type { ProjectManagerOrchestrator } from './workspace-service.js'
 import { WorkspaceService } from './workspace-service.js'
+import type { ExecutionCapsuleManager } from './capsule-service.js'
 
 const directories: string[] = []
 
@@ -198,7 +199,7 @@ describe('WorkspaceService', () => {
       expect.objectContaining({
         formulaName: 'queue-reconcile',
         requestId: expect.stringMatching(/^recon_/),
-        variables: expect.objectContaining({ project_id: project.id, queue_revision: '1' }),
+        variables: expect.objectContaining({ project_id: project.id, queue_revision: 1 }),
       }),
     )
     expect(service.get(project.id).queueReconciliation).toMatchObject({ status: 'running' })
@@ -253,6 +254,128 @@ describe('WorkspaceService', () => {
       },
     })
     expect(orchestrator.registerConversationAdapter).not.toHaveBeenCalled()
+    db.close()
+  })
+
+  it('resumes a persisted software delivery after a service restart and builds review evidence', async () => {
+    const { db, project } = fixture()
+    const provisioning = db.claimDueOutbox()[0]!
+    db.completeProvisioning(provisioning.id, project.id)
+    const task = db.tasks.create({
+      projectId: project.id,
+      title: 'Deliver the smallest slice',
+      description: 'Make one verified commit.',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    db.tasks.update({
+      taskId: task.id,
+      queuePhase: 'ready',
+      workerTypeKind: 'software_engineer',
+      formulaName: 'software-delivery',
+      actorKind: 'pm_planner',
+      actorId: 'planner-session',
+    })
+
+    const orchestrator = fakeOrchestrator()
+    vi.mocked(orchestrator.startRun).mockImplementation(async (request) => ({
+      cityName: 'factoru-city',
+      rigName: 'factoru-rig',
+      runId: request.formulaName === 'software-delivery' ? 'delivery-run' : 'reconcile-run',
+      workflowRootBeadId:
+        request.formulaName === 'software-delivery' ? 'delivery-root' : 'reconcile-root',
+      formulaName: request.formulaName,
+      formulaHash: 'formula-hash',
+      startingEventSeq: 20,
+    }))
+    const capsule = {
+      id: 'capsule-1',
+      runId: '',
+      taskId: task.id,
+      projectId: project.id,
+      rootPath: '/capsules/run',
+      worktreePath: '/capsules/run/worktree',
+      controlPath: '/capsules/run/control',
+      evidencePath: '/capsules/run/control/evidence',
+      verificationScript: '/capsules/run/control/verify.sh',
+      branchName: 'factoru/task/run',
+      baseBranch: 'dev',
+    }
+    const capsules: ExecutionCapsuleManager = {
+      prepare: vi.fn(async (_project, run) => ({ ...capsule, runId: run.id })),
+      readLogs: vi.fn(() => ['Checks\nok']),
+      finalize: vi.fn(async (_project, run, prepared, input) => ({
+        request: input.request,
+        plan: input.plan,
+        diff: 'diff --git a/file b/file',
+        commits: ['abc123 implementation'],
+        checks: { status: 'passed' as const, output: 'ok' },
+        internalReview: 'APPROVE',
+        unresolvedRisks: [],
+        usage: input.usage,
+        capsulePath: prepared.worktreePath,
+        branchName: prepared.branchName,
+      })),
+    }
+    const execution = { capsules, cityName: 'factoru-city', packVersion: '0.3.0' }
+    const firstServer = new WorkspaceService(db, orchestrator, null, execution)
+
+    await firstServer.process()
+
+    expect(firstServer.get(project.id).taskRuns[0]).toMatchObject({
+      status: 'running',
+      formulaName: 'software-delivery',
+      formulaHash: 'formula-hash',
+    })
+    expect(orchestrator.startRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formulaName: 'software-delivery',
+        variables: expect.objectContaining({
+          task_id: task.id,
+          capsule_path: capsule.worktreePath,
+          verification_script: capsule.verificationScript,
+        }),
+      }),
+    )
+
+    vi.mocked(orchestrator.describeRun).mockImplementation(async (runId, rootId) => ({
+      runId,
+      workflowRootBeadId: rootId,
+      partial: false,
+      steps: [
+        { stepId: 'implement', title: 'Implement', status: 'completed' },
+        { stepId: 'checks', title: 'Checks', status: 'completed' },
+        { stepId: 'review', title: 'Independent review', status: 'completed' },
+      ],
+    }))
+    orchestrator.readRunUsage = vi.fn(async () => ({
+      inputTokens: 700,
+      outputTokens: 100,
+      estimatedCostUsd: 0.03,
+    }))
+
+    const restartedServer = new WorkspaceService(db, orchestrator, null, execution)
+    await restartedServer.process()
+
+    expect(restartedServer.get(project.id)).toMatchObject({
+      tasks: [
+        expect.objectContaining({ id: task.id, status: 'needs_you', needsYouAction: 'review' }),
+      ],
+      taskRuns: [
+        expect.objectContaining({
+          status: 'completed',
+          stage: 'needs_you',
+          logs: ['Checks\nok'],
+          usage: { inputTokens: 700, outputTokens: 100, estimatedCostUsd: 0.03 },
+          reviewPackage: expect.objectContaining({
+            commits: ['abc123 implementation'],
+            internalReview: 'APPROVE',
+          }),
+        }),
+      ],
+    })
     db.close()
   })
 })

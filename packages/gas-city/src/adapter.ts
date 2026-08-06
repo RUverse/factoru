@@ -12,6 +12,11 @@ import {
 import { GasCityError } from './errors.js'
 import type { SupervisorClient } from './http.js'
 import {
+  serializeFormulaVariables,
+  validateFormulaV2,
+  type FormulaVariableValue,
+} from './formula.js'
+import {
   checkDependencies,
   evaluateProviderReadiness,
   isReady,
@@ -68,6 +73,13 @@ export interface RunSnapshot {
    * `partial` while a run projection is still warming after a restart. Callers
    * must not read an empty step list as "nothing is running".
    */
+  readonly partial: boolean
+}
+
+export interface RunUsage {
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly estimatedCostUsd: number
   readonly partial: boolean
 }
 
@@ -203,6 +215,13 @@ const runStepsSchema = z.object({
   ),
 })
 
+const operationUsageSchema = z.object({
+  run_id: z.string().optional(),
+  prompt_tokens: z.number().int().nonnegative().optional(),
+  completion_tokens: z.number().int().nonnegative().optional(),
+  cost_usd_estimate: z.number().nonnegative().optional(),
+})
+
 const workflowSchema = z.object({
   workflow_id: z.string(),
   root_bead_id: z.string(),
@@ -278,17 +297,21 @@ export interface GasCityAdapterOptions {
   readonly cityName: string
   /** Probes executables for readiness. */
   readonly probe: CommandProbe
+  /** Resolves the exact pinned source Factoru validates before dispatch. */
+  readonly formulaSource?: (formulaName: string) => Promise<string>
 }
 
 export class GasCityAdapter {
   readonly #client: SupervisorClient
   readonly #cityName: string
   readonly #probe: CommandProbe
+  readonly #formulaSource: GasCityAdapterOptions['formulaSource']
 
   constructor(options: GasCityAdapterOptions) {
     this.#client = options.client
     this.#cityName = options.cityName
     this.#probe = options.probe
+    this.#formulaSource = options.formulaSource
   }
 
   get cityName(): string {
@@ -454,9 +477,16 @@ export class GasCityAdapter {
     formulaName: string
     target: string
     title: string
-    variables: Readonly<Record<string, string>>
+    variables: Readonly<Record<string, FormulaVariableValue>>
     requestId?: string
   }): Promise<RunCorrelation> {
+    if (this.#formulaSource) {
+      validateFormulaV2(
+        await this.#formulaSource(request.formulaName),
+        request.formulaName,
+        request.variables,
+      )
+    }
     const startingEventSeq = await this.#currentEventSeq()
 
     const raw = await this.#client.post(
@@ -468,7 +498,7 @@ export class GasCityAdapter {
         scope_kind: 'rig',
         scope_ref: request.rigName,
         title: request.title,
-        vars: request.variables,
+        vars: serializeFormulaVariables(request.variables),
       },
       { idempotencyKey: request.requestId },
     )
@@ -513,6 +543,27 @@ export class GasCityAdapter {
         status: toRunStatus(step.status),
       })),
     }
+  }
+
+  /**
+   * Fold the immutable worker-operation events for one run into its model
+   * usage. Gas City's city-level `/usage` aggregate cannot isolate a run, but
+   * these events carry the durable run id and per-invocation token/cost facts.
+   */
+  async readRunUsage(runId: string, startingEventSeq: number): Promise<RunUsage> {
+    const page = await this.readEvents({ lastHandledSeq: startingEventSeq })
+    let inputTokens = 0
+    let outputTokens = 0
+    let estimatedCostUsd = 0
+    for (const event of page.events) {
+      if (event.type !== 'worker.operation') continue
+      const parsed = operationUsageSchema.safeParse(event.payload)
+      if (!parsed.success || parsed.data.run_id !== runId) continue
+      inputTokens += parsed.data.prompt_tokens ?? 0
+      outputTokens += parsed.data.completion_tokens ?? 0
+      estimatedCostUsd += parsed.data.cost_usd_estimate ?? 0
+    }
+    return { inputTokens, outputTokens, estimatedCostUsd, partial: page.gapDetected }
   }
 
   /** Request cancellation. Terminal state is confirmed by observation, not here. */

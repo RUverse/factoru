@@ -54,6 +54,82 @@ export interface QueueReconciliationRecord {
   finishedAt: string | null
 }
 
+export type ExecutionStage =
+  | 'admission'
+  | 'capsule'
+  | 'implementation'
+  | 'checks'
+  | 'review'
+  | 'integration'
+  | 'needs_you'
+  | 'terminal'
+
+export interface ExecutionStepRecord {
+  id: string
+  title: string
+  status:
+    | 'pending'
+    | 'running'
+    | 'blocked'
+    | 'cancelling'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'skipped'
+    | 'unknown'
+}
+
+export interface ExecutionUsageRecord {
+  inputTokens: number
+  outputTokens: number
+  estimatedCostUsd: number
+}
+
+export interface ExecutionReviewPackageRecord {
+  request: string
+  plan: string
+  diff: string
+  commits: string[]
+  checks: { status: 'passed' | 'failed'; output: string }
+  internalReview: string
+  unresolvedRisks: string[]
+  usage: ExecutionUsageRecord
+  capsulePath: string
+  branchName: string
+}
+
+export interface ExecutionRunRecord {
+  id: string
+  projectId: string
+  taskId: string
+  cityName: string
+  rigName: string
+  formulaName: string
+  formulaVersion: string | null
+  formulaHash: string | null
+  runId: string | null
+  workflowRootBeadId: string | null
+  startingEventCursor: number
+  requestId: string
+  status: 'pending' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
+  stage: ExecutionStage
+  capsuleId: string | null
+  capsulePath: string | null
+  branchName: string | null
+  baseBranch: string | null
+  steps: ExecutionStepRecord[]
+  logs: string[]
+  usage: ExecutionUsageRecord
+  reviewPackage: ExecutionReviewPackageRecord | null
+  errorCode: string | null
+  errorMessage: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+  updatedAt: string
+  archivedAt: string | null
+}
+
 export interface TaskCandidate {
   task: TaskRecord
   score: number
@@ -111,6 +187,38 @@ interface ReconciliationRow {
   finished_at: string | null
 }
 
+interface ExecutionRunRow {
+  id: string
+  project_id: string
+  task_id: string
+  city_name: string
+  rig_name: string
+  formula_name: string
+  formula_version: string | null
+  formula_hash: string | null
+  run_id: string | null
+  workflow_root_bead_id: string | null
+  starting_event_cursor: number
+  request_id: string
+  status: ExecutionRunRecord['status']
+  stage: ExecutionStage
+  capsule_id: string | null
+  capsule_path: string | null
+  branch_name: string | null
+  base_branch: string | null
+  steps_json: string
+  logs_json: string
+  usage_json: string
+  review_package_json: string
+  error_code: string | null
+  error_message: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  updated_at: string | null
+  archived_at: string | null
+}
+
 function reconciliationFromRow(row: ReconciliationRow): QueueReconciliationRecord {
   return {
     id: row.id,
@@ -126,6 +234,40 @@ function reconciliationFromRow(row: ReconciliationRow): QueueReconciliationRecor
     requestedAt: row.requested_at,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
+  }
+}
+
+function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    taskId: row.task_id,
+    cityName: row.city_name,
+    rigName: row.rig_name,
+    formulaName: row.formula_name,
+    formulaVersion: row.formula_version,
+    formulaHash: row.formula_hash,
+    runId: row.run_id,
+    workflowRootBeadId: row.workflow_root_bead_id,
+    startingEventCursor: row.starting_event_cursor,
+    requestId: row.request_id,
+    status: row.status,
+    stage: row.stage,
+    capsuleId: row.capsule_id,
+    capsulePath: row.capsule_path,
+    branchName: row.branch_name,
+    baseBranch: row.base_branch,
+    steps: JSON.parse(row.steps_json) as ExecutionStepRecord[],
+    logs: JSON.parse(row.logs_json) as string[],
+    usage: JSON.parse(row.usage_json) as ExecutionUsageRecord,
+    reviewPackage: JSON.parse(row.review_package_json) as ExecutionReviewPackageRecord | null,
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    updatedAt: row.updated_at ?? row.created_at,
+    archivedAt: row.archived_at,
   }
 }
 
@@ -726,6 +868,417 @@ export class TaskStore {
     })()
   }
 
+  listExecutionRuns(projectId: string, includeArchived = false): ExecutionRunRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM task_runs WHERE project_id = ? AND kind = 'implementation'
+         ${includeArchived ? '' : 'AND archived_at IS NULL'} ORDER BY created_at DESC LIMIT 100`,
+      )
+      .all(projectId) as ExecutionRunRow[]
+    return rows.map(executionFromRow)
+  }
+
+  getExecutionRun(id: string): ExecutionRunRecord | null {
+    const row = this.#db
+      .prepare("SELECT * FROM task_runs WHERE id = ? AND kind = 'implementation'")
+      .get(id) as ExecutionRunRow | undefined
+    return row ? executionFromRow(row) : null
+  }
+
+  activeExecution(projectId: string): ExecutionRunRecord | null {
+    const row = this.#db
+      .prepare(
+        `SELECT * FROM task_runs WHERE project_id = ? AND kind = 'implementation'
+         AND status IN ('pending', 'running', 'cancelling') ORDER BY created_at LIMIT 1`,
+      )
+      .get(projectId) as ExecutionRunRow | undefined
+    return row ? executionFromRow(row) : null
+  }
+
+  admitNextExecution(input: { cityName: string; packVersion: string }): ExecutionRunRecord | null {
+    return this.#db.transaction(() => {
+      const candidate = this.#db
+        .prepare(
+          `SELECT t.*, r.rig_name FROM tasks t
+           JOIN project_rig_bindings r ON r.project_id = t.project_id
+           WHERE t.resolution IS NULL AND t.status = 'queue' AND t.queue_phase = 'ready'
+             AND t.worker_type_kind = 'software_engineer' AND t.formula_name = 'software-delivery'
+             AND r.registration_state = 'ready'
+             AND NOT EXISTS (
+               SELECT 1 FROM task_runs active WHERE active.project_id = t.project_id
+                 AND active.kind = 'implementation'
+                 AND active.status IN ('pending', 'running', 'cancelling')
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM tasks review WHERE review.project_id = t.project_id
+                 AND review.resolution IS NULL AND review.status = 'needs_you'
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM task_dependencies d
+               JOIN tasks dependency ON dependency.id = d.needs_task_id
+               WHERE d.task_id = t.id
+                 AND (dependency.resolution IS NULL OR dependency.resolution <> 'accepted')
+             )
+           ORDER BY t.priority DESC, t.queue_order, t.created_at LIMIT 1`,
+        )
+        .get() as (TaskRow & { rig_name: string }) | undefined
+      if (!candidate) return null
+
+      const now = this.#now().toISOString()
+      const id = `run_${randomUUID().replaceAll('-', '')}`
+      this.#db
+        .prepare(
+          `INSERT INTO task_runs(
+             id, project_id, task_id, kind, city_name, rig_name, formula_name,
+             formula_version, starting_event_cursor, request_id, status, stage,
+             created_at, updated_at
+           ) VALUES (?, ?, ?, 'implementation', ?, ?, 'software-delivery', ?, 0, ?,
+             'pending', 'admission', ?, ?)`,
+        )
+        .run(
+          id,
+          candidate.project_id,
+          candidate.id,
+          input.cityName,
+          candidate.rig_name,
+          input.packVersion,
+          id,
+          now,
+          now,
+        )
+      this.#db
+        .prepare(
+          `INSERT INTO outbox_items(
+             id, kind, aggregate_id, payload_json, status, available_at, created_at, updated_at
+           ) VALUES (?, 'execution.start', ?, ?, 'pending', ?, ?, ?)`,
+        )
+        .run(
+          randomUUID(),
+          id,
+          JSON.stringify({ projectId: candidate.project_id, taskId: candidate.id, runId: id }),
+          now,
+          now,
+          now,
+        )
+      this.#db
+        .prepare(
+          `UPDATE tasks SET status = 'in_progress', queue_phase = NULL,
+             version = version + 1, updated_at = ? WHERE id = ?`,
+        )
+        .run(now, candidate.id)
+      this.#recordTaskEvent(this.#require(candidate.id), 'execution_admitted', 'system', id, {
+        runId: id,
+      })
+      this.#appendProductEvent('task.execution_admitted', candidate.project_id, {
+        taskId: candidate.id,
+        runId: id,
+      })
+      return this.#execution(id)
+    })()
+  }
+
+  claimExecutionDispatch(): {
+    outboxId: string
+    attemptCount: number
+    run: ExecutionRunRecord
+  } | null {
+    return this.#db.transaction(() => {
+      const now = this.#now()
+      const row = this.#db
+        .prepare(
+          `SELECT r.*, o.id AS outbox_id, o.attempt_count FROM task_runs r
+           JOIN outbox_items o ON o.aggregate_id = r.id AND o.kind = 'execution.start'
+           WHERE r.kind = 'implementation' AND r.status = 'pending'
+             AND o.status IN ('pending', 'processing') AND o.available_at <= ?
+             AND (o.lease_expires_at IS NULL OR o.lease_expires_at <= ?)
+           ORDER BY r.created_at LIMIT 1`,
+        )
+        .get(now.toISOString(), now.toISOString()) as
+        (ExecutionRunRow & { outbox_id: string; attempt_count: number }) | undefined
+      if (!row) return null
+      this.#db
+        .prepare(
+          `UPDATE outbox_items SET status = 'processing', attempt_count = attempt_count + 1,
+             lease_expires_at = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(new Date(now.getTime() + 60_000).toISOString(), now.toISOString(), row.outbox_id)
+      return {
+        outboxId: row.outbox_id,
+        attemptCount: row.attempt_count + 1,
+        run: executionFromRow(row),
+      }
+    })()
+  }
+
+  setExecutionCapsule(
+    id: string,
+    capsule: { id: string; path: string; branchName: string; baseBranch: string },
+  ): ExecutionRunRecord {
+    const now = this.#now().toISOString()
+    const updated = this.#db
+      .prepare(
+        `UPDATE task_runs SET capsule_id = ?, capsule_path = ?, branch_name = ?,
+           base_branch = ?, stage = 'capsule', updated_at = ?
+         WHERE id = ? AND kind = 'implementation' AND status = 'pending'`,
+      )
+      .run(capsule.id, capsule.path, capsule.branchName, capsule.baseBranch, now, id)
+    if (updated.changes !== 1) throw new Error('invalid_execution_state')
+    return this.#execution(id)
+  }
+
+  startExecution(
+    id: string,
+    correlation: {
+      runId: string
+      workflowRootBeadId: string
+      formulaHash?: string
+      startingEventSeq: number
+    },
+    outboxId: string,
+  ): ExecutionRunRecord {
+    return this.#db.transaction(() => {
+      const now = this.#now().toISOString()
+      const updated = this.#db
+        .prepare(
+          `UPDATE task_runs SET status = 'running', stage = 'implementation', run_id = ?,
+             workflow_root_bead_id = ?, formula_hash = ?, starting_event_cursor = ?,
+             started_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
+        )
+        .run(
+          correlation.runId,
+          correlation.workflowRootBeadId,
+          correlation.formulaHash ?? null,
+          correlation.startingEventSeq,
+          now,
+          now,
+          id,
+        )
+      if (updated.changes !== 1) throw new Error('invalid_execution_state')
+      this.#db
+        .prepare(
+          `UPDATE outbox_items SET status = 'completed', lease_expires_at = NULL,
+             updated_at = ? WHERE id = ?`,
+        )
+        .run(now, outboxId)
+      const run = this.#execution(id)
+      this.#appendProductEvent('task.execution_started', run.projectId, {
+        taskId: run.taskId,
+        runId: run.id,
+      })
+      return run
+    })()
+  }
+
+  deferExecutionDispatch(
+    outboxId: string,
+    runId: string,
+    attemptCount: number,
+    error: { code: string; message: string },
+  ): void {
+    const now = this.#now()
+    if (attemptCount >= 6) {
+      this.#db.transaction(() => {
+        this.#db
+          .prepare(
+            `UPDATE outbox_items SET status = 'failed', lease_expires_at = NULL,
+               last_error = ?, updated_at = ? WHERE id = ?`,
+          )
+          .run(error.message, now.toISOString(), outboxId)
+        this.finishExecution(runId, 'failed', { error })
+      })()
+      return
+    }
+    const delays = [1, 5, 30, 120, 600, 1_800]
+    const availableAt = new Date(now.getTime() + delays[attemptCount - 1]! * 1_000).toISOString()
+    this.#db
+      .prepare(
+        `UPDATE outbox_items SET status = 'pending', available_at = ?, lease_expires_at = NULL,
+           last_error = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(availableAt, error.message, now.toISOString(), outboxId)
+    this.#db
+      .prepare(
+        `UPDATE task_runs SET error_code = ?, error_message = ?, updated_at = ?
+         WHERE id = ? AND status = 'pending'`,
+      )
+      .run(error.code, error.message, now.toISOString(), runId)
+  }
+
+  observeExecution(
+    id: string,
+    input: {
+      stage: ExecutionStage
+      steps: readonly ExecutionStepRecord[]
+      logs?: readonly string[]
+      usage?: ExecutionUsageRecord
+    },
+  ): ExecutionRunRecord {
+    const now = this.#now().toISOString()
+    this.#db
+      .prepare(
+        `UPDATE task_runs SET stage = ?, steps_json = ?, logs_json = COALESCE(?, logs_json),
+           usage_json = COALESCE(?, usage_json),
+           error_code = NULL, error_message = NULL, updated_at = ?
+         WHERE id = ? AND status IN ('running', 'cancelling')`,
+      )
+      .run(
+        input.stage,
+        JSON.stringify(input.steps),
+        input.logs ? JSON.stringify(input.logs) : null,
+        input.usage ? JSON.stringify(input.usage) : null,
+        now,
+        id,
+      )
+    return this.#execution(id)
+  }
+
+  requestExecutionCancellation(id: string): ExecutionRunRecord {
+    const now = this.#now().toISOString()
+    const updated = this.#db
+      .prepare(
+        `UPDATE task_runs SET status = 'cancelling', updated_at = ?
+         WHERE id = ? AND status IN ('pending', 'running')`,
+      )
+      .run(now, id)
+    if (updated.changes !== 1) throw new Error('invalid_execution_state')
+    return this.#execution(id)
+  }
+
+  finishExecution(
+    id: string,
+    status: 'completed' | 'failed' | 'cancelled',
+    input: {
+      reviewPackage?: ExecutionReviewPackageRecord
+      usage?: ExecutionUsageRecord
+      error?: { code: string; message: string }
+      needsYouAction?: 'review' | 'resolve_conflict' | 'recover_failure'
+    } = {},
+  ): ExecutionRunRecord {
+    return this.#db.transaction(() => {
+      const current = this.#execution(id)
+      const now = this.#now().toISOString()
+      const stage: ExecutionStage = status === 'completed' ? 'needs_you' : 'terminal'
+      const updated = this.#db
+        .prepare(
+          `UPDATE task_runs SET status = ?, stage = ?, review_package_json = ?,
+             usage_json = COALESCE(?, usage_json), error_code = ?, error_message = ?,
+             terminal_disposition = ?, finished_at = ?, updated_at = ?
+           WHERE id = ? AND status IN ('pending', 'running', 'cancelling')`,
+        )
+        .run(
+          status,
+          stage,
+          JSON.stringify(input.reviewPackage ?? null),
+          input.usage ? JSON.stringify(input.usage) : null,
+          input.error?.code ?? null,
+          input.error?.message ?? null,
+          status,
+          now,
+          now,
+          id,
+        )
+      if (updated.changes !== 1) throw new Error('invalid_execution_state')
+
+      if (status === 'completed') {
+        this.move({
+          taskId: current.taskId,
+          status: 'needs_you',
+          needsYouAction: 'review',
+          needsYouMessage: 'Review the internally verified implementation package.',
+          actorKind: 'system',
+          actorId: id,
+        })
+      } else if (status === 'failed') {
+        this.move({
+          taskId: current.taskId,
+          status: 'needs_you',
+          needsYouAction: input.needsYouAction ?? 'recover_failure',
+          needsYouMessage: input.error?.message ?? 'The implementation workflow failed.',
+          actorKind: 'system',
+          actorId: id,
+        })
+      } else {
+        this.#db
+          .prepare(
+            `UPDATE outbox_items SET status = 'completed', lease_expires_at = NULL,
+               updated_at = ? WHERE aggregate_id = ? AND kind = 'execution.start'
+               AND status IN ('pending', 'processing')`,
+          )
+          .run(now, id)
+        this.resolve({
+          taskId: current.taskId,
+          resolution: 'cancelled',
+          summary: 'The implementation run was cancelled.',
+          actorKind: 'system',
+          actorId: id,
+        })
+      }
+      this.#appendProductEvent('task.execution_finished', current.projectId, {
+        taskId: current.taskId,
+        runId: id,
+        status,
+      })
+      return this.#execution(id)
+    })()
+  }
+
+  archiveExecution(id: string): ExecutionRunRecord {
+    const now = this.#now().toISOString()
+    const updated = this.#db
+      .prepare(
+        `UPDATE task_runs SET archived_at = ?, updated_at = ?
+         WHERE id = ? AND status IN ('completed', 'failed', 'cancelled') AND archived_at IS NULL`,
+      )
+      .run(now, now, id)
+    if (updated.changes !== 1) throw new Error('invalid_execution_state')
+    return this.#execution(id)
+  }
+
+  requeueExecution(id: string, feedback?: string): TaskRecord {
+    return this.#db.transaction(() => {
+      const run = this.#execution(id)
+      if (run.status !== 'completed' && run.status !== 'failed') {
+        throw new Error('invalid_execution_state')
+      }
+      const task = this.#requireActive(run.taskId)
+      if (task.status !== 'needs_you') throw new Error('invalid_task_state')
+      const now = this.#now().toISOString()
+      const description = feedback?.trim()
+        ? `${task.description}\n\nUser review feedback:\n${feedback.trim()}`.trim()
+        : task.description
+      this.#db
+        .prepare(
+          `UPDATE tasks SET status = 'queue', queue_phase = 'ready', description = ?,
+             needs_you_action = NULL, needs_you_message = NULL, version = version + 1,
+             updated_at = ? WHERE id = ?`,
+        )
+        .run(description, now, task.id)
+      const updated = this.#require(task.id)
+      this.#recordTaskEvent(
+        updated,
+        feedback ? 'changes_requested' : 'execution_retry_requested',
+        'user',
+        id,
+        {
+          previousRunId: id,
+        },
+      )
+      return updated
+    })()
+  }
+
+  approveExecution(id: string, summary: string, actorId: string): TaskRecord {
+    const run = this.#execution(id)
+    if (run.status !== 'completed' || !run.reviewPackage) throw new Error('invalid_execution_state')
+    return this.resolve({
+      taskId: run.taskId,
+      resolution: 'accepted',
+      summary,
+      actorKind: 'user',
+      actorId,
+    })
+  }
+
   #requestReconciliation(projectId: string, reason: string): QueueReconciliationRecord {
     const now = this.#now().toISOString()
     this.#db
@@ -842,6 +1395,12 @@ export class TaskStore {
       ReconciliationRow | undefined
     if (!row) throw new Error('queue_reconciliation_not_found')
     return reconciliationFromRow(row)
+  }
+
+  #execution(id: string): ExecutionRunRecord {
+    const run = this.getExecutionRun(id)
+    if (!run) throw new Error('execution_run_not_found')
+    return run
   }
 
   #recordTaskEvent(

@@ -323,3 +323,112 @@ describe('Milestone 4 task persistence', () => {
     db.close()
   })
 })
+
+describe('Milestones 5 and 6 delivery persistence', () => {
+  function readyDelivery() {
+    const value = fixture()
+    const provisioning = value.db.claimDueOutbox()[0]!
+    value.db.completeProvisioning(provisioning.id, value.project.id)
+    const task = value.db.tasks.create({
+      projectId: value.project.id,
+      title: 'Ship the vertical slice',
+      description: 'Implement and verify one small change.',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: value.device.id,
+    })
+    value.db.tasks.update({
+      taskId: task.id,
+      queuePhase: 'ready',
+      workerTypeKind: 'software_engineer',
+      formulaName: 'software-delivery',
+      actorKind: 'pm_planner',
+      actorId: 'planner-session',
+    })
+    return { ...value, task }
+  }
+
+  it('persists correlation, live evidence, review handoff, and acceptance', () => {
+    const { db, project, task, device } = readyDelivery()
+    const admitted = db.tasks.admitNextExecution({
+      cityName: 'factoru-city',
+      packVersion: '0.3.0',
+    })!
+    expect(db.tasks.get(task.id)).toMatchObject({ status: 'in_progress', queuePhase: null })
+    expect(
+      db.tasks.admitNextExecution({ cityName: 'factoru-city', packVersion: '0.3.0' }),
+    ).toBeNull()
+
+    const dispatch = db.tasks.claimExecutionDispatch()!
+    db.tasks.setExecutionCapsule(admitted.id, {
+      id: 'capsule-1',
+      path: '/capsules/one/worktree',
+      branchName: 'factoru/task/run',
+      baseBranch: 'dev',
+    })
+    db.tasks.startExecution(
+      admitted.id,
+      {
+        runId: 'gas-run-1',
+        workflowRootBeadId: 'fact-root-1',
+        formulaHash: 'sha256-formula',
+        startingEventSeq: 41,
+      },
+      dispatch.outboxId,
+    )
+    db.tasks.observeExecution(admitted.id, {
+      stage: 'review',
+      steps: [{ id: 'review', title: 'Independent review', status: 'running' }],
+      logs: ['Checks\nok'],
+      usage: { inputTokens: 500, outputTokens: 80, estimatedCostUsd: 0.02 },
+    })
+    expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
+      runId: 'gas-run-1',
+      startingEventCursor: 41,
+      formulaHash: 'sha256-formula',
+      logs: ['Checks\nok'],
+      usage: { inputTokens: 500, outputTokens: 80, estimatedCostUsd: 0.02 },
+    })
+
+    const reviewPackage = {
+      request: task.title,
+      plan: task.description,
+      diff: 'diff --git a/file b/file',
+      commits: ['abc123 change'],
+      checks: { status: 'passed' as const, output: 'ok' },
+      internalReview: 'APPROVE',
+      unresolvedRisks: [],
+      usage: { inputTokens: 500, outputTokens: 80, estimatedCostUsd: 0.02 },
+      capsulePath: '/capsules/one/worktree',
+      branchName: 'factoru/task/run',
+    }
+    db.tasks.finishExecution(admitted.id, 'completed', { reviewPackage })
+    expect(db.tasks.get(task.id)).toMatchObject({ status: 'needs_you', needsYouAction: 'review' })
+    db.tasks.approveExecution(admitted.id, 'Accepted after review.', device.id)
+    expect(db.tasks.listActive(project.id)).toEqual([])
+    expect(db.tasks.get(task.id)).toMatchObject({ resolution: 'accepted' })
+    db.close()
+  })
+
+  it('turns a failed run into exact recovery work and allows a durable retry', () => {
+    const { db, task } = readyDelivery()
+    const run = db.tasks.admitNextExecution({ cityName: 'factoru-city', packVersion: '0.3.0' })!
+    db.tasks.finishExecution(run.id, 'failed', {
+      error: { code: 'checks_failed', message: 'Verification failed.' },
+    })
+    expect(db.tasks.get(task.id)).toMatchObject({
+      status: 'needs_you',
+      needsYouAction: 'recover_failure',
+      needsYouMessage: 'Verification failed.',
+    })
+    expect(db.tasks.requeueExecution(run.id)).toMatchObject({
+      status: 'queue',
+      queuePhase: 'ready',
+    })
+    expect(
+      db.tasks.admitNextExecution({ cityName: 'factoru-city', packVersion: '0.3.0' }),
+    ).not.toBeNull()
+    db.close()
+  })
+})

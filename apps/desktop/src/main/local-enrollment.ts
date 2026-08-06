@@ -21,7 +21,7 @@ export async function readLocalEnrollmentFile(
     return localEnrollmentDescriptorSchema.parse(JSON.parse(await fs.readFile(file, 'utf8')))
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      throw new Error(NOT_RUNNING_MESSAGE)
+      throw new Error(NOT_RUNNING_MESSAGE, { cause: error })
     }
     throw error
   }

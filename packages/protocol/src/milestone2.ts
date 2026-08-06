@@ -144,6 +144,11 @@ export const liveMethodSchema = z.enum([
   'tasks.resolve',
   'tasks.search',
   'tasks.decideMerge',
+  'runs.cancel',
+  'runs.retry',
+  'runs.requestChanges',
+  'runs.approve',
+  'runs.archive',
 ])
 export type LiveMethod = z.infer<typeof liveMethodSchema>
 export const liveRequestSchema = z.object({

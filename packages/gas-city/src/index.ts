@@ -39,6 +39,7 @@ export {
   type RigBinding,
   type RunCorrelation,
   type RunSnapshot,
+  type RunUsage,
   type RunStatus,
   type RunStep,
 } from './adapter.js'
@@ -95,6 +96,13 @@ export {
   type ProjectRuntimeConfiguration,
   type ProjectRuntimeConfigurator,
 } from './configuration.js'
+
+export {
+  FormulaValidationError,
+  serializeFormulaVariables,
+  validateFormulaV2,
+  type FormulaVariableValue,
+} from './formula.js'
 
 export {
   compareVersions,

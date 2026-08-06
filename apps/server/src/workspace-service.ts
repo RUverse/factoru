@@ -5,6 +5,8 @@ import type {
   PlannerProbeRecord,
   WorkerTypeRecord,
   TaskRecord,
+  ExecutionRunRecord,
+  ExecutionStage,
 } from '@factoru/database'
 import {
   workspaceSchema,
@@ -14,6 +16,7 @@ import {
   type WorkerType,
   type Workspace,
   type Task,
+  type ExecutionRun,
 } from '@factoru/protocol'
 import type {
   ConversationMessage as OrchestrationConversationMessage,
@@ -21,8 +24,10 @@ import type {
   RunCorrelation,
   RunSnapshot,
   ProjectRuntimeConfigurator,
+  FormulaVariableValue,
 } from '@factoru/gas-city'
 import { ApplicationError } from './project-service.js'
+import { CapsuleIntegrationError, type ExecutionCapsuleManager } from './capsule-service.js'
 
 export interface ProjectManagerOrchestrator {
   registerConversationAdapter(accountId: string, displayName: string): Promise<void>
@@ -47,10 +52,14 @@ export interface ProjectManagerOrchestrator {
     formulaName: string
     target: string
     title: string
-    variables: Readonly<Record<string, string>>
+    variables: Readonly<Record<string, FormulaVariableValue>>
     requestId?: string
   }): Promise<RunCorrelation>
   describeRun(runId: string, workflowRootBeadId: string): Promise<RunSnapshot>
+  readRunUsage?(
+    runId: string,
+    startingEventSeq: number,
+  ): Promise<{ inputTokens: number; outputTokens: number; estimatedCostUsd: number }>
   cancelRun(runId: string): Promise<void>
 }
 
@@ -128,20 +137,64 @@ function taskProjection(record: TaskRecord): Task {
   }
 }
 
+function executionProjection(record: ExecutionRunRecord): ExecutionRun {
+  return {
+    id: record.id,
+    taskId: record.taskId,
+    formulaName: record.formulaName,
+    formulaVersion: record.formulaVersion,
+    formulaHash: record.formulaHash,
+    status: record.status,
+    stage: record.stage,
+    capsule:
+      record.capsuleId && record.capsulePath && record.branchName && record.baseBranch
+        ? {
+            id: record.capsuleId,
+            path: record.capsulePath,
+            branchName: record.branchName,
+            baseBranch: record.baseBranch,
+          }
+        : null,
+    steps: record.steps,
+    logs: record.logs,
+    usage: record.usage,
+    reviewPackage: record.reviewPackage,
+    error:
+      record.errorCode && record.errorMessage
+        ? { code: record.errorCode, message: record.errorMessage }
+        : null,
+    createdAt: record.createdAt,
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    updatedAt: record.updatedAt,
+  }
+}
+
 export class WorkspaceService {
   readonly #database: FactoruDatabase
   readonly #orchestrator: ProjectManagerOrchestrator
   readonly #configurator: ProjectRuntimeConfigurator | null
+  readonly #capsules: ExecutionCapsuleManager | null
+  readonly #cityName: string
+  readonly #packVersion: string
   #adapterRegistered = false
 
   constructor(
     database: FactoruDatabase,
     orchestrator: ProjectManagerOrchestrator,
     configurator: ProjectRuntimeConfigurator | null = null,
+    execution: {
+      capsules: ExecutionCapsuleManager
+      cityName: string
+      packVersion: string
+    } | null = null,
   ) {
     this.#database = database
     this.#orchestrator = orchestrator
     this.#configurator = configurator
+    this.#capsules = execution?.capsules ?? null
+    this.#cityName = execution?.cityName ?? ''
+    this.#packVersion = execution?.packVersion ?? ''
   }
 
   get(projectId: string): Workspace {
@@ -194,6 +247,7 @@ export class WorkspaceService {
           : null
       })(),
       taskMergeProposals: this.#database.tasks.listMergeProposals(projectId),
+      taskRuns: this.#database.tasks.listExecutionRuns(projectId).map(executionProjection),
     })
   }
 
@@ -309,6 +363,43 @@ export class WorkspaceService {
     }
   }
 
+  async cancelExecution(projectId: string, runId: string): Promise<ExecutionRun> {
+    const run = this.#requireExecution(projectId, runId)
+    this.#database.tasks.requestExecutionCancellation(run.id)
+    if (!run.runId) {
+      return executionProjection(this.#database.tasks.finishExecution(run.id, 'cancelled'))
+    }
+    try {
+      await this.#orchestrator.cancelRun(run.runId)
+      return executionProjection(this.#database.tasks.getExecutionRun(run.id)!)
+    } catch (error) {
+      throw new ApplicationError(
+        'execution_cancel_failed',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  retryExecution(projectId: string, runId: string): Task {
+    this.#requireExecution(projectId, runId)
+    return taskProjection(this.#database.tasks.requeueExecution(runId))
+  }
+
+  requestExecutionChanges(projectId: string, runId: string, feedback: string): Task {
+    this.#requireExecution(projectId, runId)
+    return taskProjection(this.#database.tasks.requeueExecution(runId, feedback))
+  }
+
+  approveExecution(projectId: string, runId: string, summary: string, actorId: string): Task {
+    this.#requireExecution(projectId, runId)
+    return taskProjection(this.#database.tasks.approveExecution(runId, summary, actorId))
+  }
+
+  archiveExecution(projectId: string, runId: string): ExecutionRun {
+    this.#requireExecution(projectId, runId)
+    return executionProjection(this.#database.tasks.archiveExecution(runId))
+  }
+
   async process(): Promise<void> {
     if (this.#database.listProjects().length === 0) return
     try {
@@ -334,8 +425,16 @@ export class WorkspaceService {
       await this.#syncConversation(project.id)
       await this.#observePlanner(project.id)
       await this.#observeQueueReconciliation(project.id)
+      await this.#observeExecution(project.id)
     }
     await this.#dispatchQueueReconciliation()
+    if (this.#capsules) {
+      this.#database.tasks.admitNextExecution({
+        cityName: this.#cityName,
+        packVersion: this.#packVersion,
+      })
+      await this.#dispatchExecution()
+    }
   }
 
   async #ensureAdapter(): Promise<void> {
@@ -473,7 +572,7 @@ export class WorkspaceService {
         variables: {
           project_id: project.id,
           reconciliation_id: claimed.reconciliation.id,
-          queue_revision: String(claimed.reconciliation.coalescedThroughRevision),
+          queue_revision: claimed.reconciliation.coalescedThroughRevision,
         },
         requestId: claimed.reconciliation.id,
       })
@@ -521,6 +620,152 @@ export class WorkspaceService {
     }
   }
 
+  async #dispatchExecution(): Promise<void> {
+    if (!this.#capsules) return
+    const claimed = this.#database.tasks.claimExecutionDispatch()
+    if (!claimed) return
+    const project = this.#database.getProject(claimed.run.projectId)
+    const task = this.#database.tasks.get(claimed.run.taskId)
+    if (!project || !task) return
+    try {
+      const capsule = await this.#capsules.prepare(project, claimed.run)
+      this.#database.tasks.setExecutionCapsule(claimed.run.id, {
+        id: capsule.id,
+        path: capsule.worktreePath,
+        branchName: capsule.branchName,
+        baseBranch: capsule.baseBranch,
+      })
+      const correlation = await this.#orchestrator.startRun({
+        rigName: project.rig.rigName,
+        formulaName: 'software-delivery',
+        target: `${project.rig.rigName}/factoru.software-implementer`,
+        title: `Deliver ${task.title}`,
+        variables: {
+          task_id: task.id,
+          run_id: claimed.run.id,
+          request: [task.title, task.description].filter(Boolean).join('\n\n'),
+          capsule_path: capsule.worktreePath,
+          base_branch: capsule.baseBranch,
+          evidence_path: capsule.evidencePath,
+          verification_script: capsule.verificationScript,
+          implementation_target: `${project.rig.rigName}/factoru.software-implementer`,
+          review_target: `${project.rig.rigName}/factoru.software-reviewer`,
+        },
+        requestId: claimed.run.requestId,
+      })
+      this.#database.tasks.startExecution(claimed.run.id, correlation, claimed.outboxId)
+    } catch (error) {
+      this.#database.tasks.deferExecutionDispatch(
+        claimed.outboxId,
+        claimed.run.id,
+        claimed.attemptCount,
+        {
+          code: 'execution_dispatch_failed',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      )
+    }
+  }
+
+  async #observeExecution(projectId: string): Promise<void> {
+    if (!this.#capsules) return
+    const run = this.#database.tasks.activeExecution(projectId)
+    if (!run?.runId || !run.workflowRootBeadId) return
+    let snapshot: RunSnapshot
+    try {
+      snapshot = await this.#orchestrator.describeRun(run.runId, run.workflowRootBeadId)
+    } catch {
+      return
+    }
+    if (snapshot.partial || snapshot.steps.length === 0) return
+    const statuses = snapshot.steps.map((step) => step.status)
+    const stage = this.#executionStage(snapshot)
+    let usage = run.usage
+    if (this.#orchestrator.readRunUsage) {
+      try {
+        const observed = await this.#orchestrator.readRunUsage(run.runId, run.startingEventCursor)
+        usage = {
+          inputTokens: observed.inputTokens,
+          outputTokens: observed.outputTokens,
+          estimatedCostUsd: observed.estimatedCostUsd,
+        }
+      } catch {
+        // A later reactor pass retries optional usage telemetry.
+      }
+    }
+    let logs = run.logs
+    try {
+      const project = this.#database.getProject(projectId)
+      if (project) {
+        const capsule = await this.#capsules.prepare(project, run)
+        logs = [...this.#capsules.readLogs(capsule)]
+      }
+    } catch {
+      // Evidence may be between atomic writes while an agent is working.
+    }
+    this.#database.tasks.observeExecution(run.id, {
+      stage,
+      steps: snapshot.steps.map((step) => ({
+        id: step.stepId,
+        title: step.title,
+        status: step.status,
+      })),
+      logs,
+      usage,
+    })
+    if (statuses.some((status) => status === 'failed')) {
+      this.#database.tasks.finishExecution(run.id, 'failed', {
+        error: { code: 'software_delivery_failed', message: 'A software-delivery step failed.' },
+      })
+      return
+    }
+    if (statuses.some((status) => status === 'cancelled')) {
+      this.#database.tasks.finishExecution(run.id, 'cancelled')
+      return
+    }
+    if (!statuses.every((status) => status === 'completed' || status === 'skipped')) return
+
+    const project = this.#database.getProject(projectId)
+    const task = this.#database.tasks.get(run.taskId)
+    if (!project || !task) return
+    try {
+      this.#database.tasks.observeExecution(run.id, {
+        stage: 'integration',
+        steps: snapshot.steps.map((step) => ({
+          id: step.stepId,
+          title: step.title,
+          status: step.status,
+        })),
+        logs,
+        usage,
+      })
+      const capsule = await this.#capsules.prepare(project, run)
+      const reviewPackage = await this.#capsules.finalize(project, run, capsule, {
+        request: task.title,
+        plan: task.description,
+        usage,
+      })
+      this.#database.tasks.finishExecution(run.id, 'completed', { reviewPackage, usage })
+    } catch (error) {
+      if (!(error instanceof CapsuleIntegrationError)) return
+      this.#database.tasks.finishExecution(run.id, 'failed', {
+        error: { code: `capsule_${error.kind}`, message: error.message },
+        needsYouAction: error.kind === 'conflict' ? 'resolve_conflict' : 'recover_failure',
+      })
+    }
+  }
+
+  #executionStage(snapshot: RunSnapshot): ExecutionStage {
+    const active = snapshot.steps.find((step) =>
+      ['running', 'pending', 'blocked', 'cancelling'].includes(step.status),
+    )
+    const value = `${active?.stepId ?? ''} ${active?.title ?? ''}`.toLowerCase()
+    if (value.includes('review')) return 'review'
+    if (value.includes('check') || value.includes('verify')) return 'checks'
+    if (value.includes('final')) return 'review'
+    return 'implementation'
+  }
+
   #requireConversation(projectId: string): ConversationRecord {
     if (!this.#database.getProject(projectId)) {
       throw new ApplicationError('not_found', 'Project not found')
@@ -530,6 +775,15 @@ export class WorkspaceService {
       throw new ApplicationError('product_state_missing', 'Project conversation is missing')
     }
     return conversation
+  }
+
+  #requireExecution(projectId: string, runId: string): ExecutionRunRecord {
+    this.#requireConversation(projectId)
+    const run = this.#database.tasks.getExecutionRun(runId)
+    if (!run || run.projectId !== projectId) {
+      throw new ApplicationError('not_found', 'Execution run not found')
+    }
+    return run
   }
 
   #conversationProjection(record: ConversationRecord) {

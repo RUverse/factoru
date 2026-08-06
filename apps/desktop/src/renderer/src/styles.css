@@ -807,6 +807,97 @@ code {
   text-transform: capitalize;
 }
 
+.run-summary {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(138, 180, 255, 0.2);
+  border-radius: var(--factoru-radius-sm);
+  background: rgba(138, 180, 255, 0.04);
+  padding: 7px;
+}
+
+.run-summary > header,
+.run-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.run-summary > header > strong,
+.run-evidence > strong {
+  color: var(--factoru-accent);
+  font-size: 9px;
+  text-transform: capitalize;
+}
+
+.run-summary > p {
+  color: var(--factoru-text-faint);
+  font-size: 9px;
+}
+
+.run-meter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.run-meter span {
+  border-left: 2px solid var(--factoru-text-faint);
+  padding-left: 4px;
+  color: var(--factoru-text-muted);
+  font-size: 8px;
+}
+
+.run-meter span.running,
+.run-meter span.pending,
+.run-meter span.blocked {
+  border-color: var(--factoru-warn);
+}
+
+.run-meter span.completed {
+  border-color: var(--factoru-ok);
+}
+
+.run-meter span.failed,
+.run-meter span.cancelled {
+  border-color: var(--factoru-error);
+}
+
+.run-summary .run-error {
+  color: var(--factoru-error);
+  overflow-wrap: anywhere;
+}
+
+.run-evidence summary {
+  cursor: pointer;
+  color: var(--factoru-text-muted);
+  font-size: 9px;
+}
+
+.run-evidence pre {
+  max-height: 170px;
+  overflow: auto;
+  margin: 5px 0;
+  border: 1px solid var(--factoru-border);
+  border-radius: 4px;
+  padding: 6px;
+  color: var(--factoru-text-muted);
+  font-size: 8px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.run-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.run-actions button {
+  padding: 5px 7px;
+  font-size: 9px;
+}
+
 .task-card footer {
   color: var(--factoru-text-faint);
   font-size: 9px;

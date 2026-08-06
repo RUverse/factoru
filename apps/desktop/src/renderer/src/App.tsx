@@ -707,111 +707,269 @@ export function App() {
                           {tasks.length === 0 ? (
                             <p>No tasks</p>
                           ) : (
-                            tasks.map((task) => (
-                              <article className="task-card" key={`${task.id}:${task.version}`}>
-                                <header>
-                                  <strong>{task.title}</strong>
-                                  {task.queuePhase && (
-                                    <span className="phase-badge">
-                                      {statusLabel(task.queuePhase)}
-                                    </span>
+                            tasks.map((task) => {
+                              const taskRun = snapshot.workspace!.taskRuns.find(
+                                (candidate) => candidate.taskId === task.id,
+                              )
+                              return (
+                                <article className="task-card" key={`${task.id}:${task.version}`}>
+                                  <header>
+                                    <strong>{task.title}</strong>
+                                    {task.queuePhase && (
+                                      <span className="phase-badge">
+                                        {statusLabel(task.queuePhase)}
+                                      </span>
+                                    )}
+                                  </header>
+                                  {task.description && <p>{task.description}</p>}
+                                  {task.status === 'needs_you' && (
+                                    <div className="needs-action">
+                                      <strong>{statusLabel(task.needsYouAction!)}</strong>
+                                      <span>{task.needsYouMessage}</span>
+                                    </div>
                                   )}
-                                </header>
-                                {task.description && <p>{task.description}</p>}
-                                {task.status === 'needs_you' && (
-                                  <div className="needs-action">
-                                    <strong>{statusLabel(task.needsYouAction!)}</strong>
-                                    <span>{task.needsYouMessage}</span>
-                                  </div>
-                                )}
-                                <footer>
-                                  <span>Priority {task.priority}</span>
-                                  <span>
-                                    {task.workerTypeKind
-                                      ? statusLabel(task.workerTypeKind)
-                                      : 'Unassigned'}
-                                  </span>
-                                </footer>
-                                {task.status === 'backlog' && (
-                                  <button
-                                    className="queue-button"
-                                    disabled={!snapshot.connected || busy}
-                                    onClick={() => void queueTask(task)}
-                                  >
-                                    Move to Queue
-                                  </button>
-                                )}
-                                <details className="task-details">
-                                  <summary>Edit and move</summary>
-                                  <form onSubmit={(event) => updateTask(event, task)}>
-                                    <input
-                                      name="title"
-                                      required
-                                      defaultValue={task.title}
-                                      maxLength={200}
-                                    />
-                                    <textarea
-                                      name="description"
-                                      rows={3}
-                                      defaultValue={task.description}
-                                      maxLength={20_000}
-                                    />
-                                    <label>
-                                      Priority
-                                      <input
-                                        name="priority"
-                                        type="number"
-                                        min={0}
-                                        max={100}
-                                        defaultValue={task.priority}
-                                      />
-                                    </label>
-                                    <button disabled={!snapshot.connected || busy}>
-                                      Save edits
-                                    </button>
-                                  </form>
-                                  <form onSubmit={(event) => moveTask(event, task)}>
-                                    <select name="status" defaultValue={task.status}>
-                                      {taskColumns.map(([value, text]) => (
-                                        <option value={value} key={value}>
-                                          {text}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <select name="needsYouAction" defaultValue="clarify">
-                                      <option value="clarify">Clarify</option>
-                                      <option value="approve">Approve</option>
-                                      <option value="review">Review</option>
-                                      <option value="resolve_conflict">Resolve conflict</option>
-                                      <option value="recover_failure">Recover failure</option>
-                                    </select>
-                                    <input
-                                      name="needsYouMessage"
-                                      placeholder="Required when moving to Needs you"
-                                    />
-                                    <button disabled={!snapshot.connected || busy}>Move</button>
-                                  </form>
-                                  <form onSubmit={(event) => resolveTask(event, task)}>
-                                    <select name="resolution" defaultValue="cancelled">
-                                      <option value="accepted">Accepted</option>
-                                      <option value="rejected">Rejected</option>
-                                      <option value="cancelled">Cancelled</option>
-                                    </select>
-                                    <input
-                                      name="summary"
-                                      required
-                                      placeholder="Why is this terminal?"
-                                    />
-                                    <button
-                                      className="danger"
-                                      disabled={!snapshot.connected || busy}
+                                  {taskRun && (
+                                    <section
+                                      className="run-summary"
+                                      aria-label="Software delivery run"
                                     >
-                                      Resolve task
+                                      <header>
+                                        <strong>{statusLabel(taskRun.stage)}</strong>
+                                        <span className={`health-pill ${taskRun.status}`}>
+                                          {statusLabel(taskRun.status)}
+                                        </span>
+                                      </header>
+                                      <div className="run-meter">
+                                        {taskRun.steps.map((step) => (
+                                          <span
+                                            className={step.status}
+                                            key={step.id}
+                                            title={step.title}
+                                          >
+                                            {statusLabel(step.title)}
+                                          </span>
+                                        ))}
+                                      </div>
+                                      <p>
+                                        {taskRun.usage.inputTokens + taskRun.usage.outputTokens}{' '}
+                                        tokens · ${taskRun.usage.estimatedCostUsd.toFixed(4)}{' '}
+                                        estimated
+                                      </p>
+                                      {taskRun.error && (
+                                        <p className="run-error">
+                                          {taskRun.error.code}: {taskRun.error.message}
+                                        </p>
+                                      )}
+                                      {(taskRun.logs.length > 0 || taskRun.reviewPackage) && (
+                                        <details className="run-evidence">
+                                          <summary>Logs and evidence</summary>
+                                          {taskRun.logs.map((entry, index) => (
+                                            <pre key={index}>{entry}</pre>
+                                          ))}
+                                          {taskRun.reviewPackage && (
+                                            <>
+                                              <strong>Commits</strong>
+                                              <pre>{taskRun.reviewPackage.commits.join('\n')}</pre>
+                                              <strong>Checks</strong>
+                                              <pre>{taskRun.reviewPackage.checks.output}</pre>
+                                              <strong>Independent review</strong>
+                                              <pre>{taskRun.reviewPackage.internalReview}</pre>
+                                              <strong>Diff</strong>
+                                              <pre>{taskRun.reviewPackage.diff}</pre>
+                                              {taskRun.reviewPackage.unresolvedRisks.length > 0 && (
+                                                <p className="run-error">
+                                                  Risks:{' '}
+                                                  {taskRun.reviewPackage.unresolvedRisks.join('; ')}
+                                                </p>
+                                              )}
+                                            </>
+                                          )}
+                                        </details>
+                                      )}
+                                      <div className="run-actions">
+                                        {['pending', 'running', 'cancelling'].includes(
+                                          taskRun.status,
+                                        ) && (
+                                          <button
+                                            disabled={
+                                              !snapshot.connected ||
+                                              busy ||
+                                              taskRun.status === 'cancelling'
+                                            }
+                                            onClick={() =>
+                                              void run(() =>
+                                                window.factoru.product.cancelRun(
+                                                  task.projectId,
+                                                  taskRun.id,
+                                                ),
+                                              )
+                                            }
+                                          >
+                                            Cancel run
+                                          </button>
+                                        )}
+                                        {taskRun.status === 'completed' && (
+                                          <>
+                                            <button
+                                              className="primary"
+                                              disabled={!snapshot.connected || busy}
+                                              onClick={() =>
+                                                window.confirm('Approve this implementation?') &&
+                                                void run(() =>
+                                                  window.factoru.product.approveRun(
+                                                    task.projectId,
+                                                    taskRun.id,
+                                                    'Accepted after reviewing the delivery evidence.',
+                                                  ),
+                                                )
+                                              }
+                                            >
+                                              Approve
+                                            </button>
+                                            <button
+                                              disabled={!snapshot.connected || busy}
+                                              onClick={() => {
+                                                const feedback = window
+                                                  .prompt('What should the implementation change?')
+                                                  ?.trim()
+                                                if (feedback)
+                                                  void run(() =>
+                                                    window.factoru.product.requestRunChanges(
+                                                      task.projectId,
+                                                      taskRun.id,
+                                                      feedback,
+                                                    ),
+                                                  )
+                                              }}
+                                            >
+                                              Request changes
+                                            </button>
+                                          </>
+                                        )}
+                                        {taskRun.status === 'failed' && (
+                                          <button
+                                            disabled={!snapshot.connected || busy}
+                                            onClick={() =>
+                                              void run(() =>
+                                                window.factoru.product.retryRun(
+                                                  task.projectId,
+                                                  taskRun.id,
+                                                ),
+                                              )
+                                            }
+                                          >
+                                            Retry
+                                          </button>
+                                        )}
+                                        {['completed', 'failed', 'cancelled'].includes(
+                                          taskRun.status,
+                                        ) && (
+                                          <button
+                                            disabled={!snapshot.connected || busy}
+                                            onClick={() =>
+                                              void run(() =>
+                                                window.factoru.product.archiveRun(
+                                                  task.projectId,
+                                                  taskRun.id,
+                                                ),
+                                              )
+                                            }
+                                          >
+                                            Archive run
+                                          </button>
+                                        )}
+                                      </div>
+                                    </section>
+                                  )}
+                                  <footer>
+                                    <span>Priority {task.priority}</span>
+                                    <span>
+                                      {task.workerTypeKind
+                                        ? statusLabel(task.workerTypeKind)
+                                        : 'Unassigned'}
+                                    </span>
+                                  </footer>
+                                  {task.status === 'backlog' && (
+                                    <button
+                                      className="queue-button"
+                                      disabled={!snapshot.connected || busy}
+                                      onClick={() => void queueTask(task)}
+                                    >
+                                      Move to Queue
                                     </button>
-                                  </form>
-                                </details>
-                              </article>
-                            ))
+                                  )}
+                                  <details className="task-details">
+                                    <summary>Edit and move</summary>
+                                    <form onSubmit={(event) => updateTask(event, task)}>
+                                      <input
+                                        name="title"
+                                        required
+                                        defaultValue={task.title}
+                                        maxLength={200}
+                                      />
+                                      <textarea
+                                        name="description"
+                                        rows={3}
+                                        defaultValue={task.description}
+                                        maxLength={20_000}
+                                      />
+                                      <label>
+                                        Priority
+                                        <input
+                                          name="priority"
+                                          type="number"
+                                          min={0}
+                                          max={100}
+                                          defaultValue={task.priority}
+                                        />
+                                      </label>
+                                      <button disabled={!snapshot.connected || busy}>
+                                        Save edits
+                                      </button>
+                                    </form>
+                                    <form onSubmit={(event) => moveTask(event, task)}>
+                                      <select name="status" defaultValue={task.status}>
+                                        {taskColumns.map(([value, text]) => (
+                                          <option value={value} key={value}>
+                                            {text}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <select name="needsYouAction" defaultValue="clarify">
+                                        <option value="clarify">Clarify</option>
+                                        <option value="approve">Approve</option>
+                                        <option value="review">Review</option>
+                                        <option value="resolve_conflict">Resolve conflict</option>
+                                        <option value="recover_failure">Recover failure</option>
+                                      </select>
+                                      <input
+                                        name="needsYouMessage"
+                                        placeholder="Required when moving to Needs you"
+                                      />
+                                      <button disabled={!snapshot.connected || busy}>Move</button>
+                                    </form>
+                                    <form onSubmit={(event) => resolveTask(event, task)}>
+                                      <select name="resolution" defaultValue="cancelled">
+                                        <option value="accepted">Accepted</option>
+                                        <option value="rejected">Rejected</option>
+                                        <option value="cancelled">Cancelled</option>
+                                      </select>
+                                      <input
+                                        name="summary"
+                                        required
+                                        placeholder="Why is this terminal?"
+                                      />
+                                      <button
+                                        className="danger"
+                                        disabled={!snapshot.connected || busy}
+                                      >
+                                        Resolve task
+                                      </button>
+                                    </form>
+                                  </details>
+                                </article>
+                              )
+                            })
                           )}
                         </div>
                       </section>

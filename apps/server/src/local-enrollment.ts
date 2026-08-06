@@ -44,8 +44,9 @@ export function writeLocalEnrollmentFile(
   } finally {
     try {
       fs.unlinkSync(temporary)
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+    } catch {
+      // The primary write/rename result takes precedence over best-effort
+      // cleanup of a private, uniquely named temporary file.
     }
   }
   return descriptor

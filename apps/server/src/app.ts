@@ -17,6 +17,7 @@ import {
   CAPABILITY_WORKER_TYPES,
   CAPABILITY_TASKS,
   CAPABILITY_QUEUE_RECONCILIATION,
+  CAPABILITY_SOFTWARE_DELIVERY,
   CONNECTION_TICKET_PATH,
   HANDSHAKE_PATH,
   HEALTH_PATH,
@@ -46,6 +47,9 @@ import {
   projectSnapshotSchema,
   projectSubscribeParamsSchema,
   plannerCancelParamsSchema,
+  executionApproveParamsSchema,
+  executionRequestChangesParamsSchema,
+  executionRunParamsSchema,
   repositoryBrowseParamsSchema,
   type HealthResponse,
   type LiveRequest,
@@ -134,7 +138,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           CAPABILITY_PROJECTS,
           CAPABILITY_TRUSTED_DEVICES,
           ...(workspaces
-            ? [CAPABILITY_WORKSPACES, CAPABILITY_CONVERSATIONS, CAPABILITY_WORKER_TYPES]
+            ? [
+                CAPABILITY_WORKSPACES,
+                CAPABILITY_CONVERSATIONS,
+                CAPABILITY_WORKER_TYPES,
+                CAPABILITY_SOFTWARE_DELIVERY,
+              ]
             : []),
           ...(tasks ? [CAPABILITY_TASKS, CAPABILITY_QUEUE_RECONCILIATION] : []),
         ]
@@ -390,6 +399,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'tasks.resolve': 'projects:write',
       'tasks.search': 'projects:read',
       'tasks.decideMerge': 'projects:write',
+      'runs.cancel': 'projects:write',
+      'runs.retry': 'projects:write',
+      'runs.requestChanges': 'projects:write',
+      'runs.approve': 'projects:write',
+      'runs.archive': 'projects:write',
     }
     try {
       requireScope(currentDevice, requiredScopes[request.method])
@@ -641,6 +655,94 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           )
           break
         }
+        case 'runs.cancel': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = executionRunParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Cancelling a run requires commandId')
+          const replay = database.replayCommand(request.commandId, request.method, params)
+          result =
+            replay ??
+            database.recordCommand(
+              request.commandId,
+              currentDevice.id,
+              request.method,
+              params,
+              await workspaces.cancelExecution(params.projectId, params.runId),
+            )
+          break
+        }
+        case 'runs.retry': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = executionRunParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Retrying a run requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => workspaces.retryExecution(params.projectId, params.runId),
+          )
+          break
+        }
+        case 'runs.requestChanges': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = executionRequestChangesParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Requesting changes requires commandId',
+            )
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () =>
+              workspaces.requestExecutionChanges(params.projectId, params.runId, params.feedback),
+          )
+          break
+        }
+        case 'runs.approve': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = executionApproveParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Approving a run requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () =>
+              workspaces.approveExecution(
+                params.projectId,
+                params.runId,
+                params.summary,
+                currentDevice.id,
+              ),
+          )
+          break
+        }
+        case 'runs.archive': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = executionRunParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Archiving a run requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => workspaces.archiveExecution(params.projectId, params.runId),
+          )
+          break
+        }
       }
       socket.send(JSON.stringify({ id: request.id, ok: true, result }))
       if (request.method === 'devices.revoke' && (result as { self?: boolean }).self === true) {
@@ -658,7 +760,12 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         request.method === 'tasks.update' ||
         request.method === 'tasks.move' ||
         request.method === 'tasks.resolve' ||
-        request.method === 'tasks.decideMerge'
+        request.method === 'tasks.decideMerge' ||
+        request.method === 'runs.cancel' ||
+        request.method === 'runs.retry' ||
+        request.method === 'runs.requestChanges' ||
+        request.method === 'runs.approve' ||
+        request.method === 'runs.archive'
       )
         publishEvents()
     } catch (error) {

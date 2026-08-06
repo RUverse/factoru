@@ -1,12 +1,12 @@
 [pack]
 name = "factoru-default"
-version = "0.2.2"
+version = "0.3.0"
 schema = 2
 
 # Factoru's versioned default orchestration pack.
 #
-# Milestone 4 adds the production Queue reconciliation formula and authenticated
-# role-scoped Factoru task tools while retaining the earlier probes as pinned
+# Milestone 5 adds the production software-delivery Formula v2 candidate and
+# canonical compiler requirements while retaining earlier probes as pinned
 # operational evidence.
 #
 # Agent role names are stable because Factoru's adapter routes to them, but

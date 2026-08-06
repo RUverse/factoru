@@ -6,8 +6,10 @@ serializes this formula to one active pass per project.
 """
 formula = "queue-reconcile"
 version = 2
-contract = "graph.v2"
 target_required = false
+
+[requires]
+formula_compiler = ">=2.0.0"
 
 [catalog]
 name = "queue-reconcile"
@@ -16,18 +18,22 @@ description = "Reconcile one coalesced Factoru project Queue revision."
 [vars.project_id]
 description = "Stable Factoru project identity for correlation."
 required = true
+type = "string"
 
 [vars.reconciliation_id]
 description = "Idempotent Factoru reconciliation command identity."
 required = true
+type = "string"
 
 [vars.queue_revision]
 description = "Highest coalesced Queue revision this pass must reconcile."
 required = true
+type = "int"
 
 [vars.planner_target]
 description = "Rig-scoped Project Manager planner binding."
 default = "factoru.project-manager-planner"
+type = "string"
 
 [[steps]]
 id = "reconcile"

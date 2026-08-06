@@ -38,6 +38,11 @@ import {
   IPC_PRODUCT_MOVE_TASK,
   IPC_PRODUCT_RESOLVE_TASK,
   IPC_PRODUCT_DECIDE_TASK_MERGE,
+  IPC_PRODUCT_CANCEL_RUN,
+  IPC_PRODUCT_RETRY_RUN,
+  IPC_PRODUCT_REQUEST_RUN_CHANGES,
+  IPC_PRODUCT_APPROVE_RUN,
+  IPC_PRODUCT_ARCHIVE_RUN,
 } from '../shared/product'
 
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:8787'
@@ -180,6 +185,25 @@ function registerIpc(): void {
     IPC_PRODUCT_DECIDE_TASK_MERGE,
     (_event, input: Parameters<ProductRuntime['decideTaskMerge']>[0]) =>
       product.decideTaskMerge(input),
+  )
+  ipcMain.handle(IPC_PRODUCT_CANCEL_RUN, (_event, projectId: string, runId: string) =>
+    product.cancelRun(projectId, runId),
+  )
+  ipcMain.handle(IPC_PRODUCT_RETRY_RUN, (_event, projectId: string, runId: string) =>
+    product.retryRun(projectId, runId),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_REQUEST_RUN_CHANGES,
+    (_event, projectId: string, runId: string, feedback: string) =>
+      product.requestRunChanges(projectId, runId, feedback),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_APPROVE_RUN,
+    (_event, projectId: string, runId: string, summary: string) =>
+      product.approveRun(projectId, runId, summary),
+  )
+  ipcMain.handle(IPC_PRODUCT_ARCHIVE_RUN, (_event, projectId: string, runId: string) =>
+    product.archiveRun(projectId, runId),
   )
   product.subscribe((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) {

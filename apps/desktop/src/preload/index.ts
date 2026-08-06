@@ -32,6 +32,11 @@ import {
   IPC_PRODUCT_MOVE_TASK,
   IPC_PRODUCT_RESOLVE_TASK,
   IPC_PRODUCT_DECIDE_TASK_MERGE,
+  IPC_PRODUCT_CANCEL_RUN,
+  IPC_PRODUCT_RETRY_RUN,
+  IPC_PRODUCT_REQUEST_RUN_CHANGES,
+  IPC_PRODUCT_APPROVE_RUN,
+  IPC_PRODUCT_ARCHIVE_RUN,
   type ProductBridge,
 } from '../shared/product'
 
@@ -63,6 +68,13 @@ const product: ProductBridge = {
   moveTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_MOVE_TASK, input),
   resolveTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_RESOLVE_TASK, input),
   decideTaskMerge: (input) => ipcRenderer.invoke(IPC_PRODUCT_DECIDE_TASK_MERGE, input),
+  cancelRun: (projectId, runId) => ipcRenderer.invoke(IPC_PRODUCT_CANCEL_RUN, projectId, runId),
+  retryRun: (projectId, runId) => ipcRenderer.invoke(IPC_PRODUCT_RETRY_RUN, projectId, runId),
+  requestRunChanges: (projectId, runId, feedback) =>
+    ipcRenderer.invoke(IPC_PRODUCT_REQUEST_RUN_CHANGES, projectId, runId, feedback),
+  approveRun: (projectId, runId, summary) =>
+    ipcRenderer.invoke(IPC_PRODUCT_APPROVE_RUN, projectId, runId, summary),
+  archiveRun: (projectId, runId) => ipcRenderer.invoke(IPC_PRODUCT_ARCHIVE_RUN, projectId, runId),
   subscribe: (listener) => {
     const handler = (_event: unknown, snapshot: Parameters<typeof listener>[0]) =>
       listener(snapshot)

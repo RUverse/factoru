@@ -9,6 +9,7 @@ import type {
   Workspace,
   Task,
   TaskMergeProposal,
+  ExecutionRun,
 } from '@factoru/protocol'
 
 export interface ServerProfileSummary {
@@ -56,6 +57,11 @@ export const IPC_PRODUCT_UPDATE_TASK = 'factoru:product:update-task'
 export const IPC_PRODUCT_MOVE_TASK = 'factoru:product:move-task'
 export const IPC_PRODUCT_RESOLVE_TASK = 'factoru:product:resolve-task'
 export const IPC_PRODUCT_DECIDE_TASK_MERGE = 'factoru:product:decide-task-merge'
+export const IPC_PRODUCT_CANCEL_RUN = 'factoru:product:cancel-run'
+export const IPC_PRODUCT_RETRY_RUN = 'factoru:product:retry-run'
+export const IPC_PRODUCT_REQUEST_RUN_CHANGES = 'factoru:product:request-run-changes'
+export const IPC_PRODUCT_APPROVE_RUN = 'factoru:product:approve-run'
+export const IPC_PRODUCT_ARCHIVE_RUN = 'factoru:product:archive-run'
 
 export interface ProductBridge {
   get(): Promise<ProductSnapshot>
@@ -131,5 +137,10 @@ export interface ProductBridge {
     proposalId: string
     decision: 'accept' | 'reject'
   }): Promise<TaskMergeProposal>
+  cancelRun(projectId: string, runId: string): Promise<ExecutionRun>
+  retryRun(projectId: string, runId: string): Promise<Task>
+  requestRunChanges(projectId: string, runId: string, feedback: string): Promise<Task>
+  approveRun(projectId: string, runId: string, summary: string): Promise<Task>
+  archiveRun(projectId: string, runId: string): Promise<ExecutionRun>
   subscribe(listener: (snapshot: ProductSnapshot) => void): () => void
 }

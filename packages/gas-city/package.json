@@ -22,6 +22,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "smol-toml": "^1.7.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

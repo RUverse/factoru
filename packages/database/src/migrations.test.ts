@@ -113,4 +113,38 @@ describe('forward migrations', () => {
     expect(database.prepare('SELECT execution_wip_limit FROM factory_settings').all()).toEqual([])
     database.close()
   })
+
+  it('adds the Milestones 5 and 6 execution evidence without changing task statuses', () => {
+    const { directory, database } = fixture()
+    for (const name of [
+      '0001_milestone_2.sql',
+      '0002_milestone_3_product_model.sql',
+      '0003_milestone_4_tasks.sql',
+      '0004_milestones_5_6_delivery.sql',
+    ]) {
+      fs.copyFileSync(new URL(`../migrations/${name}`, import.meta.url), path.join(directory, name))
+    }
+    applyMigrations(database, directory)
+    const columns = database.prepare('PRAGMA table_info(task_runs)').all() as Array<{
+      name: string
+    }>
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        'formula_hash',
+        'capsule_id',
+        'capsule_path',
+        'stage',
+        'steps_json',
+        'logs_json',
+        'usage_json',
+        'review_package_json',
+        'archived_at',
+      ]),
+    )
+    const taskSql = database
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'")
+      .get() as { sql: string }
+    expect(taskSql.sql).not.toContain("'done'")
+    database.close()
+  })
 })

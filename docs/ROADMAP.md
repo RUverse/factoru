@@ -752,10 +752,11 @@ the production board loop.
   bead progress.
 - Exercise API duplicate requests, event replay, cancellation, process restart,
   config reload, transient retry, exhausted budgets, and partial failure.
-- Run each task in a clean worktree and validate the preferred ownership split:
-  Gas City owns Git worktree creation/cleanup, while Factoru owns the correlated
-  capsule identity and non-Git resource leases. Adopt a different split only if
-  the real integration disproves it.
+- Run each task in a clean worktree using the ownership split proven in
+  Milestone 1 and recorded by ADR 0008: Factoru owns Git worktree lifecycle,
+  correlated capsule identity, and non-Git resource leases because an ordinary
+  Formula v2 run creates no worktree; Gas City owns only worktrees it creates
+  for later `drain` units with `context = "separate"`.
 - Measure acceptance quality, human review time, model cost, review usefulness,
   test outcomes, and merge/conflict failures.
 - Test macOS arm64 and Linux arm64/x86_64 where available.

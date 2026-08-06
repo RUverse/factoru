@@ -1,0 +1,122 @@
+description = """
+Factoru's serial implementation workflow. One implementation step is verified
+by a deterministic project check with two total attempts, then an independent
+reviewer records a verdict, and a finalizer summarizes the durable evidence.
+"""
+formula = "software-delivery"
+version = 2
+target_required = false
+
+[requires]
+formula_compiler = ">=2.0.0"
+
+[catalog]
+name = "software-delivery"
+description = "Implement, verify, independently review, and finalize one Factoru task."
+
+[vars.task_id]
+description = "Stable Factoru task identity."
+required = true
+type = "string"
+pattern = "^task_[0-9a-f]+$"
+
+[vars.run_id]
+description = "Stable Factoru task-run identity."
+required = true
+type = "string"
+pattern = "^run_[0-9a-f]+$"
+
+[vars.request]
+description = "The user request and accepted Project Manager plan."
+required = true
+type = "string"
+
+[vars.capsule_path]
+description = "Absolute Factoru-owned worktree for this run."
+required = true
+type = "string"
+pattern = "^/"
+
+[vars.base_branch]
+description = "Local target branch used to create and integrate the capsule."
+required = true
+type = "string"
+
+[vars.evidence_path]
+description = "Absolute Factoru-owned evidence directory outside the worktree."
+required = true
+type = "string"
+pattern = "^/"
+
+[vars.verification_script]
+description = "Absolute server-generated verification executable for this capsule."
+required = true
+type = "string"
+pattern = "^/"
+
+[vars.implementation_target]
+description = "Rig-scoped Software Engineer implementation binding."
+required = true
+type = "string"
+
+[vars.review_target]
+description = "Rig-scoped independent Software Engineer review binding."
+required = true
+type = "string"
+
+[[steps]]
+id = "implement"
+title = "Implement {{task_id}}"
+metadata = { "gc.run_target" = "{{implementation_target}}", "factoru.task_id" = "{{task_id}}", "factoru.run_id" = "{{run_id}}", "factoru.stage" = "implementation" }
+description = """
+Implement this accepted request:
+
+{{request}}
+
+The only writable source tree for this run is {{capsule_path}}. Change into it
+before inspecting or editing. Preserve its branch and unrelated content. Run
+the trusted executable at {{verification_script}} and fix failures.
+Commit the focused implementation to the capsule branch. Record a concise
+implementation summary at {{evidence_path}}/implementation.md, including changed files,
+commit, checks, and any unresolved risk. On a correction attempt, inspect the
+existing review report and check log before changing code.
+"""
+
+[steps.check]
+max_attempts = 2
+
+[steps.check.check]
+mode = "exec"
+path = ".beads/factoru/run-delivery-check.sh"
+timeout = "20m"
+
+[[steps]]
+id = "review"
+title = "Independently review {{task_id}}"
+needs = ["implement"]
+metadata = { "gc.run_target" = "{{review_target}}", "factoru.task_id" = "{{task_id}}", "factoru.run_id" = "{{run_id}}", "factoru.stage" = "review" }
+description = """
+Independently review the implementation for this request:
+
+{{request}}
+
+Review only the Factoru capsule at {{capsule_path}} against {{base_branch}}.
+Read the implementation summary and deterministic check log in {{evidence_path}}.
+Do not edit source or approve on trust. Write findings and an explicit APPROVE
+or REQUEST_CHANGES verdict to {{evidence_path}}/review.md, then report the same
+verdict in the bead outcome. Factoru, not this reviewer, decides integration.
+"""
+
+[[steps]]
+id = "finalize"
+title = "Finalize evidence for {{task_id}}"
+needs = ["review"]
+metadata = { "gc.run_target" = "{{implementation_target}}", "factoru.task_id" = "{{task_id}}", "factoru.run_id" = "{{run_id}}", "factoru.stage" = "finalization" }
+description = """
+Inspect the immutable evidence already produced for {{task_id}} in
+{{evidence_path}}. Do not change product source. Ensure the
+implementation summary, check log, and independent review are present and
+internally consistent. Write a short final summary to
+{{evidence_path}}/final.md and close this step. Factoru Server
+will independently rebase, rerun checks, and assemble the user review package.
+"""

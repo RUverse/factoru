@@ -7,8 +7,10 @@ Milestone 4.
 """
 formula = "factoru-planner-probe"
 version = 2
-contract = "graph.v2"
 target_required = false
+
+[requires]
+formula_compiler = ">=2.0.0"
 
 [catalog]
 name = "factoru-planner-probe"
@@ -17,6 +19,7 @@ description = "Verify durable Project Manager planning without blocking chat."
 [vars.project_id]
 description = "Stable Factoru project identity used only for correlation."
 required = true
+type = "string"
 
 [vars.planner_target]
 description = "Rig-scoped Project Manager planner agent binding."

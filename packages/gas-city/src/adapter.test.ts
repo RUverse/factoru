@@ -498,3 +498,38 @@ describe('GasCityAdapter.describeRun', () => {
     expect(snapshot.partial).toBe(true)
   })
 })
+
+describe('GasCityAdapter.readRunUsage', () => {
+  it('folds only worker-operation facts correlated to the requested run', async () => {
+    const { fn } = fakeFetch(() => ({
+      body: {
+        items: [
+          {
+            seq: 12,
+            type: 'worker.operation',
+            ts: '2026-08-05T10:00:02Z',
+            payload: {
+              run_id: 'run-target',
+              prompt_tokens: 120,
+              completion_tokens: 30,
+              cost_usd_estimate: 0.004,
+            },
+          },
+          {
+            seq: 11,
+            type: 'worker.operation',
+            ts: '2026-08-05T10:00:01Z',
+            payload: { run_id: 'another-run', prompt_tokens: 999 },
+          },
+        ],
+      },
+    }))
+
+    await expect(adapterWith(fn).readRunUsage('run-target', 10)).resolves.toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      estimatedCostUsd: 0.004,
+      partial: false,
+    })
+  })
+})

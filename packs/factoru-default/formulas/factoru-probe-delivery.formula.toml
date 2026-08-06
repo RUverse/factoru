@@ -10,8 +10,10 @@ absent; they arrive with the production formula in Milestone 5.
 """
 formula = "factoru-probe-delivery"
 version = 2
-contract = "graph.v2"
 target_required = false
+
+[requires]
+formula_compiler = ">=2.0.0"
 
 [catalog]
 name = "factoru-probe-delivery"
@@ -20,14 +22,17 @@ description = "Factoru Milestone 1 implement-then-independent-review probe."
 [vars.request]
 description = "What the implementer should change. Supplied by Factoru, never by an agent."
 required = true
+type = "string"
 
 [vars.implementation_target]
 description = "Agent binding that performs implementation."
 default = "factoru.software-implementer"
+type = "string"
 
 [vars.review_target]
 description = "Agent binding that performs independent review. Must differ from implementation_target."
 default = "factoru.software-reviewer"
+type = "string"
 
 [[steps]]
 id = "implement"

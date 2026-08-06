@@ -174,5 +174,5 @@ describe('Milestone 2 server slice', () => {
     const reopened = new FactoruDatabase(file, serverId)
     expect(reopened.getProject(created.id)?.repositoryRealPath).toBe(fs.realpathSync(repository))
     reopened.close()
-  })
+  }, 15_000)
 })

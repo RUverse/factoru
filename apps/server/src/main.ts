@@ -20,6 +20,7 @@ import { WorkspaceService } from './workspace-service.js'
 import { TaskService } from './task-service.js'
 import { AgentToolService } from './agent-tool-service.js'
 import { writeLocalEnrollmentFile } from './local-enrollment.js'
+import { CapsuleService } from './capsule-service.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -92,6 +93,15 @@ async function main(): Promise<void> {
         }
       }
     },
+    formulaSource: async (formulaName) => {
+      if (!/^[a-z0-9-]+$/.test(formulaName)) {
+        throw new Error(`Invalid Factoru formula name: ${formulaName}`)
+      }
+      return fs.promises.readFile(
+        path.join(config.factoruPackPath, 'formulas', `${formulaName}.formula.toml`),
+        'utf8',
+      )
+    },
   })
   const workspaceService = new WorkspaceService(
     database,
@@ -114,6 +124,11 @@ async function main(): Promise<void> {
         },
       },
     }),
+    {
+      capsules: new CapsuleService(path.join(config.dataDir, 'capsules')),
+      cityName,
+      packVersion: '0.3.0',
+    },
   )
   const app = buildServer({
     serverId,
