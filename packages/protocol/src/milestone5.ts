@@ -39,6 +39,7 @@ export const executionUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
   estimatedCostUsd: z.number().nonnegative(),
+  pricing: z.enum(['pending', 'priced', 'unpriced']).default('pending'),
 })
 export const executionReviewPackageSchema = z.object({
   request: z.string(),

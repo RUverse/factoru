@@ -381,14 +381,24 @@ describe('Milestones 5 and 6 delivery persistence', () => {
       stage: 'review',
       steps: [{ id: 'review', title: 'Independent review', status: 'running' }],
       logs: ['Checks\nok'],
-      usage: { inputTokens: 500, outputTokens: 80, estimatedCostUsd: 0.02 },
+      usage: {
+        inputTokens: 500,
+        outputTokens: 80,
+        estimatedCostUsd: 0.02,
+        pricing: 'priced',
+      },
     })
     expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
       runId: 'gas-run-1',
       startingEventCursor: 41,
       formulaHash: 'sha256-formula',
       logs: ['Checks\nok'],
-      usage: { inputTokens: 500, outputTokens: 80, estimatedCostUsd: 0.02 },
+      usage: {
+        inputTokens: 500,
+        outputTokens: 80,
+        estimatedCostUsd: 0.02,
+        pricing: 'priced',
+      },
     })
 
     const reviewPackage = {
@@ -399,7 +409,12 @@ describe('Milestones 5 and 6 delivery persistence', () => {
       checks: { status: 'passed' as const, output: 'ok' },
       internalReview: 'APPROVE',
       unresolvedRisks: [],
-      usage: { inputTokens: 500, outputTokens: 80, estimatedCostUsd: 0.02 },
+      usage: {
+        inputTokens: 500,
+        outputTokens: 80,
+        estimatedCostUsd: 0.02,
+        pricing: 'priced' as const,
+      },
       capsulePath: '/capsules/one/worktree',
       branchName: 'factoru/task/run',
     }

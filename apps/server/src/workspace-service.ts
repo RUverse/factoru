@@ -59,7 +59,12 @@ export interface ProjectManagerOrchestrator {
   readRunUsage?(
     runId: string,
     startingEventSeq: number,
-  ): Promise<{ inputTokens: number; outputTokens: number; estimatedCostUsd: number }>
+  ): Promise<{
+    inputTokens: number
+    outputTokens: number
+    estimatedCostUsd: number
+    pricing: 'pending' | 'priced' | 'unpriced'
+  }>
   cancelRun(runId: string): Promise<void>
 }
 
@@ -688,6 +693,7 @@ export class WorkspaceService {
           inputTokens: observed.inputTokens,
           outputTokens: observed.outputTokens,
           estimatedCostUsd: observed.estimatedCostUsd,
+          pricing: observed.pricing,
         }
       } catch {
         // A later reactor pass retries optional usage telemetry.

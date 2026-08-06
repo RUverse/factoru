@@ -71,7 +71,12 @@ describe('CapsuleService', () => {
     const review = await service.finalize(project, run, capsule, {
       request: 'Deliver it',
       plan: 'Add delivered.txt',
-      usage: { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.01 },
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        estimatedCostUsd: 0.01,
+        pricing: 'priced',
+      },
     })
     expect(review.commits[0]).toContain('deliver task')
     expect(review.diff).toContain('delivered.txt')
@@ -88,7 +93,7 @@ describe('CapsuleService', () => {
       service.finalize(project, run, capsule, {
         request: 'x',
         plan: 'x',
-        usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 },
+        usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, pricing: 'pending' },
       }),
     ).rejects.toBeInstanceOf(CapsuleIntegrationError)
   })

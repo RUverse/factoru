@@ -1,6 +1,6 @@
 # Factoru Roadmap
 
-> Status: implementation starting point
+> Status: Milestones 0–6 complete; Milestone 7 is next
 > Last updated: 2026-08-06
 
 This is the single delivery roadmap for Factoru. It intentionally starts with a
@@ -733,6 +733,10 @@ duplicating/crossing project state.
 
 ### Milestone 5 — `software-delivery` Formula v2 operational spike
 
+**Status: Complete (2026-08-06).** The production candidate completed 10/10
+provider-backed disposable-repository tasks without operator changes. See
+[the acceptance report](./spikes/milestones-5-6-acceptance.md).
+
 Run the real `software-delivery` workflow from the `factoru-default` pack against
 at least ten small tasks in disposable test repositories before coupling it to
 the production board loop.
@@ -767,6 +771,11 @@ review feedback is meaningfully useful, and cost is visible. If the result is
 poor, refine the pack or integration boundary before adding parallelism.
 
 ### Milestone 6 — Single-task production loop
+
+**Status: Complete (2026-08-06).** A PM-chat-originated task traveled through
+planning, serial admission, implementation, checks, independent review, and
+human acceptance while the server application service was reconstructed
+mid-run. See [the acceptance report](./spikes/milestones-5-6-acceptance.md).
 
 - Admit one PM-planned ready task from Queue to In progress when Factoru policy,
   dependencies, and capacity allow.

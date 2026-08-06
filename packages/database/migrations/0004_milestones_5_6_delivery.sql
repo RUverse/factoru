@@ -11,7 +11,7 @@ ALTER TABLE task_runs ADD COLUMN stage TEXT NOT NULL DEFAULT 'admission' CHECK (
 );
 ALTER TABLE task_runs ADD COLUMN steps_json TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE task_runs ADD COLUMN logs_json TEXT NOT NULL DEFAULT '[]';
-ALTER TABLE task_runs ADD COLUMN usage_json TEXT NOT NULL DEFAULT '{"inputTokens":0,"outputTokens":0,"estimatedCostUsd":0}';
+ALTER TABLE task_runs ADD COLUMN usage_json TEXT NOT NULL DEFAULT '{"inputTokens":0,"outputTokens":0,"estimatedCostUsd":0,"pricing":"pending"}';
 ALTER TABLE task_runs ADD COLUMN review_package_json TEXT NOT NULL DEFAULT 'null';
 ALTER TABLE task_runs ADD COLUMN error_code TEXT;
 ALTER TABLE task_runs ADD COLUMN error_message TEXT;

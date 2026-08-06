@@ -752,8 +752,12 @@ export function App() {
                                       </div>
                                       <p>
                                         {taskRun.usage.inputTokens + taskRun.usage.outputTokens}{' '}
-                                        tokens · ${taskRun.usage.estimatedCostUsd.toFixed(4)}{' '}
-                                        estimated
+                                        tokens ·{' '}
+                                        {taskRun.usage.pricing === 'priced'
+                                          ? `$${taskRun.usage.estimatedCostUsd.toFixed(4)} estimated`
+                                          : taskRun.usage.pricing === 'unpriced'
+                                            ? 'cost unpriced by the configured provider'
+                                            : 'cost pending'}
                                       </p>
                                       {taskRun.error && (
                                         <p className="run-error">

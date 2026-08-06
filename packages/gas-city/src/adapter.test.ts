@@ -529,7 +529,57 @@ describe('GasCityAdapter.readRunUsage', () => {
       inputTokens: 120,
       outputTokens: 30,
       estimatedCostUsd: 0.004,
+      pricing: 'priced',
       partial: false,
     })
+  })
+
+  it('falls back to provider-neutral structured transcripts when operation facts omit usage', async () => {
+    const { fn, calls } = fakeFetch((url) => {
+      if (url.pathname.endsWith('/events')) {
+        return {
+          body: {
+            items: [
+              {
+                seq: 12,
+                type: 'bead.closed',
+                ts: '2026-08-05T10:00:02Z',
+                payload: {
+                  bead: {
+                    metadata: {
+                      'gc.root_bead_id': 'run-target',
+                      'gc.session_id': 'session-1',
+                    },
+                  },
+                },
+              },
+              {
+                seq: 11,
+                type: 'bead.closed',
+                ts: '2026-08-05T10:00:01Z',
+                payload: {},
+              },
+            ],
+          },
+        }
+      }
+      return {
+        body: {
+          provider: 'codex',
+          format: 'structured',
+          structured_messages: [{ usage: { input_tokens: 11, output_tokens: 3 } }, { usage: null }],
+        },
+      }
+    })
+
+    await expect(adapterWith(fn).readRunUsage('run-target', 10)).resolves.toEqual({
+      inputTokens: 11,
+      outputTokens: 3,
+      estimatedCostUsd: 0,
+      pricing: 'unpriced',
+      partial: false,
+    })
+    expect(calls[1]?.url.pathname).toContain('/session/session-1/transcript')
+    expect(calls[1]?.url.searchParams.get('format')).toBe('structured')
   })
 })

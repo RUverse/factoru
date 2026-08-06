@@ -354,6 +354,8 @@ describe('WorkspaceService', () => {
       inputTokens: 700,
       outputTokens: 100,
       estimatedCostUsd: 0.03,
+      pricing: 'priced' as const,
+      partial: false,
     }))
 
     const restartedServer = new WorkspaceService(db, orchestrator, null, execution)
@@ -368,7 +370,12 @@ describe('WorkspaceService', () => {
           status: 'completed',
           stage: 'needs_you',
           logs: ['Checks\nok'],
-          usage: { inputTokens: 700, outputTokens: 100, estimatedCostUsd: 0.03 },
+          usage: {
+            inputTokens: 700,
+            outputTokens: 100,
+            estimatedCostUsd: 0.03,
+            pricing: 'priced',
+          },
           reviewPackage: expect.objectContaining({
             commits: ['abc123 implementation'],
             internalReview: 'APPROVE',

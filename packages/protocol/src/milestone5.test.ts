@@ -19,7 +19,7 @@ describe('software-delivery protocol', () => {
       },
       steps: [{ id: 'review', title: 'Review', status: 'completed' }],
       logs: ['Checks\nok'],
-      usage: { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.1 },
+      usage: { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.1, pricing: 'priced' },
       reviewPackage: {
         request: 'Make a change',
         plan: 'Change one file',
@@ -28,7 +28,7 @@ describe('software-delivery protocol', () => {
         checks: { status: 'passed', output: 'ok' },
         internalReview: 'APPROVE',
         unresolvedRisks: [],
-        usage: { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.1 },
+        usage: { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.1, pricing: 'priced' },
         capsulePath: '/tmp/worktree',
         branchName: 'factoru/x',
       },

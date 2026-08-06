@@ -237,4 +237,7 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', () => connection.stop())
+app.on('before-quit', () => {
+  connection.stop()
+  product?.dispose()
+})

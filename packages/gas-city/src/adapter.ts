@@ -80,6 +80,8 @@ export interface RunUsage {
   readonly inputTokens: number
   readonly outputTokens: number
   readonly estimatedCostUsd: number
+  /** Whether a dollar estimate exists for every observed model invocation. */
+  readonly pricing: 'pending' | 'priced' | 'unpriced'
   readonly partial: boolean
 }
 
@@ -217,9 +219,30 @@ const runStepsSchema = z.object({
 
 const operationUsageSchema = z.object({
   run_id: z.string().optional(),
+  session_id: z.string().optional(),
   prompt_tokens: z.number().int().nonnegative().optional(),
   completion_tokens: z.number().int().nonnegative().optional(),
   cost_usd_estimate: z.number().nonnegative().optional(),
+  unpriced: z.boolean().optional(),
+})
+
+const runSessionEventSchema = z.object({
+  bead: z.object({ metadata: z.record(z.string(), z.unknown()).default({}) }),
+})
+
+const structuredTranscriptSchema = z.object({
+  provider: z.string(),
+  format: z.literal('structured'),
+  structured_messages: nullableArray(
+    z.object({
+      usage: z
+        .object({
+          input_tokens: z.number().int().nonnegative().default(0),
+          output_tokens: z.number().int().nonnegative().default(0),
+        })
+        .nullish(),
+    }),
+  ),
 })
 
 const workflowSchema = z.object({
@@ -555,15 +578,69 @@ export class GasCityAdapter {
     let inputTokens = 0
     let outputTokens = 0
     let estimatedCostUsd = 0
+    let priced = false
+    let unpriced = false
+    const sessionIds = new Set<string>()
     for (const event of page.events) {
-      if (event.type !== 'worker.operation') continue
-      const parsed = operationUsageSchema.safeParse(event.payload)
-      if (!parsed.success || parsed.data.run_id !== runId) continue
-      inputTokens += parsed.data.prompt_tokens ?? 0
-      outputTokens += parsed.data.completion_tokens ?? 0
-      estimatedCostUsd += parsed.data.cost_usd_estimate ?? 0
+      if (event.type === 'worker.operation') {
+        const parsed = operationUsageSchema.safeParse(event.payload)
+        if (parsed.success && parsed.data.run_id === runId) {
+          const observedTokens =
+            (parsed.data.prompt_tokens ?? 0) + (parsed.data.completion_tokens ?? 0)
+          inputTokens += parsed.data.prompt_tokens ?? 0
+          outputTokens += parsed.data.completion_tokens ?? 0
+          estimatedCostUsd += parsed.data.cost_usd_estimate ?? 0
+          if (observedTokens > 0) {
+            if (parsed.data.unpriced === true) unpriced = true
+            else if (
+              parsed.data.unpriced === false ||
+              parsed.data.cost_usd_estimate !== undefined
+            ) {
+              priced = true
+            } else unpriced = true
+          }
+          if (parsed.data.session_id) sessionIds.add(parsed.data.session_id)
+        }
+      }
+      const sessionEvent = runSessionEventSchema.safeParse(event.payload)
+      if (!sessionEvent.success) continue
+      const metadata = sessionEvent.data.bead.metadata
+      if (metadata['gc.root_bead_id'] !== runId) continue
+      const sessionId = metadata['gc.session_id']
+      if (typeof sessionId === 'string' && sessionId) sessionIds.add(sessionId)
     }
-    return { inputTokens, outputTokens, estimatedCostUsd, partial: page.gapDetected }
+
+    let transcriptPartial = false
+    // Gas City 1.4.0's hook-driven pool sessions may not emit token-bearing
+    // worker.operation events: their provider-neutral structured transcript is
+    // the authoritative fallback. The provider-specific frame parsing remains
+    // inside Gas City; Factoru consumes only its stable normalized usage shape.
+    if (inputTokens === 0 && outputTokens === 0 && sessionIds.size > 0) {
+      for (const sessionId of sessionIds) {
+        try {
+          const raw = await this.#client.get(
+            `/city/${this.#cityName}/session/${encodeURIComponent(sessionId)}/transcript`,
+            { format: 'structured', tail: 0 },
+          )
+          const transcript = structuredTranscriptSchema.parse(raw)
+          for (const message of transcript.structured_messages) {
+            if (!message.usage) continue
+            inputTokens += message.usage.input_tokens
+            outputTokens += message.usage.output_tokens
+          }
+        } catch {
+          transcriptPartial = true
+        }
+      }
+      if (inputTokens > 0 || outputTokens > 0) unpriced = true
+    }
+    return {
+      inputTokens,
+      outputTokens,
+      estimatedCostUsd,
+      pricing: unpriced ? 'unpriced' : priced ? 'priced' : 'pending',
+      partial: page.gapDetected || transcriptPartial,
+    }
   }
 
   /** Request cancellation. Terminal state is confirmed by observation, not here. */

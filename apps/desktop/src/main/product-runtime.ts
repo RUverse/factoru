@@ -72,6 +72,19 @@ export class ProductRuntime {
   get snapshot(): ProductSnapshot {
     return this.#snapshot
   }
+
+  /** Release live sockets and timers during an application or acceptance restart. */
+  dispose(): void {
+    if (this.#reconnectTimer) {
+      clearTimeout(this.#reconnectTimer)
+      this.#reconnectTimer = null
+    }
+    const live = this.#live
+    this.#live = null
+    live?.close()
+    this.#listeners.clear()
+  }
+
   subscribe(listener: (snapshot: ProductSnapshot) => void): () => void {
     this.#listeners.add(listener)
     return () => this.#listeners.delete(listener)

@@ -83,6 +83,7 @@ export interface ExecutionUsageRecord {
   inputTokens: number
   outputTokens: number
   estimatedCostUsd: number
+  pricing: 'pending' | 'priced' | 'unpriced'
 }
 
 export interface ExecutionReviewPackageRecord {
@@ -238,6 +239,7 @@ function reconciliationFromRow(row: ReconciliationRow): QueueReconciliationRecor
 }
 
 function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
+  const storedUsage = JSON.parse(row.usage_json) as Partial<ExecutionUsageRecord>
   return {
     id: row.id,
     projectId: row.project_id,
@@ -259,7 +261,12 @@ function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
     baseBranch: row.base_branch,
     steps: JSON.parse(row.steps_json) as ExecutionStepRecord[],
     logs: JSON.parse(row.logs_json) as string[],
-    usage: JSON.parse(row.usage_json) as ExecutionUsageRecord,
+    usage: {
+      inputTokens: storedUsage.inputTokens ?? 0,
+      outputTokens: storedUsage.outputTokens ?? 0,
+      estimatedCostUsd: storedUsage.estimatedCostUsd ?? 0,
+      pricing: storedUsage.pricing ?? 'pending',
+    },
     reviewPackage: JSON.parse(row.review_package_json) as ExecutionReviewPackageRecord | null,
     errorCode: row.error_code,
     errorMessage: row.error_message,
@@ -1129,6 +1136,26 @@ export class TaskStore {
         now,
         id,
       )
+    return this.#execution(id)
+  }
+
+  /** Backfill telemetry after a process outage without reopening a terminal run. */
+  updateExecutionUsage(id: string, usage: ExecutionUsageRecord): ExecutionRunRecord {
+    const current = this.#execution(id)
+    const now = this.#now().toISOString()
+    const updated = this.#db
+      .prepare(
+        `UPDATE task_runs SET usage_json = ?, review_package_json = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(
+        JSON.stringify(usage),
+        JSON.stringify(
+          current.reviewPackage ? { ...current.reviewPackage, usage } : current.reviewPackage,
+        ),
+        now,
+        id,
+      )
+    if (updated.changes !== 1) throw new Error('execution_run_not_found')
     return this.#execution(id)
   }
 
