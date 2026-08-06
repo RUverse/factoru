@@ -1,0 +1,54 @@
+description = """
+Production Factoru Queue reconciliation. One bounded Project Manager planner
+step reads authoritative Factoru tasks through scoped tools, reconciles the
+requested Queue revision, and records structured planning decisions. Factoru
+serializes this formula to one active pass per project.
+"""
+formula = "queue-reconcile"
+version = 2
+contract = "graph.v2"
+target_required = false
+
+[catalog]
+name = "queue-reconcile"
+description = "Reconcile one coalesced Factoru project Queue revision."
+
+[vars.project_id]
+description = "Stable Factoru project identity for correlation."
+required = true
+
+[vars.reconciliation_id]
+description = "Idempotent Factoru reconciliation command identity."
+required = true
+
+[vars.queue_revision]
+description = "Highest coalesced Queue revision this pass must reconcile."
+required = true
+
+[vars.planner_target]
+description = "Rig-scoped Project Manager planner binding."
+default = "factoru.project-manager-planner"
+
+[[steps]]
+id = "reconcile"
+title = "Reconcile Queue revision {{queue_revision}}"
+metadata = { "gc.run_target" = "{{planner_target}}" }
+description = """
+Reconcile Factoru project {{project_id}} through Queue revision
+{{queue_revision}} (request {{reconciliation_id}}).
+
+Use factoru_tasks_search with query "*" to read the bounded active task set.
+For every Queue task, compare duplicate candidates, clarify/split intent when
+needed, set priority, project-local dependencies, Software Engineer plus the
+software-delivery formula, and exactly one Queue phase. Use Ready only when the
+task is actionable and dependencies are satisfied; use Waiting for capacity
+when another task already occupies the WIP-one execution slot. Never move a
+task to In progress: Factoru reserves that transition for an accepted execution
+run. Never silently merge. Use factoru_tasks_propose_merge so the user can
+confirm. If a user decision is necessary, move the task to Needs you with the
+exact action and question.
+
+All durable changes must use Factoru tools. Do not edit SQLite, infer another
+project, or treat Gas City bead state as a Kanban column. Finish after one
+bounded pass; do not poll or loop waiting for more work.
+"""

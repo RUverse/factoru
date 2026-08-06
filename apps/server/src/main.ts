@@ -18,6 +18,7 @@ import { RepositoryService } from './repositories.js'
 import { SERVER_VERSION } from './version.js'
 import { WorkspaceService } from './workspace-service.js'
 import { TaskService } from './task-service.js'
+import { AgentToolService } from './agent-tool-service.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
     projectService,
     workspaceService,
     taskService: new TaskService(database),
+    agentToolService: new AgentToolService(database),
   })
 
   const shutdown = (signal: NodeJS.Signals) => {

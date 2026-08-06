@@ -179,6 +179,42 @@ describe('WorkspaceService', () => {
     db.close()
   })
 
+  it('dispatches and observes one production Queue reconciliation', async () => {
+    const { db, project } = fixture()
+    const orchestrator = fakeOrchestrator()
+    const service = new WorkspaceService(db, orchestrator)
+    db.tasks.create({
+      projectId: project.id,
+      title: 'Plan the board',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+
+    await service.process()
+
+    expect(orchestrator.startRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formulaName: 'queue-reconcile',
+        requestId: expect.stringMatching(/^recon_/),
+        variables: expect.objectContaining({ project_id: project.id, queue_revision: '1' }),
+      }),
+    )
+    expect(service.get(project.id).queueReconciliation).toMatchObject({ status: 'running' })
+    vi.mocked(orchestrator.describeRun).mockResolvedValue({
+      runId: 'run-plan-1',
+      workflowRootBeadId: 'bead-plan-1',
+      partial: false,
+      steps: [{ stepId: 'reconcile', title: 'Reconcile', status: 'completed' }],
+    })
+
+    await service.process()
+
+    expect(service.get(project.id).queueReconciliation).toMatchObject({ status: 'completed' })
+    db.close()
+  })
+
   it('keeps provenance with bounded project memory', () => {
     const { db, project } = fixture()
     const service = new WorkspaceService(db, fakeOrchestrator())

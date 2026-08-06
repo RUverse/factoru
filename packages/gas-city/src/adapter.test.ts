@@ -303,6 +303,7 @@ describe('GasCityAdapter.startRun', () => {
       target: 'probe/factoru.software-implementer',
       title: 'M1 probe run',
       variables: { request: 'Add multiply' },
+      requestId: 'dispatch-pr-cb9',
     })
 
     expect(correlation).toMatchObject({
@@ -318,6 +319,10 @@ describe('GasCityAdapter.startRun', () => {
     const order = calls.map((c) => c.url.pathname)
     expect(order.indexOf('/v0/city/factoru-spike/events')).toBeLessThan(
       order.indexOf('/v0/city/factoru-spike/sling'),
+    )
+    const sling = calls.find((call) => call.url.pathname.endsWith('/sling'))!
+    expect((sling.init.headers as Record<string, string>)['Idempotency-Key']).toBe(
+      'dispatch-pr-cb9',
     )
   })
 

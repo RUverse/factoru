@@ -58,6 +58,13 @@ import { ApplicationError, type ProjectService } from './project-service.js'
 import { RepositoryError } from './repositories.js'
 import type { WorkspaceService } from './workspace-service.js'
 import type { TaskService } from './task-service.js'
+import {
+  AGENT_TOOL_CALL_PATH,
+  AGENT_TOOL_SESSION_PATH,
+  agentToolCallRequestSchema,
+  agentToolSessionRequestSchema,
+  type AgentToolService,
+} from './agent-tool-service.js'
 
 export interface BuildServerOptions {
   serverId: ServerId
@@ -70,6 +77,7 @@ export interface BuildServerOptions {
   projectService?: ProjectService
   workspaceService?: WorkspaceService
   taskService?: TaskService
+  agentToolService?: AgentToolService
 }
 
 export const BASE_SERVER_CAPABILITIES = [CAPABILITY_HEALTH, CAPABILITY_HANDSHAKE]
@@ -102,6 +110,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   const projects = options.projectService
   const workspaces = options.workspaceService
   const tasks = options.taskService
+  const agentTools = options.agentToolService
   const capabilities =
     projects && database
       ? [
@@ -168,6 +177,45 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   }
 
   app.get(HEALTH_PATH, async (_request, reply) => reply.code(200).send(currentHealth()))
+
+  if (agentTools) {
+    app.post(AGENT_TOOL_SESSION_PATH, async (request, reply) => {
+      if (!isLoopbackIp(request.ip)) {
+        return reply.code(403).send(problem('forbidden', 'Agent sessions are host-local'))
+      }
+      const parsed = agentToolSessionRequestSchema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply
+          .code(400)
+          .send(problem('invalid_request', 'Invalid agent session request', parsed.error.issues))
+      }
+      try {
+        return reply.code(201).send(agentTools.createSession(parsed.data))
+      } catch (error) {
+        return reply
+          .code(403)
+          .send(problem('forbidden', error instanceof Error ? error.message : String(error)))
+      }
+    })
+
+    app.post(AGENT_TOOL_CALL_PATH, async (request, reply) => {
+      if (!isLoopbackIp(request.ip)) {
+        return reply.code(403).send(problem('forbidden', 'Agent tools are host-local'))
+      }
+      const authorization = request.headers.authorization ?? ''
+      const rawToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : ''
+      const parsed = agentToolCallRequestSchema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply
+          .code(400)
+          .send(problem('invalid_request', 'Invalid agent tool call', parsed.error.issues))
+      }
+      const response = agentTools.call(rawToken, parsed.data)
+      return reply
+        .code(response.ok ? 200 : response.error?.code === 'unauthorized' ? 401 : 400)
+        .send(response)
+    })
+  }
 
   app.post(HANDSHAKE_PATH, async (request, reply) => {
     const parsed = handshakeRequestSchema.safeParse(request.body)

@@ -9,6 +9,7 @@ export const problemCodeSchema = z.enum([
   'invalid_request',
   'unsupported_protocol_version',
   'unauthorized',
+  'forbidden',
   'not_found',
   'unavailable',
   'internal_error',

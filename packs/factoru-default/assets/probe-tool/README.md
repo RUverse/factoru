@@ -1,2 +1,2 @@
-Placeholder for the Milestone 1 Factoru probe tool server. The MCP declaration
+Factoru's production role-scoped task tool bridge. The MCP declaration
 in `../../mcp/` points here; the server itself is not written yet.

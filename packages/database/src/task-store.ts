@@ -60,6 +60,18 @@ export interface TaskCandidate {
   match: 'likely' | 'possible'
 }
 
+export interface TaskMergeProposalRecord {
+  id: string
+  projectId: string
+  sourceTaskId: string
+  targetTaskId: string
+  reason: string
+  status: 'pending' | 'accepted' | 'rejected'
+  proposedBy: string
+  createdAt: string
+  decidedAt: string | null
+}
+
 interface TaskRow {
   id: string
   project_id: string
@@ -399,6 +411,82 @@ export class TaskStore {
       }))
   }
 
+  proposeMerge(input: {
+    projectId: string
+    sourceTaskId: string
+    targetTaskId: string
+    reason: string
+    proposedBy: string
+  }): TaskMergeProposalRecord {
+    return this.#db.transaction(() => {
+      const source = this.#requireActive(input.sourceTaskId)
+      const target = this.#requireActive(input.targetTaskId)
+      if (
+        source.projectId !== input.projectId ||
+        target.projectId !== input.projectId ||
+        source.id === target.id
+      ) {
+        throw new Error('invalid_task_merge_target')
+      }
+      const reason = input.reason.trim()
+      if (!reason) throw new Error('task_merge_reason_required')
+      const existing = this.#db
+        .prepare(
+          `SELECT * FROM task_merge_proposals WHERE source_task_id = ? AND target_task_id = ?
+           AND status = 'pending'`,
+        )
+        .get(source.id, target.id) as
+        | {
+            id: string
+            project_id: string
+            source_task_id: string
+            target_task_id: string
+            reason: string
+            status: TaskMergeProposalRecord['status']
+            proposed_by: string
+            created_at: string
+            decided_at: string | null
+          }
+        | undefined
+      if (existing) return this.#mergeProposal(existing)
+      const id = `merge_${randomUUID().replaceAll('-', '')}`
+      const now = this.#now().toISOString()
+      this.#db
+        .prepare(
+          `INSERT INTO task_merge_proposals(
+             id, project_id, source_task_id, target_task_id, reason, status, proposed_by, created_at
+           ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+        )
+        .run(id, input.projectId, source.id, target.id, reason, input.proposedBy, now)
+      this.#recordTaskEvent(source, 'merge_proposed', 'pm_planner', input.proposedBy, {
+        proposalId: id,
+        targetTaskId: target.id,
+        reason,
+      })
+      return this.listMergeProposals(input.projectId).find((proposal) => proposal.id === id)!
+    })()
+  }
+
+  listMergeProposals(projectId: string): TaskMergeProposalRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM task_merge_proposals WHERE project_id = ? AND status = 'pending'
+         ORDER BY created_at`,
+      )
+      .all(projectId) as Array<{
+      id: string
+      project_id: string
+      source_task_id: string
+      target_task_id: string
+      reason: string
+      status: TaskMergeProposalRecord['status']
+      proposed_by: string
+      created_at: string
+      decided_at: string | null
+    }>
+    return rows.map((row) => this.#mergeProposal(row))
+  }
+
   queueRevision(projectId: string): number {
     const row = this.#db
       .prepare('SELECT queue_revision FROM factory_settings WHERE project_id = ?')
@@ -437,22 +525,45 @@ export class TaskStore {
     return row ? reconciliationFromRow(row) : null
   }
 
-  claimNextReconciliation(): QueueReconciliationRecord | null {
-    const row = this.#db
-      .prepare(
-        `SELECT q.* FROM queue_reconciliations q
-         WHERE q.status = 'pending' AND NOT EXISTS (
+  claimNextReconciliation(): {
+    outboxId: string
+    attemptCount: number
+    reconciliation: QueueReconciliationRecord
+  } | null {
+    return this.#db.transaction(() => {
+      const now = this.#now()
+      const row = this.#db
+        .prepare(
+          `SELECT q.*, o.id AS outbox_id, o.attempt_count FROM queue_reconciliations q
+         JOIN outbox_items o ON o.aggregate_id = q.id AND o.kind = 'queue.reconcile'
+         WHERE q.status = 'pending' AND o.status IN ('pending', 'processing')
+         AND o.available_at <= ? AND (o.lease_expires_at IS NULL OR o.lease_expires_at <= ?)
+         AND NOT EXISTS (
            SELECT 1 FROM queue_reconciliations active
            WHERE active.project_id = q.project_id AND active.status IN ('running', 'cancelling')
          ) ORDER BY q.requested_at LIMIT 1`,
-      )
-      .get() as ReconciliationRow | undefined
-    return row ? reconciliationFromRow(row) : null
+        )
+        .get(now.toISOString(), now.toISOString()) as
+        (ReconciliationRow & { outbox_id: string; attempt_count: number }) | undefined
+      if (!row) return null
+      this.#db
+        .prepare(
+          `UPDATE outbox_items SET status = 'processing', attempt_count = attempt_count + 1,
+             lease_expires_at = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(new Date(now.getTime() + 30_000).toISOString(), now.toISOString(), row.outbox_id)
+      return {
+        outboxId: row.outbox_id,
+        attemptCount: row.attempt_count + 1,
+        reconciliation: reconciliationFromRow(row),
+      }
+    })()
   }
 
   startReconciliation(
     id: string,
     correlation: { runId: string; workflowRootBeadId: string; formulaHash?: string },
+    outboxId?: string,
   ): QueueReconciliationRecord {
     return this.#db.transaction(() => {
       const now = this.#now().toISOString()
@@ -470,12 +581,57 @@ export class TaskStore {
           id,
         )
       if (updated.changes !== 1) throw new Error('invalid_queue_reconciliation_state')
+      if (outboxId) {
+        this.#db
+          .prepare(
+            `UPDATE outbox_items SET status = 'completed', lease_expires_at = NULL,
+               updated_at = ? WHERE id = ?`,
+          )
+          .run(now, outboxId)
+      }
       const result = this.#reconciliation(id)
       this.#appendProductEvent('queue.reconciliation_started', result.projectId, {
         reconciliationId: id,
         runId: correlation.runId,
       })
       return result
+    })()
+  }
+
+  deferReconciliationDispatch(
+    outboxId: string,
+    reconciliationId: string,
+    attemptCount: number,
+    error: { code: string; message: string },
+  ): void {
+    const now = this.#now()
+    if (attemptCount >= 6) {
+      this.#db.transaction(() => {
+        this.#db
+          .prepare(
+            `UPDATE outbox_items SET status = 'failed', lease_expires_at = NULL,
+               last_error = ?, updated_at = ? WHERE id = ?`,
+          )
+          .run(error.message, now.toISOString(), outboxId)
+        this.finishReconciliation(reconciliationId, 'failed', error)
+      })()
+      return
+    }
+    const delays = [1, 5, 30, 120, 600, 1_800]
+    const availableAt = new Date(now.getTime() + delays[attemptCount - 1]! * 1_000).toISOString()
+    this.#db.transaction(() => {
+      this.#db
+        .prepare(
+          `UPDATE outbox_items SET status = 'pending', available_at = ?, lease_expires_at = NULL,
+             last_error = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(availableAt, error.message, now.toISOString(), outboxId)
+      this.#db
+        .prepare(
+          `UPDATE queue_reconciliations SET error_code = ?, error_message = ?
+           WHERE id = ? AND status = 'pending'`,
+        )
+        .run(error.code, error.message, reconciliationId)
     })()
   }
 
@@ -575,6 +731,30 @@ export class TaskStore {
       version: row.version,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    }
+  }
+
+  #mergeProposal(row: {
+    id: string
+    project_id: string
+    source_task_id: string
+    target_task_id: string
+    reason: string
+    status: TaskMergeProposalRecord['status']
+    proposed_by: string
+    created_at: string
+    decided_at: string | null
+  }): TaskMergeProposalRecord {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      sourceTaskId: row.source_task_id,
+      targetTaskId: row.target_task_id,
+      reason: row.reason,
+      status: row.status,
+      proposedBy: row.proposed_by,
+      createdAt: row.created_at,
+      decidedAt: row.decided_at,
     }
   }
 

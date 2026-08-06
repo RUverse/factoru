@@ -455,18 +455,23 @@ export class GasCityAdapter {
     target: string
     title: string
     variables: Readonly<Record<string, string>>
+    requestId?: string
   }): Promise<RunCorrelation> {
     const startingEventSeq = await this.#currentEventSeq()
 
-    const raw = await this.#client.post(`/city/${this.#cityName}/sling`, {
-      target: request.target,
-      formula: request.formulaName,
-      rig: request.rigName,
-      scope_kind: 'rig',
-      scope_ref: request.rigName,
-      title: request.title,
-      vars: request.variables,
-    })
+    const raw = await this.#client.post(
+      `/city/${this.#cityName}/sling`,
+      {
+        target: request.target,
+        formula: request.formulaName,
+        rig: request.rigName,
+        scope_kind: 'rig',
+        scope_ref: request.rigName,
+        title: request.title,
+        vars: request.variables,
+      },
+      { idempotencyKey: request.requestId },
+    )
 
     const result = slingResultSchema.parse(raw)
     const formulaHash = await this.#formulaHashFor(result.workflow_id)

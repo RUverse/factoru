@@ -1,160 +1,208 @@
 #!/usr/bin/env node
-/**
- * Milestone 1 Factoru probe tool.
- *
- * A minimal MCP stdio server whose only purpose is to prove that a Gas City
- * agent can call a Factoru-owned tool, through both the Claude and Codex
- * harnesses, before any real product tool contract is designed.
- *
- * It deliberately exposes fixed development data and no product API. Inventing
- * the task API here would mean designing Factoru's most security-sensitive
- * surface inside a throwaway probe, and then discovering the transport
- * constraints afterwards.
- *
- * Two things it must nonetheless model, because they are the parts that are
- * expensive to retrofit:
- *
- * 1. **Authentication belongs to the server, not the caller.** The credential
- *    lives in this process's environment, injected per session by Factoru. The
- *    agent never sees it and never presents it. An earlier draft made the token
- *    a tool argument, which is wrong twice over: a model cannot be given a
- *    secret it is expected not to leak, and a model that holds the credential
- *    is the thing being authenticated rather than the session Factoru issued it
- *    to.
- * 2. **Scope.** The credential is bound to one project and one role, and the
- *    server echoes both back, so the round trip demonstrates that Factoru — not
- *    the model — decides what an agent identity may see.
- *
- * Transport is JSON-RPC 2.0 over newline-delimited stdio, which is what both
- * harnesses launch for a `stdio` MCP server.
- */
-
+import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 
 const PROTOCOL_VERSION = '2024-11-05'
-
-const token = process.env.FACTORU_PROBE_TOKEN
-const projectId = process.env.FACTORU_PROBE_PROJECT ?? 'unknown-project'
-const role = process.env.FACTORU_PROBE_ROLE ?? 'unknown-role'
+const token = process.env.FACTORU_AGENT_TOKEN
+const serverUrl = (process.env.FACTORU_SERVER_URL ?? 'http://127.0.0.1:8787').replace(/\/+$/, '')
 
 if (!token) {
-  // Fail loudly at startup rather than serving an unauthenticated tool. A
-  // silent fallback here would be indistinguishable from working.
-  process.stderr.write(
-    'factoru-probe: refusing to start without FACTORU_PROBE_TOKEN. ' +
-      'Factoru issues a short-lived, project- and role-scoped token per session.\n',
-  )
+  process.stderr.write('factoru-tools: refusing to start without a session credential\n')
   process.exit(1)
 }
 
-const TOOL = {
-  name: 'factoru_probe',
-  description:
-    'Returns fixed Factoru development data. Proves the Factoru tool bridge is reachable. ' +
-    'It has no product meaning and reads no real project state.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      note: {
-        type: 'string',
-        description: 'Optional text echoed back, so a caller can prove which call it made.',
-      },
-    },
-    required: [],
+const object = (properties, required = []) => ({ type: 'object', properties, required })
+const string = (description) => ({ type: 'string', description })
+const TOOLS = [
+  {
+    name: 'factoru_tasks_get',
+    description: 'Read one task in the authenticated Factoru project.',
+    inputSchema: object({ taskId: string('Stable Factoru task ID.') }, ['taskId']),
   },
-}
+  {
+    name: 'factoru_tasks_search',
+    description: 'Search active and recent tasks for likely or possible duplicate intent.',
+    inputSchema: object(
+      { query: string('Candidate title or request text.'), limit: { type: 'number' } },
+      ['query'],
+    ),
+  },
+  {
+    name: 'factoru_tasks_create',
+    description:
+      'Create a Backlog task, or Queue it only when the user explicitly requested planning.',
+    inputSchema: object(
+      {
+        title: string('Short task title.'),
+        description: string('Acceptance criteria and context.'),
+        status: { type: 'string', enum: ['backlog', 'queue'] },
+      },
+      ['title'],
+    ),
+  },
+  {
+    name: 'factoru_tasks_update',
+    description: 'Update task intent or planning fields inside the authenticated project.',
+    inputSchema: object(
+      {
+        taskId: string('Task to update.'),
+        title: string('Updated title.'),
+        description: string('Updated criteria and context.'),
+        priority: { type: 'number', minimum: 0, maximum: 100 },
+        queuePhase: {
+          type: 'string',
+          enum: ['awaiting_triage', 'triaging', 'ready', 'waiting_dependency', 'waiting_capacity'],
+        },
+        workerTypeKind: {
+          type: ['string', 'null'],
+          enum: ['project_manager', 'software_engineer', null],
+        },
+        formulaName: { type: ['string', 'null'] },
+        needsYouAction: {
+          type: 'string',
+          enum: ['clarify', 'approve', 'review', 'resolve_conflict', 'recover_failure'],
+        },
+        needsYouMessage: string('Exact action requested from the user.'),
+      },
+      ['taskId'],
+    ),
+  },
+  {
+    name: 'factoru_tasks_move',
+    description:
+      'Move a task among the four active states. Needs you requires an exact action and message.',
+    inputSchema: object(
+      {
+        taskId: string('Task to move.'),
+        status: { type: 'string', enum: ['backlog', 'queue', 'in_progress', 'needs_you'] },
+        needsYouAction: {
+          type: 'string',
+          enum: ['clarify', 'approve', 'review', 'resolve_conflict', 'recover_failure'],
+        },
+        needsYouMessage: string('Exact action requested from the user.'),
+      },
+      ['taskId', 'status'],
+    ),
+  },
+  {
+    name: 'factoru_tasks_queue',
+    description: 'Explicitly request Project Manager reconciliation for a task.',
+    inputSchema: object({ taskId: string('Task to Queue.') }, ['taskId']),
+  },
+  {
+    name: 'factoru_tasks_set_dependencies',
+    description: 'Replace a task dependency set with project-local task IDs.',
+    inputSchema: object(
+      {
+        taskId: string('Dependent task.'),
+        dependencyIds: { type: 'array', items: { type: 'string' } },
+      },
+      ['taskId', 'dependencyIds'],
+    ),
+  },
+  {
+    name: 'factoru_tasks_propose_merge',
+    description:
+      'Propose a task merge for explicit user confirmation. This never merges by itself.',
+    inputSchema: object(
+      {
+        sourceTaskId: string('Task that would be superseded.'),
+        targetTaskId: string('Task that would remain.'),
+        reason: string('Why these requests appear equivalent.'),
+      },
+      ['sourceTaskId', 'targetTaskId', 'reason'],
+    ),
+  },
+  {
+    name: 'factoru_tasks_resolve',
+    description:
+      'Resolve a task as accepted, rejected, or cancelled. Agents cannot supersede/merge tasks.',
+    inputSchema: object(
+      {
+        taskId: string('Task to resolve.'),
+        resolution: { type: 'string', enum: ['accepted', 'rejected', 'cancelled'] },
+        summary: string('Durable reason for the terminal outcome.'),
+      },
+      ['taskId', 'resolution', 'summary'],
+    ),
+  },
+]
+
+const names = new Map(
+  TOOLS.map((tool) => [tool.name, `tasks.${tool.name.replace(/^factoru_tasks_/, '')}`]),
+)
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`)
 }
 
-function result(id, payload) {
-  send({ jsonrpc: '2.0', id, result: payload })
-}
-
-function failure(id, code, message) {
-  send({ jsonrpc: '2.0', id, error: { code, message } })
-}
-
-function callProbe(id, args) {
-  // No credential check against the caller: the agent is not the authenticated
-  // party. This process holds a per-session credential Factoru issued, and in
-  // the real tool gateway it would present that credential to Factoru Server on
-  // the agent's behalf. Here there is no server to call, so the probe simply
-  // reports the scope its credential carries.
-  result(id, {
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify(
-          {
-            ok: true,
-            project_id: projectId,
-            role,
-            session_credential_present: Boolean(token),
-            note: args.note ?? null,
-            message:
-              'Factoru probe tool reached. This is fixed development data, not project state.',
-          },
-          null,
-          2,
-        ),
-      },
-    ],
-  })
-}
-
-function handle(request) {
-  const { id, method, params } = request
-
-  switch (method) {
-    case 'initialize':
-      result(id, {
-        protocolVersion: PROTOCOL_VERSION,
-        capabilities: { tools: {} },
-        serverInfo: { name: 'factoru-probe', version: '0.1.0' },
-      })
-      return
-
-    case 'tools/list':
-      result(id, { tools: [TOOL] })
-      return
-
-    case 'tools/call':
-      if (params?.name !== TOOL.name) {
-        failure(id, -32602, `factoru_probe: unknown tool ${String(params?.name)}`)
-        return
-      }
-      callProbe(id, params.arguments ?? {})
-      return
-
-    default:
-      // Notifications carry no id and must not be answered at all.
-      if (id === undefined || id === null) return
-      failure(id, -32601, `factoru_probe: unsupported method ${String(method)}`)
-  }
-}
-
-const lines = createInterface({ input: process.stdin })
-
-lines.on('line', (line) => {
-  const trimmed = line.trim()
-  if (!trimmed) return
-
-  let request
-  try {
-    request = JSON.parse(trimmed)
-  } catch {
-    // No id is recoverable from unparsable input, so there is nothing to
-    // answer; dropping it is the only correct response.
+async function callTool(id, name, args) {
+  const tool = names.get(name)
+  if (!tool) {
+    send({ jsonrpc: '2.0', id, error: { code: -32602, message: `Unknown Factoru tool ${name}` } })
     return
   }
-
   try {
-    handle(request)
+    const response = await fetch(`${serverUrl}/internal/v1/agent-tools/call`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId: `mcp_${randomUUID()}`, tool, arguments: args ?? {} }),
+      signal: AbortSignal.timeout(30_000),
+    })
+    const payload = await response.json()
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(payload.ok ? payload.result : payload.error, null, 2),
+          },
+        ],
+        isError: !payload.ok,
+      },
+    })
   } catch (error) {
-    if (request?.id !== undefined && request?.id !== null) {
-      failure(request.id, -32603, `factoru_probe: ${String(error)}`)
-    }
+    send({
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32603, message: `Factoru tool gateway: ${String(error)}` },
+    })
   }
+}
+
+async function handle(request) {
+  const { id, method, params } = request
+  if (method === 'initialize') {
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: { name: 'factoru-tools', version: '0.2.0' },
+      },
+    })
+  } else if (method === 'tools/list') {
+    send({ jsonrpc: '2.0', id, result: { tools: TOOLS } })
+  } else if (method === 'tools/call') {
+    await callTool(id, params?.name, params?.arguments)
+  } else if (id !== undefined && id !== null) {
+    send({
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32601, message: `Unsupported method ${String(method)}` },
+    })
+  }
+}
+
+createInterface({ input: process.stdin }).on('line', (line) => {
+  let request
+  try {
+    request = JSON.parse(line)
+  } catch {
+    return
+  }
+  void handle(request)
 })

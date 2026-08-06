@@ -48,6 +48,7 @@ export interface ProjectManagerOrchestrator {
     target: string
     title: string
     variables: Readonly<Record<string, string>>
+    requestId?: string
   }): Promise<RunCorrelation>
   describeRun(runId: string, workflowRootBeadId: string): Promise<RunSnapshot>
   cancelRun(runId: string): Promise<void>
@@ -331,7 +332,9 @@ export class WorkspaceService {
     for (const project of this.#database.listProjects()) {
       await this.#syncConversation(project.id)
       await this.#observePlanner(project.id)
+      await this.#observeQueueReconciliation(project.id)
     }
+    await this.#dispatchQueueReconciliation()
   }
 
   async #ensureAdapter(): Promise<void> {
@@ -452,6 +455,68 @@ export class WorkspaceService {
     } catch {
       // A transient observation failure leaves the durable run active. The next
       // reactor pass retries from its persisted correlation.
+    }
+  }
+
+  async #dispatchQueueReconciliation(): Promise<void> {
+    const claimed = this.#database.tasks.claimNextReconciliation()
+    if (!claimed) return
+    const project = this.#database.getProject(claimed.reconciliation.projectId)
+    if (!project) return
+    try {
+      const correlation = await this.#orchestrator.startRun({
+        rigName: project.rig.rigName,
+        formulaName: 'queue-reconcile',
+        target: `${project.rig.rigName}/factoru.project-manager-planner`,
+        title: `Reconcile Queue revision ${claimed.reconciliation.coalescedThroughRevision} for ${project.name}`,
+        variables: {
+          project_id: project.id,
+          reconciliation_id: claimed.reconciliation.id,
+          queue_revision: String(claimed.reconciliation.coalescedThroughRevision),
+        },
+        requestId: claimed.reconciliation.id,
+      })
+      this.#database.tasks.startReconciliation(
+        claimed.reconciliation.id,
+        correlation,
+        claimed.outboxId,
+      )
+    } catch (error) {
+      this.#database.tasks.deferReconciliationDispatch(
+        claimed.outboxId,
+        claimed.reconciliation.id,
+        claimed.attemptCount,
+        {
+          code: 'queue_reconciliation_dispatch_failed',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      )
+    }
+  }
+
+  async #observeQueueReconciliation(projectId: string): Promise<void> {
+    const reconciliation = this.#database.tasks.activeReconciliation(projectId)
+    if (!reconciliation?.runId || !reconciliation.workflowRootBeadId) return
+    try {
+      const snapshot = await this.#orchestrator.describeRun(
+        reconciliation.runId,
+        reconciliation.workflowRootBeadId,
+      )
+      if (snapshot.partial || snapshot.steps.length === 0) return
+      const statuses = snapshot.steps.map((step) => step.status)
+      if (statuses.some((status) => status === 'failed')) {
+        this.#database.tasks.finishReconciliation(reconciliation.id, 'failed', {
+          code: 'queue_reconciliation_failed',
+          message: 'The Project Manager planning step failed.',
+        })
+      } else if (statuses.some((status) => status === 'cancelled')) {
+        this.#database.tasks.finishReconciliation(reconciliation.id, 'cancelled')
+      } else if (statuses.every((status) => status === 'completed' || status === 'skipped')) {
+        this.#database.tasks.finishReconciliation(reconciliation.id, 'completed')
+      }
+    } catch {
+      // Persisted correlation survives transient observation failures and is
+      // retried by the next reactor pass.
     }
   }
 

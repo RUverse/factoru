@@ -1,14 +1,13 @@
 [pack]
 name = "factoru-default"
-version = "0.1.0"
+version = "0.2.0"
 schema = 2
 
 # Factoru's versioned default orchestration pack.
 #
-# Milestone 3 promotes the four role contracts and adds a bounded planner probe
-# while retaining the Milestone 1 implement/review probe. Queue and task
-# semantics remain absent until the Factoru-owned task model lands in Milestone
-# 4.
+# Milestone 4 adds the production Queue reconciliation formula and authenticated
+# role-scoped Factoru task tools while retaining the earlier probes as pinned
+# operational evidence.
 #
 # Agent role names are stable because Factoru's adapter routes to them, but
 # their provider/model bindings are projected from Factoru Worker Types into

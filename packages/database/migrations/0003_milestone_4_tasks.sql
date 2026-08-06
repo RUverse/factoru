@@ -158,6 +158,11 @@ CREATE TABLE agent_tool_audit (
   request_id TEXT NOT NULL,
   outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'denied', 'failed')),
   summary_json TEXT NOT NULL,
+  response_json TEXT NOT NULL,
   occurred_at TEXT NOT NULL,
   UNIQUE (credential_id, request_id)
 );
+
+UPDATE worker_types
+SET allowed_tools_json = '["tasks.get","tasks.search","tasks.create","tasks.update","tasks.move","tasks.queue","tasks.propose_merge","tasks.resolve","tasks.set_dependencies","memory.read","memory.propose"]'
+WHERE kind = 'project_manager';
