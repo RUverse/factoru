@@ -275,6 +275,17 @@ Packaging commands do not exist yet; they arrive with Milestone 7 as decided in
 
 ## Documentation expectations
 
+- Documentation synchronization is part of every change, not optional follow-up
+  work. Before considering a task complete, review `docs/ROADMAP.md`,
+  `docs/ARCHITECTURE.md`, ADRs, protocol and deployment documentation, READMEs,
+  configuration examples, and any other affected documentation; update every
+  document whose scope, status, behavior, commands, or examples changed in the
+  same commit as the implementation.
+- Always keep `docs/ROADMAP.md` and all other affected documentation accurate
+  after changes. If a change does not require a documentation edit, verify that
+  the existing documentation still describes the resulting system correctly.
+- Do not commit or push a change while relevant documentation is known to be
+  stale or contradictory.
 - Update `docs/ROADMAP.md` when product scope, milestone order, or a product invariant
   changes.
 - Update `docs/ARCHITECTURE.md` in the same change as any implemented or planned
