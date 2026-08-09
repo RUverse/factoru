@@ -137,6 +137,16 @@ describe('Milestone 2 server slice', () => {
 
   it('previews safely, creates durably, provisions asynchronously, and reopens the same project', async () => {
     const { root, repository } = repositoryFixture()
+    const secondRepository = path.join(root, 'api')
+    fs.mkdirSync(secondRepository)
+    execFileSync('git', ['init', '-b', 'main'], { cwd: secondRepository })
+    execFileSync('git', ['config', 'user.email', 'test@factoru.local'], {
+      cwd: secondRepository,
+    })
+    execFileSync('git', ['config', 'user.name', 'Factoru Test'], { cwd: secondRepository })
+    fs.writeFileSync(path.join(secondRepository, 'README.md'), '# API\n')
+    execFileSync('git', ['add', 'README.md'], { cwd: secondRepository })
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: secondRepository })
     const serverId = parseServerId('srv_11111111111111111111111111111111')
     const file = path.join(root, 'factoru.sqlite')
     const database = new FactoruDatabase(file, serverId)
@@ -145,7 +155,19 @@ describe('Milestone 2 server slice', () => {
     const roots = [{ id: 'root_test', label: 'Repos', path: root }]
     const repositories = new RepositoryService(roots)
     const preview = await repositories.preview('root_test', 'project')
+    const secondPreview = await repositories.preview('root_test', 'api')
     expect(preview.preview.safe).toBe(true)
+    expect(await repositories.previewAbsolute(repository)).toMatchObject({
+      rootId: 'root_test',
+      relativePath: 'project',
+    })
+    expect(repositories.planClone('https://example.com/org/api.git', 'root_test')).toMatchObject({
+      sourceUrl: 'https://example.com/org/api.git',
+      repository: { root: { id: 'root_test' }, relativePath: expect.stringMatching(/^api-/) },
+    })
+    await expect(repositories.clone('file:///tmp/repository', 'root_test')).rejects.toMatchObject({
+      code: 'repository_url_invalid',
+    })
     const calls: unknown[] = []
     const registrar: RigRegistrar = {
       register: async (request) => {
@@ -160,19 +182,67 @@ describe('Milestone 2 server slice', () => {
       cityPath: path.join(root, 'city'),
     })
     const created = await service.createProject(device, 'cmd_create', {
-      rootId: 'root_test',
-      relativePath: 'project',
       name: 'Project',
-      defaultBranch: 'dev',
-      fingerprint: preview.preview.fingerprint,
+      repositories: [
+        {
+          kind: 'local',
+          rootId: 'root_test',
+          relativePath: 'project',
+          defaultBranch: 'dev',
+          fingerprint: preview.preview.fingerprint,
+        },
+        {
+          kind: 'local',
+          rootId: 'root_test',
+          relativePath: 'api',
+          defaultBranch: 'main',
+          fingerprint: secondPreview.preview.fingerprint,
+        },
+      ],
     })
     expect(created.setupState).toBe('setting_up')
+    expect(created.repositories).toHaveLength(2)
+    expect(created.repositories[0]?.isPrimary).toBe(true)
     await service.processOutbox()
     expect(service.getProject(created.id).setupState).toBe('ready')
-    expect(calls).toHaveLength(1)
+    expect(calls).toHaveLength(2)
     database.close()
     const reopened = new FactoruDatabase(file, serverId)
     expect(reopened.getProject(created.id)?.repositoryRealPath).toBe(fs.realpathSync(repository))
+    expect(reopened.getProject(created.id)?.repositories).toHaveLength(2)
     reopened.close()
   }, 15_000)
+
+  it('persists remote repository intent before the provisioning reactor clones it', async () => {
+    const root = fixtureDirectory()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    const repositories = new RepositoryService([{ id: 'root_test', label: 'Repos', path: root }])
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar: { register: async () => undefined },
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+    const planned = repositories.planClone('https://example.com/org/api.git', 'root_test')
+    const created = await service.createProject(device, 'cmd_remote', {
+      name: 'Remote platform',
+      repositories: [
+        { kind: 'remote', rootId: 'root_test', url: 'https://example.com/org/api.git' },
+      ],
+    })
+    expect(created.repositories[0]).toMatchObject({
+      isPrimary: true,
+      sourceUrl: 'https://example.com/org/api.git',
+      defaultBranch: 'HEAD',
+      rig: { registrationState: 'pending' },
+    })
+    expect(fs.existsSync(planned.repository.realPath)).toBe(false)
+    expect(database.claimDueOutbox()).toHaveLength(1)
+    database.close()
+  })
 })

@@ -41,6 +41,7 @@ export const IPC_PRODUCT_RECONNECT = 'factoru:product:reconnect'
 export const IPC_PRODUCT_ROOTS = 'factoru:product:roots'
 export const IPC_PRODUCT_BROWSE = 'factoru:product:browse'
 export const IPC_PRODUCT_PREVIEW = 'factoru:product:preview'
+export const IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER = 'factoru:product:choose-repository-folder'
 export const IPC_PRODUCT_CREATE = 'factoru:product:create'
 export const IPC_PRODUCT_RETRY = 'factoru:product:retry'
 export const IPC_PRODUCT_DEVICES = 'factoru:product:devices'
@@ -76,13 +77,20 @@ export interface ProductBridge {
     relativePath: string,
   ): Promise<Array<{ name: string; relativePath: string; kind: 'directory' | 'repository' }>>
   preview(rootId: string, relativePath: string, defaultBranch?: string): Promise<ProjectPreview>
+  chooseRepositoryFolder(): Promise<ProjectPreview | null>
   create(params: {
-    rootId: string
-    relativePath: string
     name: string
     description?: string
-    defaultBranch: string
-    fingerprint: string
+    repositories: Array<
+      | {
+          kind: 'local'
+          rootId: string
+          relativePath: string
+          defaultBranch: string
+          fingerprint: string
+        }
+      | { kind: 'remote'; rootId: string; url: string }
+    >
   }): Promise<Project>
   retry(projectId: string): Promise<unknown>
   devices(): Promise<TrustedDevice[]>

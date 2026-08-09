@@ -31,6 +31,11 @@ export interface ResolvedRepository {
   realPath: string
 }
 
+export interface ImportedRepository {
+  repository: ResolvedRepository
+  sourceUrl: string
+}
+
 export interface RepositoryEntry {
   name: string
   relativePath: string
@@ -55,6 +60,85 @@ export class RepositoryService {
 
   rootLabel(rootId: string): string {
     return this.#roots.get(rootId)?.label ?? 'Repository'
+  }
+
+  async previewAbsolute(absolutePath: string): Promise<ProjectPreview> {
+    if (!path.isAbsolute(absolutePath)) {
+      throw new RepositoryError('repository_path_invalid', 'Choose an absolute repository folder')
+    }
+    const realPath = await fs.realpath(absolutePath).catch(() => null)
+    if (!realPath) {
+      throw new RepositoryError('repository_not_found', 'The selected folder is unavailable')
+    }
+    const root = [...this.#roots.values()]
+      .filter(
+        (candidate) =>
+          realPath === candidate.path || realPath.startsWith(`${candidate.path}${path.sep}`),
+      )
+      .sort((left, right) => right.path.length - left.path.length)[0]
+    if (!root) {
+      throw new RepositoryError(
+        'repository_outside_approved_roots',
+        'That folder is outside this server’s approved repository locations',
+      )
+    }
+    return (await this.preview(root.id, path.relative(root.path, realPath))).preview
+  }
+
+  async clone(urlValue: string, rootId: string): Promise<ImportedRepository> {
+    const planned = this.planClone(urlValue, rootId)
+    const { sourceUrl } = planned
+    const root = planned.repository.root
+    const relativePath = planned.repository.relativePath
+    const destination = planned.repository.realPath
+    if (fsSync.existsSync(destination)) {
+      try {
+        const { stdout } = await exec('git', ['remote', 'get-url', 'origin'], {
+          cwd: destination,
+          encoding: 'utf8',
+        })
+        if (stdout.trim() !== sourceUrl) throw new Error('origin_mismatch')
+      } catch {
+        throw new RepositoryError(
+          'clone_destination_exists',
+          `The managed clone destination ${relativePath} is already in use`,
+        )
+      }
+    } else {
+      try {
+        await exec('git', ['clone', '--', sourceUrl, destination], {
+          cwd: root.path,
+          encoding: 'utf8',
+          maxBuffer: 4 * 1024 * 1024,
+        })
+      } catch {
+        await fs.rm(destination, { recursive: true, force: true })
+        throw new RepositoryError(
+          'repository_clone_failed',
+          'Factoru could not clone that repository URL. Check access and try again.',
+        )
+      }
+    }
+    return {
+      repository: await this.resolve(rootId, relativePath),
+      sourceUrl,
+    }
+  }
+
+  planClone(urlValue: string, rootId: string): ImportedRepository {
+    const root = this.#roots.get(rootId)
+    if (!root) {
+      throw new RepositoryError('repository_root_not_found', 'Clone destination is unavailable')
+    }
+    const sourceUrl = this.#validateRemoteUrl(urlValue)
+    const baseName = this.#remoteRepositoryName(sourceUrl)
+    const suffix = createHash('sha256').update(sourceUrl).digest('hex').slice(0, 8)
+    const relativePath = `${baseName}-${suffix}`
+    const destination = path.join(root.path, relativePath)
+    return {
+      repository: { root, relativePath, realPath: destination },
+      sourceUrl,
+    }
   }
 
   async resolve(rootId: string, relativePath: string): Promise<ResolvedRepository> {
@@ -215,5 +299,45 @@ export class RepositoryService {
     } catch {
       return false
     }
+  }
+
+  #validateRemoteUrl(value: string): string {
+    const trimmed = value.trim()
+    if (/^[\w.-]+@[\w.-]+:[^\s]+$/.test(trimmed)) return trimmed
+    let url: URL
+    try {
+      url = new URL(trimmed)
+    } catch {
+      throw new RepositoryError('repository_url_invalid', 'Use an HTTPS or SSH Git repository URL')
+    }
+    if (!['https:', 'ssh:'].includes(url.protocol) || !url.hostname) {
+      throw new RepositoryError('repository_url_invalid', 'Use an HTTPS or SSH Git repository URL')
+    }
+    if (url.username || url.password) {
+      throw new RepositoryError(
+        'repository_url_contains_credentials',
+        'Repository URLs must not contain credentials; configure access on the server instead',
+      )
+    }
+    url.hash = ''
+    return url.toString()
+  }
+
+  #remoteRepositoryName(sourceUrl: string): string {
+    const pathname = sourceUrl.includes('://')
+      ? new URL(sourceUrl).pathname
+      : sourceUrl.slice(sourceUrl.indexOf(':') + 1)
+    const candidate =
+      pathname
+        .split('/')
+        .filter(Boolean)
+        .at(-1)
+        ?.replace(/\.git$/, '') ?? 'repo'
+    const safe = candidate
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60)
+    return safe || 'repo'
   }
 }

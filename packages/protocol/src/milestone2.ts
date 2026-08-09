@@ -4,7 +4,7 @@ import { serverIdSchema } from './schemas.js'
 export const CAPABILITY_PAIRING = 'pairing-v1'
 export const CAPABILITY_LOCAL_ENROLLMENT = 'local-enrollment-v1'
 export const CAPABILITY_LIVE = 'live-v1'
-export const CAPABILITY_PROJECTS = 'projects-v1'
+export const CAPABILITY_PROJECTS = 'projects-v2'
 export const CAPABILITY_TRUSTED_DEVICES = 'trusted-devices-v1'
 export const PAIRING_EXCHANGE_PATH = '/api/v1/pairing/exchange'
 export const LOCAL_ENROLLMENT_PATH = '/api/v1/pairing/local'
@@ -76,8 +76,27 @@ export const projectSchema = z.object({
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   rig: rigSummarySchema,
+  repositories: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        isPrimary: z.boolean(),
+        sourceUrl: z.string().nullable(),
+        repository: z.object({ rootId: z.string(), relativePath: z.string(), label: z.string() }),
+        defaultBranch: z.string().min(1),
+        rig: rigSummarySchema,
+      }),
+    )
+    .min(1)
+    .refine(
+      (repositories) => repositories.filter((repository) => repository.isPrimary).length === 1,
+      {
+        message: 'A project must have exactly one primary repository',
+      },
+    ),
 })
 export type Project = z.infer<typeof projectSchema>
+export type ProjectRepositoryInput = z.infer<typeof projectRepositoryInputSchema>
 
 export const repositoryRootSchema = z.object({ id: z.string(), label: z.string() })
 export const repositoryEntrySchema = z.object({
@@ -124,6 +143,7 @@ export const projectSnapshotSchema = z.object({
 export const liveMethodSchema = z.enum([
   'repositories.roots',
   'repositories.browse',
+  'repositories.previewPath',
   'projects.previewCreate',
   'projects.list',
   'projects.get',
@@ -177,13 +197,29 @@ export const repositoryBrowseParamsSchema = z.object({
 export const projectPreviewParamsSchema = repositoryBrowseParamsSchema.extend({
   defaultBranch: z.string().optional(),
 })
-export const projectCreateParamsSchema = z.object({
+export const repositoryPreviewPathParamsSchema = z.object({
+  absolutePath: z.string().min(1),
+})
+export const localProjectRepositoryInputSchema = z.object({
+  kind: z.literal('local'),
   rootId: z.string(),
   relativePath: z.string(),
-  name: z.string().trim().min(1).max(100),
-  description: z.string().trim().max(2_000).optional(),
   defaultBranch: z.string().min(1),
   fingerprint: z.string().min(32),
+})
+export const remoteProjectRepositoryInputSchema = z.object({
+  kind: z.literal('remote'),
+  rootId: z.string(),
+  url: z.string().trim().min(1).max(2_048),
+})
+export const projectRepositoryInputSchema = z.discriminatedUnion('kind', [
+  localProjectRepositoryInputSchema,
+  remoteProjectRepositoryInputSchema,
+])
+export const projectCreateParamsSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().trim().max(2_000).optional(),
+  repositories: z.array(projectRepositoryInputSchema).min(1).max(12),
 })
 export const projectIdParamsSchema = z.object({ projectId: z.string().min(1) })
 export const projectSubscribeParamsSchema = z.object({

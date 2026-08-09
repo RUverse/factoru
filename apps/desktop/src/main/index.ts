@@ -1,6 +1,14 @@
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { BrowserWindow, app, ipcMain, safeStorage, shell } from 'electron'
+import {
+  BrowserWindow,
+  app,
+  dialog,
+  ipcMain,
+  safeStorage,
+  shell,
+  type OpenDialogOptions,
+} from 'electron'
 import { createFactoruClient } from '@factoru/protocol'
 import { ConnectionRuntime } from './connection-runtime'
 import { isExternallyOpenable, isSameOrigin } from './navigation'
@@ -18,6 +26,7 @@ import {
   IPC_PRODUCT_BROWSE,
   IPC_PRODUCT_CHANGED,
   IPC_PRODUCT_CANCEL_PLANNER,
+  IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER,
   IPC_PRODUCT_CREATE,
   IPC_PRODUCT_DEVICES,
   IPC_PRODUCT_GET,
@@ -139,6 +148,19 @@ function registerIpc(): void {
     (_event, rootId: string, relativePath: string, defaultBranch?: string) =>
       product.preview(rootId, relativePath, defaultBranch),
   )
+  ipcMain.handle(IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER, async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined
+    const options: OpenDialogOptions = {
+      title: 'Choose a Git repository',
+      buttonLabel: 'Add repository',
+      properties: ['openDirectory'],
+    }
+    const selection = owner
+      ? await dialog.showOpenDialog(owner, options)
+      : await dialog.showOpenDialog(options)
+    const selectedPath = selection.filePaths[0]
+    return selection.canceled || !selectedPath ? null : product.previewPath(selectedPath)
+  })
   ipcMain.handle(IPC_PRODUCT_CREATE, (_event, params: unknown) => product.create(params))
   ipcMain.handle(IPC_PRODUCT_RETRY, (_event, projectId: string) =>
     product.request('projects.retrySetup', { projectId }, `cmd_${randomUUID()}`),

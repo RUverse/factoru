@@ -104,9 +104,11 @@ is not presented as a built-in Gas City primitive.
 10. Every agent runtime, including the Project Manager chat agent, is launched
     and managed through Gas City. Factoru will not build a parallel provider
     session runtime.
-11. One Factoru Server initially manages one dedicated Gas City city, while each
-    repository-backed Factoru project maps to one rig in that city. The
-    machine-level Gas City supervisor may also host unrelated cities.
+11. One Factoru Server initially manages one dedicated Gas City city. Each
+    Factoru project contains one or more repository-backed rigs in that city;
+    the first repository is its primary execution rig until task-to-rig routing
+    is explicitly introduced. The machine-level Gas City supervisor may also
+    host unrelated cities.
 12. Factoru ships a versioned default Gas City pack. It contains the role
     prompts, agent definitions, doctor checks, tool wiring, and Formula v2
     workflows that make Gas City behave like Factoru.
@@ -176,18 +178,24 @@ where it helps explain or control the current work.
 A Factoru project initially contains:
 
 - a name and optional description;
-- one server-local Git repository path;
-- a default branch;
+- one or more Git repositories, each with a server-local path, default branch,
+  and Gas City rig binding;
+- a primary repository/rig used by the serial task-execution path;
 - Project Manager and Software Engineer settings;
 - project Factory capacity and resource policy;
 - versioned project and per-Worker-Type memory;
 - one Project Manager conversation;
 - tasks and their conversation links;
-- Gas City city/rig binding, formula selection, and run references;
+- Gas City city plus repository/rig bindings, formula selection, and run references;
 - commands for setup, verification, and tests.
 
-Remote Git cloning and multi-repository projects can come later. For the first
-version, a repository must already be available to Factoru Server.
+Project creation asks for the project name first and lets the user add multiple
+repositories before confirming. A local desktop can choose a repository with
+the native macOS folder picker; the selected path is validated by Factoru
+Server against approved repository roots and is never exposed as a general
+renderer filesystem capability. HTTPS and SSH repository URLs are cloned by
+the server into an approved root. URLs containing credentials are rejected;
+repository access is configured on the server.
 
 ### Task lifecycle
 
@@ -264,7 +272,7 @@ flowchart LR
     GC["Gas City Adapter"]
     SUP["Gas City supervisor"]
     CITY["Factoru city<br/>default pack"]
-    RIG["Project rig"]
+    RIG["Project rigs<br/>one per repository"]
     PM["PM chat<br/>always-on session"]
     PLAN["PM planner<br/>serialized on-demand agent"]
     W["Implementer + reviewer<br/>on-demand pools"]
@@ -411,7 +419,7 @@ only product component that talks to it, through `packages/gas-city`.
 | --- | --- |
 | **Supervisor** | The local machine control plane. It can host unrelated cities, so Factoru manages only its own city. |
 | **City** | One dedicated Gas City deployment per Factoru Server, stored below the server data root and named from `server_id`. |
-| **Rig** | The Gas City registration and bead namespace for one repository-backed Factoru project. |
+| **Rig** | The Gas City registration and bead namespace for one repository. A Factoru project contains one or more rigs. |
 | **Pack** | The versioned definition of Factoru's agents, prompts, tools, doctor checks, and formulas. The city imports the pinned default pack. |
 | **Agent** | One configured runtime role. Factoru Worker Types bind lower-level chat, planner, implementer, and reviewer agents; Gas City hardcodes none of them. |
 | **Session** | One live agent instance. PM chat stays available, PM planning is serialized on demand, and implementer/reviewer pools scale on demand while bead work remains durable. |
@@ -662,10 +670,12 @@ Build durable Factoru ownership only after the Gas City feasibility gate passes.
   **Resolved for Milestone 2:** terminate HTTPS through an operator-controlled
   private overlay or loopback reverse proxy; native certificate management is
   deferred ([ADR 0011](./adr/0011-milestone-2-remote-access-and-project-onboarding.md)).
-- Persist projects and their Gas City city/rig binding in SQLite.
+- Persist projects and their Gas City city/repository/rig bindings in SQLite.
 - Add/list/open projects from the desktop.
-- Validate a server-local repository path and default branch before registering
-  or reconciling its rig through the adapter.
+- Validate every server-local repository path and default branch before
+  registering or reconciling its rig through the adapter. The initial
+  Milestone 2 slice shipped one rig per project and was later extended through
+  the same durable provisioning boundary.
 - Stream bounded project changes to connected clients and resume from cursors.
 - Reconcile projects, rigs, and connection state idempotently after Desktop,
   Server, or Gas City restart without making Gas City the source of truth for
@@ -869,7 +879,6 @@ After the core loop proves useful:
   second owner of the Factoru Queue;
 - progressively richer graph/run inspection and eventually visual Formula
   authoring inside the existing task and Worker experience;
-- multi-repository projects;
 - Linux Electron desktop distribution;
 - terminal, file, and source-control conveniences inspired by T3 Code;
 - trust policies for automatic low-risk integration;

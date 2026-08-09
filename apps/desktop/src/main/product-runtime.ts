@@ -291,6 +291,9 @@ export class ProductRuntime {
       defaultBranch,
     })) as ProjectPreview
   }
+  async previewPath(absolutePath: string): Promise<ProjectPreview> {
+    return (await this.request('repositories.previewPath', { absolutePath })) as ProjectPreview
+  }
   async create(params: unknown): Promise<Project> {
     const project = projectSchema.parse(
       await this.request('projects.create', params, `cmd_${randomUUID()}`),

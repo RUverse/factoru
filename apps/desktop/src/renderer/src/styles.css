@@ -277,6 +277,14 @@ code {
   background: var(--factoru-bg);
 }
 
+.workspace-shell.project-setup-open {
+  grid-template-columns: var(--factoru-sidebar-width) minmax(0, 1fr);
+}
+
+.project-setup-open .inspector-pane {
+  display: none;
+}
+
 .sidebar,
 .conversation-pane,
 .inspector-pane {
@@ -590,6 +598,230 @@ code {
   align-items: start;
   justify-content: space-between;
   margin-bottom: 15px;
+}
+
+.setup-panel > header {
+  gap: 20px;
+}
+
+.setup-panel > header h2 {
+  margin-top: 2px;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.setup-intro {
+  max-width: 620px;
+  margin-top: 6px;
+  color: var(--factoru-text-muted);
+  font-size: 12px;
+}
+
+.project-create-form {
+  display: grid;
+  max-width: 760px;
+  gap: 16px;
+}
+
+.project-basics {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(240px, 1.2fr);
+  gap: 12px;
+}
+
+.optional {
+  color: var(--factoru-text-faint);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.repository-picker-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--factoru-border);
+  border-radius: 12px;
+  background:
+    linear-gradient(145deg, rgba(91, 141, 239, 0.045), transparent 50%), var(--factoru-surface);
+  padding: 15px;
+}
+
+.repository-picker-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.repository-picker-heading p {
+  margin-top: 2px;
+  color: var(--factoru-text-faint);
+  font-size: 11px;
+}
+
+.repository-count {
+  display: grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--factoru-border);
+  border-radius: 999px;
+  color: var(--factoru-text-muted);
+  font-size: 11px;
+}
+
+.url-add-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(110px, 0.35fr) auto;
+  gap: 7px;
+}
+
+.picker-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 9px;
+  color: var(--factoru-text-faint);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.picker-divider::before,
+.picker-divider::after {
+  height: 1px;
+  background: var(--factoru-border);
+  content: '';
+}
+
+.native-picker-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-style: dashed;
+  padding: 12px;
+  text-align: left;
+}
+
+.native-picker-button > span:last-child {
+  display: grid;
+}
+
+.native-picker-button small {
+  color: var(--factoru-text-faint);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.folder-icon,
+.repository-source-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--factoru-accent-soft);
+  color: var(--factoru-accent);
+  font-weight: 700;
+}
+
+.server-browser-toggle {
+  justify-self: center;
+  border: 0;
+  background: transparent;
+  padding: 2px 6px;
+  color: var(--factoru-text-muted);
+  font-size: 11px;
+}
+
+.server-browser {
+  border-top: 1px solid var(--factoru-border);
+  padding-top: 12px;
+}
+
+.repository-error {
+  border-radius: 8px;
+  background: rgba(239, 91, 91, 0.08);
+  padding: 9px;
+}
+
+.selected-repositories {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.selected-repositories li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--factoru-border);
+  border-radius: 10px;
+  background: var(--factoru-surface);
+  padding: 9px 10px;
+}
+
+.repository-order {
+  width: 16px;
+  color: var(--factoru-text-faint);
+  font-family: var(--factoru-font-mono);
+  font-size: 10px;
+}
+
+.repository-source-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.repository-summary {
+  display: grid;
+  min-width: 0;
+}
+
+.repository-summary small {
+  overflow: hidden;
+  color: var(--factoru-text-faint);
+  font-family: var(--factoru-font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.primary-rig-badge {
+  border-radius: 999px;
+  background: var(--factoru-accent-soft);
+  padding: 3px 7px;
+  color: var(--factoru-accent);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.remove-repository {
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  color: var(--factoru-text-faint);
+  font-size: 10px;
+}
+
+.project-create-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-top: 1px solid var(--factoru-border);
+  padding-top: 14px;
+}
+
+.project-create-actions p {
+  color: var(--factoru-text-faint);
+  font-size: 11px;
 }
 
 .browser-toolbar {

@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { FactoruDatabase, ProjectRecord, TrustedDevice } from '@factoru/database'
-import type { Project, ProjectSnapshot } from '@factoru/protocol'
+import type { Project, ProjectRepositoryInput, ProjectSnapshot } from '@factoru/protocol'
 import { GasCityError, type RigRegistrar } from '@factoru/gas-city'
-import { RepositoryError, type RepositoryService } from './repositories.js'
+import { RepositoryError, type RepositoryService, type ResolvedRepository } from './repositories.js'
 
 export class ApplicationError extends Error {
   constructor(
@@ -68,6 +68,30 @@ export class ProjectService {
             ? { code: record.rig.lastErrorCode, message: record.rig.lastErrorMessage }
             : null,
       },
+      repositories: record.repositories.map((repository) => ({
+        id: repository.id,
+        isPrimary: repository.isPrimary,
+        sourceUrl: repository.sourceUrl,
+        repository: {
+          rootId: repository.repositoryRootId,
+          relativePath: repository.repositoryRelativePath,
+          label: this.repositories.rootLabel(repository.repositoryRootId),
+        },
+        defaultBranch: repository.defaultBranch,
+        rig: {
+          rigName: repository.rig.rigName,
+          beadPrefix: repository.rig.beadPrefix,
+          registrationState: repository.rig.registrationState,
+          lastReconciledAt: repository.rig.lastReconciledAt,
+          error:
+            repository.rig.lastErrorCode && repository.rig.lastErrorMessage
+              ? {
+                  code: repository.rig.lastErrorCode,
+                  message: repository.rig.lastErrorMessage,
+                }
+              : null,
+        },
+      })),
     }
   }
 
@@ -85,12 +109,9 @@ export class ProjectService {
     device: TrustedDevice,
     commandId: string,
     params: {
-      rootId: string
-      relativePath: string
       name: string
       description?: string
-      defaultBranch: string
-      fingerprint: string
+      repositories: ProjectRepositoryInput[]
     },
   ): Promise<Project> {
     const requestHash = createHash('sha256').update(JSON.stringify(params)).digest('hex')
@@ -106,32 +127,91 @@ export class ProjectService {
       }
       throw error
     }
-    const { preview, repository } = await this.repositories.preview(
-      params.rootId,
-      params.relativePath,
-      params.defaultBranch,
-    )
-    if (preview.fingerprint !== params.fingerprint) {
-      throw new ApplicationError('preview_stale', 'Repository state changed; preview it again')
-    }
-    if (!preview.safe) {
-      throw new ApplicationError(
-        'repository_index_dirty',
-        preview.blockedReason ?? 'Repository index is not clean',
+    const prepared: Array<{
+      repository: ResolvedRepository
+      sourceUrl: string | null
+      defaultBranch: string
+    }> = []
+    for (const source of params.repositories) {
+      if (source.kind === 'remote') {
+        const planned = this.repositories.planClone(source.url, source.rootId)
+        if (
+          prepared.some(
+            (candidate) => candidate.repository.realPath === planned.repository.realPath,
+          )
+        ) {
+          throw new ApplicationError(
+            'duplicate_project_repository',
+            'Each repository can be added to a project only once',
+          )
+        }
+        const duplicate = this.database.findProjectByRepository(planned.repository.realPath)
+        if (duplicate) {
+          throw new ApplicationError(
+            'project_already_exists',
+            'This repository already belongs to a project',
+            { projectId: duplicate.id },
+          )
+        }
+        prepared.push({
+          repository: planned.repository,
+          sourceUrl: planned.sourceUrl,
+          defaultBranch: 'HEAD',
+        })
+        continue
+      }
+      const { preview, repository } = await this.repositories.preview(
+        source.rootId,
+        source.relativePath,
+        source.defaultBranch,
       )
-    }
-    const duplicate = this.database.findProjectByRepository(repository.realPath)
-    if (duplicate) {
-      throw new ApplicationError(
-        'project_already_exists',
-        'This repository already belongs to a project',
-        {
-          projectId: duplicate.id,
-        },
-      )
+      if (preview.fingerprint !== source.fingerprint) {
+        throw new ApplicationError('preview_stale', 'Repository state changed; preview it again')
+      }
+      if (!preview.safe) {
+        throw new ApplicationError(
+          'repository_index_dirty',
+          preview.blockedReason ?? 'Repository index is not clean',
+        )
+      }
+      if (prepared.some((candidate) => candidate.repository.realPath === repository.realPath)) {
+        throw new ApplicationError(
+          'duplicate_project_repository',
+          'Each repository can be added to a project only once',
+        )
+      }
+      const duplicate = this.database.findProjectByRepository(repository.realPath)
+      if (duplicate) {
+        throw new ApplicationError(
+          'project_already_exists',
+          'This repository already belongs to a project',
+          { projectId: duplicate.id },
+        )
+      }
+      prepared.push({
+        repository,
+        sourceUrl: null,
+        defaultBranch: preview.defaultBranch,
+      })
     }
     const projectId = `prj_${randomUUID().replaceAll('-', '')}`
     const short = projectId.slice(4, 16)
+    const repositoryInputs = prepared.map((candidate, index) => {
+      const discriminator = index === 0 ? '' : `-${index + 1}`
+      return {
+        id: `repo_${randomUUID().replaceAll('-', '')}`,
+        isPrimary: index === 0,
+        sourceUrl: candidate.sourceUrl ?? undefined,
+        repositoryRootId: candidate.repository.root.id,
+        repositoryRelativePath: candidate.repository.relativePath,
+        repositoryRealPath: candidate.repository.realPath,
+        defaultBranch: candidate.defaultBranch,
+        cityName: this.#cityName,
+        rigName: `factoru-${short}${discriminator}`,
+        beadPrefix: `f${short.slice(0, 6)}${index.toString(36)}`,
+      }
+    })
+    const primary = repositoryInputs[0]!
     try {
       return this.publicProject(
         this.database.createProject({
@@ -141,13 +221,14 @@ export class ProjectService {
           projectId,
           name: params.name,
           description: params.description,
-          repositoryRootId: repository.root.id,
-          repositoryRelativePath: repository.relativePath,
-          repositoryRealPath: repository.realPath,
-          defaultBranch: params.defaultBranch,
+          repositoryRootId: primary.repositoryRootId,
+          repositoryRelativePath: primary.repositoryRelativePath,
+          repositoryRealPath: primary.repositoryRealPath,
+          defaultBranch: primary.defaultBranch,
           cityName: this.#cityName,
-          rigName: `factoru-${short}`,
-          beadPrefix: `f${short.slice(0, 7)}`,
+          rigName: primary.rigName,
+          beadPrefix: primary.beadPrefix,
+          repositories: repositoryInputs,
         }),
       )
     } catch (error) {
@@ -163,7 +244,9 @@ export class ProjectService {
         'code' in error &&
         error.code === 'SQLITE_CONSTRAINT_UNIQUE'
       ) {
-        const existing = this.database.findProjectByRepository(repository.realPath)
+        const existing = prepared
+          .map((candidate) => this.database.findProjectByRepository(candidate.repository.realPath))
+          .find((candidate) => candidate !== null)
         throw new ApplicationError(
           'project_already_exists',
           'This repository already belongs to a project',
@@ -225,15 +308,46 @@ export class ProjectService {
     for (const item of this.database.claimDueOutbox()) {
       const project = this.database.getProject(item.projectId)
       if (!project) continue
+      let repository = item.repositoryId
+        ? project.repositories.find((candidate) => candidate.id === item.repositoryId)
+        : project.repositories.find((candidate) => candidate.isPrimary)
+      if (!repository) continue
       try {
+        if (repository.sourceUrl) {
+          const repositoryId = repository.id
+          const imported = await this.repositories.clone(
+            repository.sourceUrl,
+            repository.repositoryRootId,
+          )
+          const { preview } = await this.repositories.preview(
+            imported.repository.root.id,
+            imported.repository.relativePath,
+          )
+          if (!preview.safe) {
+            throw new RepositoryError(
+              'repository_index_dirty',
+              preview.blockedReason ?? 'Cloned repository index is not clean',
+            )
+          }
+          const materialized = this.database.materializeProjectRepository(
+            project.id,
+            repositoryId,
+            preview.defaultBranch,
+          )
+          repository = materialized.repositories.find((candidate) => candidate.id === repositoryId)!
+        }
         await this.#registrar.register({
           cityPath: this.#cityPath,
-          repositoryPath: project.repositoryRealPath,
-          rigName: project.rig.rigName,
-          beadPrefix: project.rig.beadPrefix,
-          defaultBranch: project.defaultBranch,
+          repositoryPath: repository.repositoryRealPath,
+          rigName: repository.rig.rigName,
+          beadPrefix: repository.rig.beadPrefix,
+          defaultBranch: repository.defaultBranch,
         })
-        changed.push(this.publicProject(this.database.completeProvisioning(item.id, project.id)))
+        changed.push(
+          this.publicProject(
+            this.database.completeProvisioning(item.id, project.id, repository.id),
+          ),
+        )
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         changed.push(
@@ -244,6 +358,7 @@ export class ProjectService {
               error instanceof GasCityError && !error.retryable ? 6 : item.attemptCount,
               error instanceof RepositoryError ? error.code : 'gas_city_registration_failed',
               message,
+              repository.id,
             ),
           ),
         )

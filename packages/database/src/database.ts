@@ -42,6 +42,19 @@ export interface ProjectRecord {
   createdAt: string
   updatedAt: string
   rig: RigBindingRecord
+  repositories: ProjectRepositoryRecord[]
+}
+
+export interface ProjectRepositoryRecord {
+  id: string
+  projectId: string
+  isPrimary: boolean
+  sourceUrl: string | null
+  repositoryRootId: string
+  repositoryRelativePath: string
+  repositoryRealPath: string
+  defaultBranch: string
+  rig: RigBindingRecord
 }
 
 export interface RigBindingRecord {
@@ -84,6 +97,20 @@ export interface CreateProjectInput {
   cityName: string
   rigName: string
   beadPrefix: string
+  repositories?: CreateProjectRepositoryInput[]
+}
+
+export interface CreateProjectRepositoryInput {
+  id: string
+  isPrimary: boolean
+  sourceUrl?: string
+  repositoryRootId: string
+  repositoryRelativePath: string
+  repositoryRealPath: string
+  defaultBranch: string
+  cityName: string
+  rigName: string
+  beadPrefix: string
 }
 
 interface DeviceRow {
@@ -110,6 +137,24 @@ interface ProjectRow {
   version: number
   created_at: string
   updated_at: string
+  city_name: string
+  rig_name: string
+  bead_prefix: string
+  registration_state: RigBindingRecord['registrationState']
+  last_reconciled_at: string | null
+  last_error_code: string | null
+  last_error_message: string | null
+}
+
+interface ProjectRepositoryRow {
+  id: string
+  project_id: string
+  is_primary: number
+  source_url: string | null
+  repository_root_id: string
+  repository_relative_path: string
+  repository_real_path: string
+  default_branch: string
   city_name: string
   rig_name: string
   bead_prefix: string
@@ -150,7 +195,29 @@ function deviceFromRow(row: DeviceRow): TrustedDevice {
   }
 }
 
-function projectFromRow(row: ProjectRow): ProjectRecord {
+function repositoryFromRow(row: ProjectRepositoryRow): ProjectRepositoryRecord {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    isPrimary: row.is_primary === 1,
+    sourceUrl: row.source_url,
+    repositoryRootId: row.repository_root_id,
+    repositoryRelativePath: row.repository_relative_path,
+    repositoryRealPath: row.repository_real_path,
+    defaultBranch: row.default_branch,
+    rig: {
+      cityName: row.city_name,
+      rigName: row.rig_name,
+      beadPrefix: row.bead_prefix,
+      registrationState: row.registration_state,
+      lastReconciledAt: row.last_reconciled_at,
+      lastErrorCode: row.last_error_code,
+      lastErrorMessage: row.last_error_message,
+    },
+  }
+}
+
+function projectFromRow(row: ProjectRow, repositories: ProjectRepositoryRecord[]): ProjectRecord {
   return {
     id: row.id,
     name: row.name,
@@ -174,6 +241,7 @@ function projectFromRow(row: ProjectRow): ProjectRecord {
       lastErrorCode: row.last_error_code,
       lastErrorMessage: row.last_error_message,
     },
+    repositories,
   }
 }
 
@@ -338,20 +406,60 @@ export class FactoruDatabase {
   listProjects(): ProjectRecord[] {
     return (
       this.connection.prepare(`${PROJECT_SELECT} ORDER BY p.created_at`).all() as ProjectRow[]
-    ).map(projectFromRow)
+    ).map((row) => projectFromRow(row, this.#repositoriesFor(row.id)))
   }
 
   getProject(id: string): ProjectRecord | null {
     const row = this.connection.prepare(`${PROJECT_SELECT} WHERE p.id = ?`).get(id) as
       ProjectRow | undefined
-    return row ? projectFromRow(row) : null
+    return row ? projectFromRow(row, this.#repositoriesFor(row.id)) : null
   }
 
   findProjectByRepository(realPath: string): ProjectRecord | null {
     const row = this.connection
-      .prepare(`${PROJECT_SELECT} WHERE p.repository_real_path = ?`)
+      .prepare(
+        `${PROJECT_SELECT} WHERE p.id = (
+           SELECT project_id FROM project_repositories WHERE repository_real_path = ?
+         )`,
+      )
       .get(realPath) as ProjectRow | undefined
-    return row ? projectFromRow(row) : null
+    return row ? projectFromRow(row, this.#repositoriesFor(row.id)) : null
+  }
+
+  materializeProjectRepository(
+    projectId: string,
+    repositoryId: string,
+    defaultBranch: string,
+  ): ProjectRecord {
+    return this.connection.transaction(() => {
+      const current = this.getProject(projectId)
+      const repository = current?.repositories.find((candidate) => candidate.id === repositoryId)
+      if (!current || !repository) throw new Error('repository_not_found')
+      const now = this.#now().toISOString()
+      this.connection
+        .prepare(
+          `UPDATE project_repositories SET default_branch = ?, updated_at = ?
+           WHERE id = ? AND project_id = ?`,
+        )
+        .run(defaultBranch, now, repositoryId, projectId)
+      if (repository.isPrimary) {
+        this.connection
+          .prepare('UPDATE projects SET default_branch = ?, updated_at = ? WHERE id = ?')
+          .run(defaultBranch, now, projectId)
+      }
+      return this.getProject(projectId)!
+    })()
+  }
+
+  #repositoriesFor(projectId: string): ProjectRepositoryRecord[] {
+    return (
+      this.connection
+        .prepare(
+          `SELECT * FROM project_repositories WHERE project_id = ?
+           ORDER BY is_primary DESC, created_at, id`,
+        )
+        .all(projectId) as ProjectRepositoryRow[]
+    ).map(repositoryFromRow)
   }
 
   replayProjectCommand(
@@ -367,7 +475,8 @@ export class FactoruDatabase {
     if (!receipt) return null
     if (receipt.method !== method || receipt.request_hash !== requestHash)
       throw new Error('command_id_conflict')
-    return JSON.parse(receipt.response_json) as ProjectRecord
+    const recorded = JSON.parse(receipt.response_json) as ProjectRecord
+    return this.getProject(recorded.id) ?? recorded
   }
 
   replayCommand<T>(commandId: string, method: string, request: unknown): T | undefined {
@@ -433,6 +542,26 @@ export class FactoruDatabase {
 
     return this.connection.transaction(() => {
       const now = this.#now().toISOString()
+      const repositories = input.repositories ?? [
+        {
+          id: `repo_${input.projectId.slice(4)}`,
+          isPrimary: true,
+          repositoryRootId: input.repositoryRootId,
+          repositoryRelativePath: input.repositoryRelativePath,
+          repositoryRealPath: input.repositoryRealPath,
+          defaultBranch: input.defaultBranch,
+          cityName: input.cityName,
+          rigName: input.rigName,
+          beadPrefix: input.beadPrefix,
+        },
+      ]
+      if (
+        repositories.length === 0 ||
+        !repositories[0]?.isPrimary ||
+        repositories.filter((repository) => repository.isPrimary).length !== 1
+      ) {
+        throw new Error('invalid_project_repositories')
+      }
       this.connection
         .prepare(
           `INSERT INTO projects(
@@ -458,28 +587,53 @@ export class FactoruDatabase {
            ) VALUES (?, ?, ?, ?, 'pending')`,
         )
         .run(input.projectId, input.cityName, input.rigName, input.beadPrefix)
+      const insertRepository = this.connection.prepare(
+        `INSERT INTO project_repositories(
+           id, project_id, is_primary, source_url, repository_root_id,
+           repository_relative_path, repository_real_path, default_branch,
+           city_name, rig_name, bead_prefix, registration_state, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      )
+      for (const repository of repositories) {
+        insertRepository.run(
+          repository.id,
+          input.projectId,
+          repository.isPrimary ? 1 : 0,
+          repository.sourceUrl ?? null,
+          repository.repositoryRootId,
+          repository.repositoryRelativePath,
+          repository.repositoryRealPath,
+          repository.defaultBranch,
+          repository.cityName,
+          repository.rigName,
+          repository.beadPrefix,
+          now,
+          now,
+        )
+      }
       initializeProjectProductModel(this.connection, input.projectId, now)
       const event = this.#appendEvent(
         'project.created',
         input.projectId,
         1,
-        { setupState: 'setting_up' },
+        { setupState: 'setting_up', repositoryCount: repositories.length },
         input.commandId,
       )
-      this.connection
-        .prepare(
-          `INSERT INTO outbox_items(
-             id, kind, aggregate_id, payload_json, status, available_at, created_at, updated_at
-           ) VALUES (?, 'project.provision_rig', ?, ?, 'pending', ?, ?, ?)`,
-        )
-        .run(
+      const insertOutbox = this.connection.prepare(
+        `INSERT INTO outbox_items(
+           id, kind, aggregate_id, payload_json, status, available_at, created_at, updated_at
+         ) VALUES (?, 'project.provision_rig', ?, ?, 'pending', ?, ?, ?)`,
+      )
+      for (const repository of repositories) {
+        insertOutbox.run(
           randomUUID(),
           input.projectId,
-          JSON.stringify({ projectId: input.projectId }),
+          JSON.stringify({ projectId: input.projectId, repositoryId: repository.id }),
           now,
           now,
           now,
         )
+      }
       const project = this.getProject(input.projectId)!
       this.connection
         .prepare(
@@ -502,6 +656,9 @@ export class FactoruDatabase {
       if (!current) throw new Error('not_found')
       if (current.setupState !== 'needs_attention') throw new Error('invalid_project_state')
       const now = this.#now().toISOString()
+      const failedRepositories = current.repositories.filter(
+        (repository) => repository.rig.registrationState === 'failed',
+      )
       this.connection
         .prepare(
           `UPDATE projects SET setup_state = 'setting_up', setup_error_code = NULL,
@@ -510,17 +667,34 @@ export class FactoruDatabase {
         .run(now, projectId)
       this.connection
         .prepare(
-          `UPDATE project_rig_bindings SET registration_state = 'pending',
-             last_error_code = NULL, last_error_message = NULL WHERE project_id = ?`,
+          `UPDATE project_repositories SET registration_state = 'pending',
+             last_error_code = NULL, last_error_message = NULL, updated_at = ?
+           WHERE project_id = ? AND registration_state = 'failed'`,
         )
-        .run(projectId)
-      this.connection
-        .prepare(
-          `INSERT INTO outbox_items(
-             id, kind, aggregate_id, payload_json, status, available_at, created_at, updated_at
-           ) VALUES (?, 'project.provision_rig', ?, ?, 'pending', ?, ?, ?)`,
+        .run(now, projectId)
+      if (failedRepositories.some((repository) => repository.isPrimary)) {
+        this.connection
+          .prepare(
+            `UPDATE project_rig_bindings SET registration_state = 'pending',
+               last_error_code = NULL, last_error_message = NULL WHERE project_id = ?`,
+          )
+          .run(projectId)
+      }
+      const insertOutbox = this.connection.prepare(
+        `INSERT INTO outbox_items(
+           id, kind, aggregate_id, payload_json, status, available_at, created_at, updated_at
+         ) VALUES (?, 'project.provision_rig', ?, ?, 'pending', ?, ?, ?)`,
+      )
+      for (const repository of failedRepositories) {
+        insertOutbox.run(
+          randomUUID(),
+          projectId,
+          JSON.stringify({ projectId, repositoryId: repository.id }),
+          now,
+          now,
+          now,
         )
-        .run(randomUUID(), projectId, JSON.stringify({ projectId }), now, now, now)
+      }
       const project = this.getProject(projectId)!
       this.#appendEvent('project.setup_retried', projectId, project.version, {}, commandId)
       this.connection
@@ -544,12 +718,14 @@ export class FactoruDatabase {
       .run(this.#now().toISOString()).changes
   }
 
-  claimDueOutbox(limit = 10): Array<{ id: string; projectId: string; attemptCount: number }> {
+  claimDueOutbox(
+    limit = 10,
+  ): Array<{ id: string; projectId: string; repositoryId: string | null; attemptCount: number }> {
     return this.connection.transaction(() => {
       const now = this.#now()
       const rows = this.connection
         .prepare(
-          `SELECT id, aggregate_id, attempt_count FROM outbox_items
+          `SELECT id, aggregate_id, payload_json, attempt_count FROM outbox_items
            WHERE kind = 'project.provision_rig'
              AND status IN ('pending', 'processing') AND available_at <= ?
              AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
@@ -558,6 +734,7 @@ export class FactoruDatabase {
         .all(now.toISOString(), now.toISOString(), limit) as Array<{
         id: string
         aggregate_id: string
+        payload_json: string
         attempt_count: number
       }>
       const lease = new Date(now.getTime() + 30_000).toISOString()
@@ -569,37 +746,89 @@ export class FactoruDatabase {
           )
           .run(lease, now.toISOString(), row.id)
       }
-      return rows.map((row) => ({
-        id: row.id,
-        projectId: row.aggregate_id,
-        attemptCount: row.attempt_count + 1,
-      }))
+      return rows.map((row) => {
+        const payload = JSON.parse(row.payload_json) as { repositoryId?: string }
+        return {
+          id: row.id,
+          projectId: row.aggregate_id,
+          repositoryId: payload.repositoryId ?? null,
+          attemptCount: row.attempt_count + 1,
+        }
+      })
     })()
   }
 
-  completeProvisioning(outboxId: string, projectId: string): ProjectRecord {
+  completeProvisioning(
+    outboxId: string,
+    projectId: string,
+    repositoryId?: string | null,
+  ): ProjectRecord {
     return this.connection.transaction(() => {
       const now = this.#now().toISOString()
+      const current = this.getProject(projectId)
+      if (!current) throw new Error('not_found')
+      const repository = repositoryId
+        ? current.repositories.find((candidate) => candidate.id === repositoryId)
+        : current.repositories.find((candidate) => candidate.isPrimary)
+      if (!repository) throw new Error('repository_not_found')
       this.connection
         .prepare(
-          `UPDATE projects SET setup_state = 'ready', setup_error_code = NULL,
-             setup_error_message = NULL, version = version + 1, updated_at = ? WHERE id = ?`,
+          `UPDATE project_repositories SET registration_state = 'ready',
+             last_reconciled_at = ?, last_error_code = NULL, last_error_message = NULL,
+             updated_at = ? WHERE id = ? AND project_id = ?`,
         )
-        .run(now, projectId)
-      this.connection
-        .prepare(
-          `UPDATE project_rig_bindings SET registration_state = 'ready',
-             last_reconciled_at = ?, last_error_code = NULL, last_error_message = NULL
-           WHERE project_id = ?`,
-        )
-        .run(now, projectId)
+        .run(now, now, repository.id, projectId)
+      if (repository.isPrimary) {
+        this.connection
+          .prepare(
+            `UPDATE project_rig_bindings SET registration_state = 'ready',
+               last_reconciled_at = ?, last_error_code = NULL, last_error_message = NULL
+             WHERE project_id = ?`,
+          )
+          .run(now, projectId)
+      }
       this.connection
         .prepare(
           "UPDATE outbox_items SET status = 'completed', lease_expires_at = NULL, updated_at = ? WHERE id = ?",
         )
         .run(now, outboxId)
+      const repositoryStates = this.connection
+        .prepare(
+          `SELECT
+             SUM(CASE WHEN registration_state = 'pending' THEN 1 ELSE 0 END) AS pending,
+             SUM(CASE WHEN registration_state = 'failed' THEN 1 ELSE 0 END) AS failed
+           FROM project_repositories WHERE project_id = ?`,
+        )
+        .get(projectId) as { pending: number; failed: number }
+      const setupState =
+        repositoryStates.failed > 0
+          ? 'needs_attention'
+          : repositoryStates.pending > 0
+            ? 'setting_up'
+            : 'ready'
+      if (setupState === 'needs_attention') {
+        this.connection
+          .prepare(
+            `UPDATE projects SET setup_state = 'needs_attention', version = version + 1,
+               updated_at = ? WHERE id = ?`,
+          )
+          .run(now, projectId)
+      } else {
+        this.connection
+          .prepare(
+            `UPDATE projects SET setup_state = ?, setup_error_code = NULL,
+               setup_error_message = NULL, version = version + 1, updated_at = ? WHERE id = ?`,
+          )
+          .run(setupState, now, projectId)
+      }
       const project = this.getProject(projectId)!
-      this.#appendEvent('project.setup_succeeded', projectId, project.version, {}, null)
+      this.#appendEvent(
+        setupState === 'ready' ? 'project.setup_succeeded' : 'project.repository_setup_succeeded',
+        projectId,
+        project.version,
+        { repositoryId: repository.id },
+        null,
+      )
       return project
     })()
   }
@@ -610,6 +839,7 @@ export class FactoruDatabase {
     attemptCount: number,
     code: string,
     message: string,
+    repositoryId?: string | null,
   ): ProjectRecord {
     return this.connection.transaction(() => {
       const now = this.#now()
@@ -624,6 +854,12 @@ export class FactoruDatabase {
           .run(available, message, now.toISOString(), outboxId)
         return this.getProject(projectId)!
       }
+      const current = this.getProject(projectId)
+      if (!current) throw new Error('not_found')
+      const repository = repositoryId
+        ? current.repositories.find((candidate) => candidate.id === repositoryId)
+        : current.repositories.find((candidate) => candidate.isPrimary)
+      if (!repository) throw new Error('repository_not_found')
       this.connection
         .prepare(
           `UPDATE projects SET setup_state = 'needs_attention', setup_error_code = ?,
@@ -632,10 +868,19 @@ export class FactoruDatabase {
         .run(code, message, now.toISOString(), projectId)
       this.connection
         .prepare(
-          `UPDATE project_rig_bindings SET registration_state = 'failed', last_reconciled_at = ?,
-             last_error_code = ?, last_error_message = ? WHERE project_id = ?`,
+          `UPDATE project_repositories SET registration_state = 'failed', last_reconciled_at = ?,
+             last_error_code = ?, last_error_message = ?, updated_at = ?
+           WHERE id = ? AND project_id = ?`,
         )
-        .run(now.toISOString(), code, message, projectId)
+        .run(now.toISOString(), code, message, now.toISOString(), repository.id, projectId)
+      if (repository.isPrimary) {
+        this.connection
+          .prepare(
+            `UPDATE project_rig_bindings SET registration_state = 'failed', last_reconciled_at = ?,
+               last_error_code = ?, last_error_message = ? WHERE project_id = ?`,
+          )
+          .run(now.toISOString(), code, message, projectId)
+      }
       this.connection
         .prepare(
           `UPDATE outbox_items SET status = 'failed', lease_expires_at = NULL,
@@ -643,7 +888,13 @@ export class FactoruDatabase {
         )
         .run(message, now.toISOString(), outboxId)
       const project = this.getProject(projectId)!
-      this.#appendEvent('project.setup_failed', projectId, project.version, { code, message }, null)
+      this.#appendEvent(
+        'project.setup_failed',
+        projectId,
+        project.version,
+        { code, message, repositoryId: repository.id },
+        null,
+      )
       return project
     })()
   }

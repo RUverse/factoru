@@ -4,6 +4,9 @@ import type { ProductSnapshot } from '../../shared/product'
 
 type Root = { id: string; label: string }
 type Entry = { name: string; relativePath: string; kind: 'directory' | 'repository' }
+type RepositoryDraft =
+  | { id: string; kind: 'local'; preview: ProjectPreview }
+  | { id: string; kind: 'remote'; rootId: string; url: string }
 
 const taskColumns = [
   ['backlog', 'Backlog'],
@@ -30,6 +33,11 @@ export function App() {
   const [directory, setDirectory] = useState('')
   const [entries, setEntries] = useState<Entry[]>([])
   const [preview, setPreview] = useState<ProjectPreview | null>(null)
+  const [projectName, setProjectName] = useState('')
+  const [projectDescription, setProjectDescription] = useState('')
+  const [repositoryUrl, setRepositoryUrl] = useState('')
+  const [repositoryDrafts, setRepositoryDrafts] = useState<RepositoryDraft[]>([])
+  const [showServerBrowser, setShowServerBrowser] = useState(false)
   const [devices, setDevices] = useState<TrustedDevice[]>([])
 
   useEffect(() => {
@@ -98,6 +106,12 @@ export function App() {
     setRootId(first)
     setDirectory('')
     setEntries(first ? ((await run(() => window.factoru.product.browse(first, ''))) ?? []) : [])
+    setProjectName('')
+    setProjectDescription('')
+    setRepositoryUrl('')
+    setRepositoryDrafts([])
+    setPreview(null)
+    setShowServerBrowser(false)
     setShowProjectSetup(true)
   }
 
@@ -108,23 +122,84 @@ export function App() {
     setEntries((await run(() => window.factoru.product.browse(nextRoot, nextDirectory))) ?? [])
   }
 
+  const addPreview = (value: ProjectPreview) => {
+    if (!value.safe) {
+      setPreview(value)
+      return
+    }
+    setRepositoryDrafts((current) => {
+      if (
+        current.some(
+          (draft) =>
+            draft.kind === 'local' &&
+            draft.preview.rootId === value.rootId &&
+            draft.preview.relativePath === value.relativePath,
+        )
+      ) {
+        return current
+      }
+      return [
+        ...current,
+        { id: `local:${value.rootId}:${value.relativePath}`, kind: 'local', preview: value },
+      ]
+    })
+    setProjectName((current) => current || value.suggestedName)
+    setPreview(null)
+  }
+
+  const chooseRepositoryFolder = () => {
+    void run(() => window.factoru.product.chooseRepositoryFolder()).then((value) => {
+      if (value) addPreview(value)
+    })
+  }
+
+  const addRepositoryUrl = () => {
+    const url = repositoryUrl.trim()
+    if (!url || !rootId) return
+    setRepositoryDrafts((current) =>
+      current.some((draft) => draft.kind === 'remote' && draft.url === url)
+        ? current
+        : [...current, { id: `remote:${url}`, kind: 'remote', rootId, url }],
+    )
+    if (!projectName) {
+      const suggested =
+        url
+          .split('/')
+          .at(-1)
+          ?.replace(/\.git$/, '') ?? ''
+      setProjectName(suggested)
+    }
+    setRepositoryUrl('')
+  }
+
   const createProject = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!preview) return
-    const data = new FormData(event.currentTarget)
+    if (repositoryDrafts.length === 0) return
     void run(() =>
       window.factoru.product.create({
-        rootId: preview.rootId,
-        relativePath: preview.relativePath,
-        name: String(data.get('name')),
-        description: String(data.get('description') || '') || undefined,
-        defaultBranch: String(data.get('branch')),
-        fingerprint: preview.fingerprint,
+        name: projectName.trim(),
+        description: projectDescription.trim() || undefined,
+        repositories: repositoryDrafts.map((draft) =>
+          draft.kind === 'local'
+            ? {
+                kind: 'local' as const,
+                rootId: draft.preview.rootId,
+                relativePath: draft.preview.relativePath,
+                defaultBranch: draft.preview.defaultBranch,
+                fingerprint: draft.preview.fingerprint,
+              }
+            : {
+                kind: 'remote' as const,
+                rootId: draft.rootId,
+                url: draft.url,
+              },
+        ),
       }),
     ).then((created) => {
       if (created) {
         setShowProjectSetup(false)
         setPreview(null)
+        setRepositoryDrafts([])
       }
     })
   }
@@ -371,7 +446,7 @@ export function App() {
   }
 
   return (
-    <main className="workspace-shell">
+    <main className={`workspace-shell ${showProjectSetup ? 'project-setup-open' : ''}`}>
       <aside className="sidebar">
         <header className="sidebar-brand">
           <span className="brand-mark small" aria-hidden="true">
@@ -402,7 +477,7 @@ export function App() {
         </div>
         <nav className="project-nav" aria-label="Projects">
           {snapshot.projects.length === 0 ? (
-            <p className="empty-sidebar">Add a server-local repository to begin.</p>
+            <p className="empty-sidebar">Create a project and add its repositories to begin.</p>
           ) : (
             snapshot.projects.map((project) => (
               <button
@@ -417,7 +492,10 @@ export function App() {
                 <span className="project-glyph">{project.name.slice(0, 1).toUpperCase()}</span>
                 <span>
                   <strong>{project.name}</strong>
-                  <small>{statusLabel(project.setupState)}</small>
+                  <small>
+                    {statusLabel(project.setupState)} · {project.repositories.length}{' '}
+                    {project.repositories.length === 1 ? 'rig' : 'rigs'}
+                  </small>
                 </span>
               </button>
             ))
@@ -481,74 +559,218 @@ export function App() {
             <header>
               <div>
                 <p className="eyebrow">New project</p>
-                <h2>Choose an approved repository</h2>
+                <h2>Create a project</h2>
+                <p className="setup-intro">
+                  Name the work, then add one or more Git repositories. The first repository is the
+                  primary execution rig.
+                </p>
               </div>
               <button onClick={() => setShowProjectSetup(false)}>Close</button>
             </header>
-            <div className="browser-toolbar">
-              <select value={rootId} onChange={(event) => void browse(event.target.value, '')}>
-                {roots.map((root) => (
-                  <option key={root.id} value={root.id}>
-                    {root.label}
-                  </option>
-                ))}
-              </select>
-              {directory && (
-                <button
-                  onClick={() => void browse(rootId, directory.split('/').slice(0, -1).join('/'))}
-                >
-                  Up
-                </button>
-              )}
-              <code>/{directory}</code>
-            </div>
-            <ul className="repository-list">
-              {entries.map((entry) => (
-                <li key={`${entry.kind}:${entry.relativePath}`}>
-                  <button
-                    onClick={() =>
-                      entry.kind === 'directory'
-                        ? void browse(rootId, entry.relativePath)
-                        : void run(() =>
-                            window.factoru.product.preview(rootId, entry.relativePath),
-                          ).then((value) => value && setPreview(value))
-                    }
-                  >
-                    <span>{entry.kind === 'directory' ? 'Folder' : 'Git'}</span>
-                    {entry.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {preview && (
-              <form className="form-grid" onSubmit={createProject}>
-                {!preview.safe && <p className="error">{preview.blockedReason}</p>}
+            <form className="project-create-form" onSubmit={createProject}>
+              <div className="project-basics">
                 <label>
                   Project name
-                  <input name="name" required defaultValue={preview.suggestedName} />
+                  <input
+                    autoFocus
+                    required
+                    value={projectName}
+                    onChange={(event) => setProjectName(event.target.value)}
+                    placeholder="My product"
+                  />
                 </label>
                 <label>
-                  Description
-                  <input name="description" />
+                  Description <span className="optional">Optional</span>
+                  <input
+                    value={projectDescription}
+                    onChange={(event) => setProjectDescription(event.target.value)}
+                    placeholder="What are these repositories building together?"
+                  />
                 </label>
-                <label>
-                  Default branch
-                  <select name="branch" defaultValue={preview.defaultBranch}>
-                    {preview.branches.map((branch) => (
-                      <option key={branch}>{branch}</option>
+              </div>
+
+              <div className="repository-picker-card">
+                <div className="repository-picker-heading">
+                  <div>
+                    <strong>Repositories</strong>
+                    <p>Add a Git URL or choose a repository already on this Mac.</p>
+                  </div>
+                  <span className="repository-count">{repositoryDrafts.length}</span>
+                </div>
+
+                <div className="url-add-row">
+                  <input
+                    type="url"
+                    value={repositoryUrl}
+                    onChange={(event) => setRepositoryUrl(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && repositoryUrl.trim()) {
+                        event.preventDefault()
+                        addRepositoryUrl()
+                      }
+                    }}
+                    placeholder="https://github.com/organization/repository.git"
+                    aria-label="Git repository URL"
+                  />
+                  <select
+                    value={rootId}
+                    onChange={(event) => void browse(event.target.value, '')}
+                    aria-label="Clone destination"
+                  >
+                    {roots.map((root) => (
+                      <option key={root.id} value={root.id}>
+                        {root.label}
+                      </option>
                     ))}
                   </select>
-                </label>
-                <button className="primary" disabled={!preview.safe || busy}>
-                  Create project
+                  <button
+                    type="button"
+                    onClick={addRepositoryUrl}
+                    disabled={!repositoryUrl.trim() || !rootId}
+                  >
+                    Add URL
+                  </button>
+                </div>
+
+                <div className="picker-divider">
+                  <span>or</span>
+                </div>
+
+                <button
+                  className="native-picker-button"
+                  type="button"
+                  onClick={chooseRepositoryFolder}
+                  disabled={busy}
+                >
+                  <span className="folder-icon" aria-hidden="true">
+                    ⌘
+                  </span>
+                  <span>
+                    <strong>Choose repository folder…</strong>
+                    <small>Opens the native folder picker</small>
+                  </span>
                 </button>
-              </form>
-            )}
+
+                <button
+                  className="server-browser-toggle"
+                  type="button"
+                  onClick={() => setShowServerBrowser((current) => !current)}
+                >
+                  {showServerBrowser ? 'Hide server browser' : 'Browse approved server folders'}
+                </button>
+
+                {showServerBrowser && (
+                  <div className="server-browser">
+                    <div className="browser-toolbar">
+                      <select
+                        value={rootId}
+                        onChange={(event) => void browse(event.target.value, '')}
+                      >
+                        {roots.map((root) => (
+                          <option key={root.id} value={root.id}>
+                            {root.label}
+                          </option>
+                        ))}
+                      </select>
+                      {directory && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void browse(rootId, directory.split('/').slice(0, -1).join('/'))
+                          }
+                        >
+                          Up
+                        </button>
+                      )}
+                      <code>/{directory}</code>
+                    </div>
+                    <ul className="repository-list">
+                      {entries.map((entry) => (
+                        <li key={`${entry.kind}:${entry.relativePath}`}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              entry.kind === 'directory'
+                                ? void browse(rootId, entry.relativePath)
+                                : void run(() =>
+                                    window.factoru.product.preview(rootId, entry.relativePath),
+                                  ).then((value) => value && addPreview(value))
+                            }
+                          >
+                            <span>{entry.kind === 'directory' ? 'Folder' : 'Git'}</span>
+                            {entry.name}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {preview && !preview.safe && (
+                  <p className="error repository-error">{preview.blockedReason}</p>
+                )}
+              </div>
+
+              {repositoryDrafts.length > 0 && (
+                <ol className="selected-repositories">
+                  {repositoryDrafts.map((draft, index) => (
+                    <li key={draft.id}>
+                      <span className="repository-order">{index + 1}</span>
+                      <span className="repository-source-icon" aria-hidden="true">
+                        {draft.kind === 'local' ? '⌘' : '↗'}
+                      </span>
+                      <span className="repository-summary">
+                        <strong>
+                          {draft.kind === 'local'
+                            ? draft.preview.suggestedName
+                            : draft.url
+                                .split('/')
+                                .at(-1)
+                                ?.replace(/\.git$/, '') || draft.url}
+                        </strong>
+                        <small>
+                          {draft.kind === 'local'
+                            ? `${draft.preview.relativePath || '/'} · ${draft.preview.defaultBranch}`
+                            : draft.url}
+                        </small>
+                      </span>
+                      {index === 0 && <span className="primary-rig-badge">Primary rig</span>}
+                      <button
+                        type="button"
+                        className="remove-repository"
+                        aria-label="Remove repository"
+                        onClick={() =>
+                          setRepositoryDrafts((current) =>
+                            current.filter((candidate) => candidate.id !== draft.id),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+
+              <footer className="project-create-actions">
+                <p>
+                  {repositoryDrafts.length === 0
+                    ? 'Add at least one repository to continue.'
+                    : `${repositoryDrafts.length} ${repositoryDrafts.length === 1 ? 'rig' : 'rigs'} will be created.`}
+                </p>
+                <button
+                  className="primary"
+                  disabled={!projectName.trim() || repositoryDrafts.length === 0 || busy}
+                >
+                  {busy ? 'Creating…' : 'Create project'}
+                </button>
+              </footer>
+            </form>
           </section>
         ) : !snapshot.workspace ? (
           <section className="empty-state">
             <h2>No project selected</h2>
-            <p>Add an existing repository or choose a project from the sidebar.</p>
+            <p>Create a project with one or more repositories, or choose one from the sidebar.</p>
           </section>
         ) : (
           <>

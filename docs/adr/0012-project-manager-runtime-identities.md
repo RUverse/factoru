@@ -6,7 +6,9 @@
 ## Context
 
 Factoru needs one durable, always-on Project Manager conversation per project,
-plus a separate serialized planner. The Factoru project remains rig-scoped, but
+plus a separate serialized planner. The Factoru project's runtime remains
+scoped to its primary rig (later generalized to one or more project rigs by
+[ADR 0014](./0014-multi-repository-projects.md)), but
 Gas City 1.4.0 external-message bindings reject rig-scoped agents. A root-pack
 `[[named_session]]` also names a city-scoped template; it cannot be expanded once
 per rig.

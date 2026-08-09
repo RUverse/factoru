@@ -6,6 +6,7 @@ import {
   liveRequestSchema,
   pairingExchangeRequestSchema,
   projectSnapshotSchema,
+  projectCreateParamsSchema,
 } from './milestone2.js'
 
 describe('Milestone 2 protocol', () => {
@@ -69,5 +70,29 @@ describe('Milestone 2 protocol', () => {
       resynchronized: false,
       events: [],
     })
+  })
+
+  it('requires a named project with one or more local or remote repositories', () => {
+    const parsed = projectCreateParamsSchema.parse({
+      name: 'Product',
+      repositories: [
+        {
+          kind: 'local',
+          rootId: 'root_local',
+          relativePath: 'web',
+          defaultBranch: 'main',
+          fingerprint: 'a'.repeat(64),
+        },
+        {
+          kind: 'remote',
+          rootId: 'root_local',
+          url: 'https://example.com/api.git',
+        },
+      ],
+    })
+    expect(parsed.repositories).toHaveLength(2)
+    expect(projectCreateParamsSchema.safeParse({ name: 'Empty', repositories: [] }).success).toBe(
+      false,
+    )
   })
 })

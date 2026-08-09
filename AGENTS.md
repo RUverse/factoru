@@ -47,8 +47,10 @@ These instructions apply to the entire repository.
 - Every agent runtime, including Project Manager chat, is managed through Gas
   City. Do not add a parallel provider/session runtime in Factoru Server.
 - One Factoru Server initially manages one dedicated Gas City city; each
-  repository-backed Factoru project maps to one rig. Factoru must coexist with
-  unrelated cities hosted by the machine-level supervisor.
+  Factoru project contains one or more repository-backed rigs. The first is the
+  primary execution rig until explicit per-task rig routing is implemented.
+  Factoru must coexist with unrelated cities hosted by the machine-level
+  supervisor.
 - The Gas City supervisor and all of its host-reachable cities form one trusted,
   single-operator runtime domain from the perspective of host-running agents.
   Rig prefixes provide logical routing and accidental-crossing protection, not

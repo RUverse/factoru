@@ -51,6 +51,7 @@ import {
   executionRequestChangesParamsSchema,
   executionRunParamsSchema,
   repositoryBrowseParamsSchema,
+  repositoryPreviewPathParamsSchema,
   type HealthResponse,
   type LiveRequest,
   taskCreateParamsSchema,
@@ -379,6 +380,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     const requiredScopes: Record<LiveRequest['method'], OwnerScope> = {
       'repositories.roots': 'projects:read',
       'repositories.browse': 'projects:read',
+      'repositories.previewPath': 'projects:write',
       'projects.previewCreate': 'projects:write',
       'projects.list': 'projects:read',
       'projects.get': 'projects:read',
@@ -415,6 +417,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         case 'repositories.browse': {
           const params = repositoryBrowseParamsSchema.parse(request.params)
           result = await projects.repositories.browse(params.rootId, params.relativePath)
+          break
+        }
+        case 'repositories.previewPath': {
+          const params = repositoryPreviewPathParamsSchema.parse(request.params)
+          result = await projects.repositories.previewAbsolute(params.absolutePath)
           break
         }
         case 'projects.previewCreate': {

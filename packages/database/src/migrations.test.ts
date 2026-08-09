@@ -147,4 +147,49 @@ describe('forward migrations', () => {
     expect(taskSql.sql).not.toContain("'done'")
     database.close()
   })
+
+  it('backfills each existing project into a primary repository rig', () => {
+    const { directory, database } = fixture()
+    for (const name of [
+      '0001_milestone_2.sql',
+      '0002_milestone_3_product_model.sql',
+      '0003_milestone_4_tasks.sql',
+      '0004_milestones_5_6_delivery.sql',
+    ]) {
+      fs.copyFileSync(new URL(`../migrations/${name}`, import.meta.url), path.join(directory, name))
+    }
+    applyMigrations(database, directory)
+    database
+      .prepare(
+        `INSERT INTO projects(
+           id, name, repository_root_id, repository_relative_path, repository_real_path,
+           default_branch, setup_state, created_at, updated_at
+         ) VALUES (?, 'Existing', 'root', 'existing', '/repos/existing', 'dev', 'ready', ?, ?)`,
+      )
+      .run(
+        'prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        '2026-08-09T10:00:00.000Z',
+        '2026-08-09T10:00:00.000Z',
+      )
+    database
+      .prepare(
+        `INSERT INTO project_rig_bindings(
+           project_id, city_name, rig_name, bead_prefix, registration_state
+         ) VALUES (?, 'factoru', 'factoru-existing', 'fexist', 'ready')`,
+      )
+      .run('prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+    fs.copyFileSync(
+      new URL('../migrations/0005_multi_repository_projects.sql', import.meta.url),
+      path.join(directory, '0005_multi_repository_projects.sql'),
+    )
+    applyMigrations(database, directory)
+    expect(database.prepare('SELECT * FROM project_repositories').get()).toMatchObject({
+      project_id: 'prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      is_primary: 1,
+      repository_real_path: '/repos/existing',
+      rig_name: 'factoru-existing',
+      registration_state: 'ready',
+    })
+    database.close()
+  })
 })

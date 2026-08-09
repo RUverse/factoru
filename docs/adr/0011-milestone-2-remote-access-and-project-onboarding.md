@@ -42,3 +42,6 @@ project setup open.
   project and desired binding.
 - Per-project device grants, viewer roles, native TLS automation, queued offline
   edits, project deletion, and managed local-server launch remain later work.
+- ADR 0014 later extends the one-repository onboarding slice to ordered
+  multi-repository projects while preserving the approved-root, canonical-path,
+  durable outbox, and server-owned Git boundaries recorded here.
