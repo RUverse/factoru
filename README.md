@@ -7,21 +7,31 @@ durable state. **Factoru Desktop** is an unprivileged Electron client that
 connects to it. See [docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the living system map.
 
-> **Status: Milestones 0–4 implemented.** The development app includes durable
-> projects, persistent Project Manager chat, Worker/model/memory controls, the
-> four-state task board, and serialized Queue reconciliation. Provider-backed
-> operator acceptance, remote HTTPS, and the Milestone 5 delivery loop remain.
+> **Status: Milestones 0–6 complete; Milestone 7 is next.** The development app
+> connects durable projects and Project Manager chat to the four-state task
+> board, serialized Queue reconciliation, one-at-a-time software delivery,
+> independent review, and human acceptance. The real provider path completed
+> ten benchmark tasks plus one conversation-originated task across a server
+> restart. Packaging and dependable-operation work remain.
 
 ## Requirements
 
-- Node.js 22.12 or newer
-- pnpm 11 (`corepack enable pnpm`, or install it however you manage Node tools)
-- Gas City 1.4.x and its dependencies for project/chat/Queue testing
+- Node.js 22.13 or newer
+- pnpm 11.20.0 (pinned by `packageManager` and Volta in `package.json`)
+- Gas City 1.4.x and its dependencies for project/chat/Queue/delivery testing
+- At least one authenticated provider harness for agent-backed testing
 
 ## Getting started
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
+```
+
+Volta users must enable its pnpm support before invoking the repository-pinned
+package manager:
+
+```bash
+export VOLTA_FEATURE_PNPM=1
 ```
 
 Run both applications against this worktree's isolated development state:
@@ -30,16 +40,19 @@ Run both applications against this worktree's isolated development state:
 pnpm dev
 ```
 
-The server and the Electron window start together. Its URL and isolated state
-directory are printed in the terminal. Generate a pairing code in another
-terminal with:
+The server and the Electron window start together. Their URL and isolated state
+directory are printed in the terminal. Same-machine development uses a private,
+restart-scoped local enrollment proof and does not expose a pairing secret to
+the renderer. Generate a pairing code only when explicitly testing the remote
+or manual pairing path:
 
 ```bash
 pnpm dev:pair
 ```
 
-For a fresh development state, explicitly initialize its dedicated Gas City
-city with the provider harnesses you want to test. Nothing is chosen silently:
+The first `pnpm dev` creates the development server identity. In another
+terminal, explicitly initialize that identity's dedicated Gas City city with
+the provider harnesses you want to test. Nothing is chosen silently:
 
 ```bash
 pnpm dev:city --provider codex
@@ -55,8 +68,11 @@ The command pins the local `factoru-default` pack, installs its imports, and
 registers the city without automatically restarting a drifting machine-wide
 supervisor. The selected harnesses must already be authenticated.
 
-Enter the printed development server URL and pairing code in the desktop.
-Individually:
+The development server is useful for protocol and persistence work before the
+city exists, but project chat, Queue planning, and delivery require the
+initialized city.
+
+Run the applications individually when needed:
 
 ```bash
 pnpm dev:server
@@ -78,10 +94,21 @@ instead of this source worktree:
 FACTORU_REPOSITORY_ROOTS='["/absolute/path/to/disposable-repositories"]' pnpm dev
 ```
 
-After pairing, add the disposable repository, open Tasks, capture a Backlog
-card, move it to Queue, and observe the planning phase badge. Queue planning and
-Project Manager chat additionally require the chosen provider harness to be
-authenticated.
+After connecting, add the disposable repository, open Tasks, capture a Backlog
+card, move it to Queue, and observe the planning phase badge. A ready task can
+then enter the WIP-one delivery loop and finish in Needs you with its diff,
+checks, independent review, risks, and model usage.
+
+## Current limitations
+
+- Development-from-source is the supported path; signed/notarized Desktop and
+  packaged Server distributions arrive in Milestone 7.
+- The serial execution limit is one. Parallel capsules and service-container
+  isolation are deferred to Milestone 8.
+- Remote access relies on an operator-controlled private HTTPS overlay or
+  loopback reverse proxy; packaged remote acceptance remains.
+- Provider-backed acceptance is intentionally opt-in because it spends tokens
+  and mutates a disposable repository.
 
 ## Per-worktree development state
 
@@ -115,6 +142,13 @@ That runs, individually available as:
 | `pnpm format:check` | Prettier (`pnpm format` rewrites)                             |
 | `pnpm test`         | Vitest per package plus the development-script tests          |
 
+The destructive, provider-backed acceptance harness is not part of
+`pnpm test`. Its latest 10/10 benchmark and conversation-originated run are
+recorded in
+[`docs/spikes/milestones-5-6-acceptance.md`](./docs/spikes/milestones-5-6-acceptance.md).
+See [`docs/TESTING.md`](./docs/TESTING.md) for the deterministic, interactive,
+restart-recovery, and opt-in provider-backed test procedures.
+
 ## Repository layout
 
 ```text
@@ -132,7 +166,8 @@ docs/              Roadmap, architecture, and decision records
 `packages/ui` provides the visual tokens used by the renderer. `templates/`
 contains the built-in Software Project Factory Template, and
 `packs/factoru-default` contains the versioned Project Manager and Software
-Engineer roles plus the production Queue reconciliation Formula.
+Engineer roles plus the production Queue-reconciliation and software-delivery
+formulas.
 
 ## Working in this repository
 

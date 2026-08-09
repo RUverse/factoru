@@ -1,7 +1,7 @@
 # Factoru Roadmap
 
 > Status: Milestones 0–6 complete; Milestone 7 is next
-> Last updated: 2026-08-06
+> Last updated: 2026-08-09
 
 This is the single delivery roadmap for Factoru. It intentionally starts with a
 small, coherent product and keeps the broader graph-orchestration vision as a
@@ -910,36 +910,19 @@ maximizing concurrent agent count. Track from the first executable task:
 - worktree, integration, and merge-conflict failures;
 - crashes or restarts that require manual recovery.
 
-## Open decisions
+## Remaining open decisions
 
-- Which TypeScript server framework and live-event transport best support both
-  localhost and remote operation?
-- Which SQLite library and migration tool work across the target server
-  platforms?
 - How should the server discover, install, pin, and upgrade Gas City?
 - Should Factoru require a dedicated OS user/supervisor when the host also runs
   unrelated cities whose contents must not be readable by Factoru agents?
-- Can rig-qualified always-on Project Manager sessions provide strict
-  per-project chat isolation through the connected-client API?
-- Which harness-specific MCP, provider-hook, or local bridge gives Gas City
-  agents revocable, auditable, project/role-scoped Factoru tools, given that Gas
-  City does not currently auto-attach catalogued MCP entries?
 - Which facts belong in project memory versus role memory, and what approval,
   provenance, retention, and poisoning defenses govern permanent updates?
-- What coalescing/version rule guarantees one PM planning pass without dropping
-  Queue edits that arrive while it runs?
 - How should implementation, review, and total rig/workspace caps reserve enough
   capacity to keep PM chat and review responsive?
-- How should Factoru register an existing repository as a rig while explaining
-  and safely managing Gas City's `.beads/` files?
-- Can Factoru patch harness/model settings and reload the city without dropping
-  or misrouting active conversations and runs?
-- Can Gas City own worktree creation/cleanup while Factoru reliably binds one
-  non-Git capsule lease to the same Formula unit and keeps implementer/reviewer
-  steps in that shared worktree?
-- What is the minimum Factoru Factory Template manifest needed to compose a
-  pinned Gas City pack with Worker Types, model slots, memory/tools, Formula
-  defaults, capsule requirements, and UI metadata?
+- What packaged backup/restore and Gas City/Dolt recovery workflow is safe and
+  understandable for a single operator?
+- Which macOS and Linux installation/service mechanisms provide dependable
+  upgrades without disturbing unrelated Gas City cities?
 - Which projects benefit from tier-two service containers, and what CPU, memory,
   log, network, cache, and secret defaults remain safe on personal servers?
 - Can Gas City's session-runtime/provider axis supply tier-three container or
@@ -953,6 +936,8 @@ maximizing concurrent agent count. Track from the first executable task:
   schemas into its domain?
 - Should local setup run the server as a login service, managed child process,
   or container?
+- What packaged remote-access acceptance matrix is sufficient for private HTTPS
+  overlays and loopback reverse proxies on supported hosts?
 
 Resolve these with small architecture decisions and executable spikes, not by
 expanding the roadmap.
