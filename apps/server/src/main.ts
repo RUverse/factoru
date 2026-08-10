@@ -21,6 +21,12 @@ import { TaskService } from './task-service.js'
 import { AgentToolService } from './agent-tool-service.js'
 import { writeLocalEnrollmentFile } from './local-enrollment.js'
 import { CapsuleService } from './capsule-service.js'
+import {
+  parseDoctorArgs,
+  renderDoctorReport,
+  runRemoteDoctor,
+  systemDoctorEnvironment,
+} from './doctor.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -33,6 +39,14 @@ function pairingCode(): string {
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === 'doctor') {
+    const provider = parseDoctorArgs(process.argv.slice(3))
+    const report = await runRemoteDoctor(provider, await systemDoctorEnvironment())
+    console.log(renderDoctorReport(report))
+    if (!report.ok) process.exitCode = 1
+    return
+  }
+
   const config = loadServerConfig()
   const serverId = await ensureServerId(config.dataDir)
   const database = new FactoruDatabase(config.databaseFile, serverId)

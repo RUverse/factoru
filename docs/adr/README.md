@@ -22,6 +22,7 @@ the historical reasoning behind one decision.
 | [0012](./0012-project-manager-runtime-identities.md) | One generated city-scoped Project Manager chat identity per project | Accepted |
 | [0013](./0013-local-desktop-enrollment.md) | Private restart-scoped local enrollment without renderer credential access | Accepted |
 | [0014](./0014-multi-repository-projects.md) | Projects own one or more ordered repository-backed rigs | Accepted, partially implemented |
+| [0015](./0015-manual-ssh-preview-transport.md) | Manual SSH loopback forwarding for remote source previews | Accepted for developer preview; acceptance pending |
 
 ## Writing a new ADR
 

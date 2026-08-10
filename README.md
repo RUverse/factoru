@@ -79,6 +79,23 @@ The development server is useful for protocol and persistence work before the
 city exists, but project chat, Queue planning, and delivery require the
 initialized city.
 
+### Remote Linux preview over SSH
+
+An experimental source-deployment runbook is available for 64-bit Linux arm64
+and x64 hosts, including Raspberry Pi OS 64-bit as an explicitly unvalidated
+target. It keeps Factoru, Gas City, and Dolt on loopback and connects Desktop
+through a manual SSH local forward.
+
+After installing the host prerequisites and cloning `dev`, validate the host:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm remote:preflight -- --provider codex
+```
+
+See [Remote Linux source deployment over SSH](./docs/remote-connection.md) for
+the complete install, pairing, full-loop test, update, and recovery limitations.
+
 Run the applications individually when needed:
 
 ```bash
@@ -113,7 +130,8 @@ checks, independent review, risks, and model usage.
 - The serial execution limit is one. Parallel capsules and service-container
   isolation are deferred to Milestone 8.
 - Remote access relies on an operator-controlled private HTTPS overlay or
-  loopback reverse proxy; packaged remote acceptance remains.
+  loopback reverse proxy, or the documented manual SSH developer-preview
+  tunnel; packaged remote acceptance remains.
 - Provider-backed acceptance is intentionally opt-in because it spends tokens
   and mutates a disposable repository.
 

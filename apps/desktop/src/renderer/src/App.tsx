@@ -423,13 +423,19 @@ export function App() {
               <details className="server-install" open>
                 <summary>Install Factoru Server on the remote machine</summary>
                 <p className="muted">
-                  Developer preview for macOS and Linux. In the Factoru repository, run:
+                  Experimental source preview for 64-bit Linux. Install the pinned host
+                  dependencies, then validate the checkout before starting Server:
                 </p>
                 <pre aria-label="Remote server setup commands">
-                  <code>pnpm install{`\n`}pnpm dev:server</code>
+                  <code>
+                    pnpm install --frozen-lockfile{`\n`}
+                    pnpm remote:preflight -- --provider codex
+                  </code>
                 </pre>
                 <p className="install-note">
-                  A packaged server installer is planned for Milestone 7.
+                  Keep Server on loopback and connect through SSH or trusted HTTPS. The complete
+                  source runbook is docs/remote-connection.md; packaged installation remains
+                  Milestone 7 work.
                 </p>
               </details>
             </>
