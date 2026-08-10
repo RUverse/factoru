@@ -16,7 +16,7 @@ connects to it. See [docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
 
 ## Requirements
 
-- Node.js 22.13 or newer
+- Node.js 22.13.0 (pnpm downloads this project runtime automatically)
 - pnpm 11.20.0 (pinned by `packageManager` and Volta in `package.json`)
 - Gas City 1.4.x and its dependencies for project/chat/Queue/delivery testing
 - At least one authenticated provider harness for agent-backed testing
@@ -33,6 +33,13 @@ package manager:
 ```bash
 export VOLTA_FEATURE_PNPM=1
 ```
+
+The root manifest also pins Node through pnpm's `devEngines.runtime`. Commands
+such as `pnpm dev` therefore run under Node 22.13.0 even when the `pnpm`
+executable itself was installed under another Node release. This keeps native
+dependencies such as `better-sqlite3` on one ABI. Dependency installation and
+the frozen lockfile remain explicit; pnpm's redundant pre-run reinstall check
+is disabled so normal commands do not prompt to purge a current install.
 
 Run both applications against this worktree's isolated development state:
 

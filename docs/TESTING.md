@@ -5,10 +5,12 @@ packaged installation and recovery matrix belongs to Milestone 7.
 
 ## 1. Verify the toolchain
 
-The repository pins Node.js 22.13.0 and pnpm 11.20.0 in `package.json`.
+The repository pins Node.js 22.13.0 and pnpm 11.20.0 in `package.json`. pnpm's
+`devEngines.runtime` downloads and selects the pinned Node runtime for project
+scripts, so the Node version that launched pnpm may differ safely.
 
 ```bash
-node --version
+pnpm exec node --version
 pnpm --version
 ```
 
@@ -26,10 +28,9 @@ v22.13.0
 11.20.0
 ```
 
-If pnpm reports an unsupported Node engine or a lockfile-breaking change, do
-not use `--force`. Confirm that the command is not an old standalone pnpm
-installation running under an old Node version, then install with the pinned
-toolchain:
+If pnpm reports a runtime download or lockfile error, do not use `--force` or
+rebuild native dependencies under a different Node major. Install with the
+pinned toolchain:
 
 ```bash
 pnpm install --frozen-lockfile
