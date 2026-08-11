@@ -22,7 +22,9 @@ The preview targets:
   missing.
 
 It does not support 32-bit Raspberry Pi OS, automatic startup after reboot,
-schema-aware rollback, or a production restore workflow.
+schema-aware rollback, or a production restore workflow. The installed command
+is a launcher into the stable source checkout, not a packaged release; do not
+move or delete the checkout.
 
 ## 1. Prepare the Linux host
 
@@ -67,7 +69,9 @@ pinned releases. It:
   `$HOME/.local/share/factoru` without replacing a system toolchain;
 - downloads checksum-pinned Linux arm64/x64 releases of Gas City, Dolt, and
   Beads into that same user-owned tool directory;
-- installs the frozen workspace and creates `$HOME/factoru-repositories`; and
+- installs the frozen workspace and creates `$HOME/factoru-repositories`;
+- installs the source-preview `factoru-server` operator command under
+  `$HOME/.local/share/factoru/bin`; and
 - runs the complete provider-selected preflight.
 
 The bootstrap refuses root, 32-bit/unsupported hosts, non-`dev` branches, dirty
@@ -86,7 +90,27 @@ disposable Git repository while validating this preview.
 Do not move or delete the Factoru checkout: its path owns the development state,
 server identity, and derived port block.
 
-## 3. Start Server and Gas City
+## 3. Configure providers and start the services
+
+Initialize Factoru's dedicated Gas City city with the authenticated harness:
+
+```sh
+factoru-server providers configure --provider codex
+```
+
+Use `--provider claude` instead, or repeat `--provider` and choose one default:
+
+```sh
+factoru-server providers configure \
+  --provider claude --provider codex --default-provider codex
+```
+
+This creates the stable Factoru server identity, initializes the dedicated city,
+pins and installs the Factoru pack, and starts that city. Provider login remains
+provider-owned: use `codex login` or `claude auth login`; Factoru never captures
+those credentials. On an existing city the command does not rewrite trusted
+provider configuration. It starts the city and verifies the requested providers,
+failing with a remedy when they are not configured.
 
 Create a named tmux session:
 
@@ -94,56 +118,42 @@ Create a named tmux session:
 tmux new -s factoru-server
 ```
 
-Inside it, start the development Server with only the dedicated repository root
-approved for project onboarding:
+Inside it, start the source Server in the foreground:
 
 ```sh
-cd "$HOME/factoru"
-FACTORU_TRUST_PROXY= \
-  FACTORU_REPOSITORY_ROOTS="[\"$HOME/factoru-repositories\"]" \
-  pnpm dev:server
+factoru-server start
 ```
 
-Wait until Factoru prints its server URL and state directory. Detach with
-<kbd>Ctrl-b</kbd>, then <kbd>d</kbd>; do not stop the process.
+The source launcher supplies the checkout's isolated state and allows projects
+only below `$HOME/factoru-repositories` unless `FACTORU_REPOSITORY_ROOTS` is
+explicitly set. Wait until Factoru prints its URL and state directory. Detach
+with <kbd>Ctrl-b</kbd>, then <kbd>d</kbd>; do not stop the process.
 
-In another SSH shell, initialize the dedicated Gas City city. The selected
-provider must already be authenticated:
+In another SSH shell, print the actual URL, identity, city, process health, and
+active Factoru work:
 
 ```sh
-cd "$HOME/factoru"
-pnpm dev:city --provider codex
+factoru-server status
 ```
 
-This command is idempotent for the same checkout and server identity. It pins
-the Factoru pack and starts the Factoru city without taking ownership of
-unrelated cities on the host.
+Development ports are derived from the checkout path. Never assume port 8787
+for this source path.
 
-Print the actual development URL and port:
+Finally, create a ten-minute, one-time pairing code and print the exact Mac-side
+URL and SSH command. Replace the host with the SSH destination that works from
+the Mac:
 
 ```sh
-pnpm dev:env
+factoru-server pair --ssh-host rez@rez-pi
 ```
 
-Development ports are derived from the checkout path and may move to another
-free block after a collision. Never assume port 8787 for this path.
-
-Check health locally, replacing the URL with the one printed above:
-
-```sh
-curl --fail http://127.0.0.1:SERVER_PORT/api/v1/health
-```
-
-Finally, create a ten-minute, one-time pairing code:
-
-```sh
-pnpm dev:pair
-```
+Use `--local-port <port>` when Mac port 18787 is occupied, or `--json` for
+machine-readable output. Treat the pairing code as a short-lived secret.
 
 ## 4. Open the SSH tunnel from the Mac
 
-Keep this command running in a Mac terminal. Replace `SERVER_PORT`, user, and
-host with the values for the Linux machine:
+Copy the `SSH tunnel` line printed by `factoru-server pair` and keep it running
+in a Mac terminal. Its shape is:
 
 ```sh
 ssh -N -L 18787:127.0.0.1:SERVER_PORT user@server
@@ -161,10 +171,11 @@ pnpm install --frozen-lockfile
 pnpm dev:desktop
 ```
 
-Choose **Remote server** and enter:
+Choose **Remote server** and enter the `Desktop URL` and `Pairing code` printed
+by the CLI, plus a name for the Mac. With the default local port these are:
 
 - server address: `http://127.0.0.1:18787`;
-- the code from `pnpm dev:pair`; and
+- the code from `factoru-server pair`; and
 - a name for the Mac.
 
 Plain HTTP is acceptable only because both HTTP endpoints are loopback and SSH
@@ -205,14 +216,17 @@ reachable from the Mac.
 The SSH tunnel must stay open while Desktop is connected. If it drops, Desktop
 shows cached state and reconnects after the same forward is restored. After a
 Linux reboot, restart the Factoru tmux session and rerun the idempotent
-`pnpm dev:city --provider ...` command before reconnecting.
+`factoru-server providers configure --provider ...` command before reconnecting.
 
 Useful diagnostics:
 
 ```sh
 tmux attach -t factoru-server
-pnpm dev:env
-pnpm remote:preflight -- --provider codex
+factoru-server status
+factoru-server status --json
+factoru-server providers list
+factoru-server sessions --active
+factoru-server doctor --provider codex
 gc version
 dolt version
 bd version
@@ -229,12 +243,21 @@ Common failures:
   access and rerun the same bootstrap command.
 - **Provider authentication fails:** log in as the same unprivileged account
   that runs Factoru and Gas City.
-- **`pnpm dev:city` refuses initialization:** resolve every reported Gas City,
+- **Provider configuration refuses initialization:** resolve every reported Gas City,
   Dolt, Beads, or provider-readiness finding, then rerun it.
 - **Mac port 18787 is occupied:** choose another unused Mac-side port and enter
   that port in Desktop.
-- **Pairing code expired:** run `pnpm dev:pair` again; codes are one-time and
-  valid for ten minutes.
+- **Pairing code expired:** run `factoru-server pair --ssh-host <host>` again;
+  codes are one-time and valid for ten minutes.
+- **`factoru-server` is not found after reconnecting:** log out and back in so
+  `$HOME/.profile` is loaded, or run
+  `export PATH="$HOME/.local/share/factoru/bin:$PATH"`.
+
+`factoru-server sessions` lists Factoru-correlated planning, Queue, and delivery
+runs from Factoru's database. Gas City 1.4's stable supervisor contract does not
+provide a global session-list operation, so the CLI deliberately does not scrape
+human-readable `gc` or tmux output or claim to enumerate unrelated
+provider-native sessions.
 
 ## 7. Deploy a newer `dev` commit
 
@@ -251,15 +274,13 @@ test -z "$(git status --porcelain)" || {
 }
 ```
 
-Attach to `factoru-server`, stop it with <kbd>Ctrl-c</kbd>, and leave the tmux
-shell open. Export the same development environment and create a new verified
-SQLite backup at an absolute path:
+Confirm `factoru-server sessions --active` is empty. Attach to
+`factoru-server`, stop it with <kbd>Ctrl-c</kbd>, and leave the tmux shell open.
+Create a new verified SQLite backup at an absolute path:
 
 ```sh
-cd "$HOME/factoru"
-eval "$(pnpm dev:env --export)"
 mkdir -p "$HOME/factoru-backups"
-pnpm --filter @factoru/server start backup \
+factoru-server backup \
   "$HOME/factoru-backups/factoru-before-update.sqlite"
 ```
 
@@ -282,10 +303,11 @@ the update path does not repeat manual host dependency steps. Keep `pnpm check`
 as the separate source-verification gate. Use `--provider claude` consistently
 when that is the deployed harness.
 
-Return to the existing `factoru-server` tmux shell and start the same Server
-command from section 3. Rerun `pnpm dev:city --provider codex`, then check the
-health endpoint and reconnect the tunnel. The health response must report the
-same `serverId`, and the same projects should reappear.
+Run `factoru-server providers configure --provider codex` to reinstall imports
+and restart the existing city without rewriting its provider configuration.
+Return to the existing tmux shell and run `factoru-server start`. Confirm
+`factoru-server status` reports the old server ID and a healthy process, then
+reconnect the tunnel. The same projects should reappear.
 
 Factoru migrations are forward-only. Although the SQLite backup is verified at
 creation time, packaged restore and coordinated Gas City/Dolt recovery are

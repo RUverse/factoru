@@ -33,8 +33,8 @@
     "dev": "node scripts/dev.mjs",
     "dev:server": "node scripts/dev.mjs --only server",
     "dev:desktop": "node scripts/dev.mjs --only desktop",
-    "dev:pair": "node scripts/dev-pair.mjs",
-    "dev:city": "node scripts/dev-city.mjs",
+    "dev:pair": "node scripts/factoru-server.mjs pair",
+    "dev:city": "node scripts/factoru-server.mjs providers configure",
     "dev:env": "node scripts/dev-env.mjs",
     "remote:preflight": "pnpm --filter @factoru/server... run build && pnpm --filter @factoru/server start doctor",
     "clean": "pnpm -r exec rm -rf dist out .turbo node_modules/.cache"

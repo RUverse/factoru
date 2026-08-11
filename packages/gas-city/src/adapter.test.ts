@@ -232,6 +232,25 @@ describe('GasCityAdapter.verifySupervisorContract', () => {
   })
 })
 
+describe('GasCityAdapter.checkProviderReadiness', () => {
+  it('normalizes the structured city provider report for operator clients', async () => {
+    const { fn, calls } = fakeFetch(() => ({
+      body: {
+        providers: {
+          codex: { display_name: 'Codex', status: 'configured' },
+          claude: { display_name: 'Claude', status: 'needs_auth', detail: 'login required' },
+        },
+      },
+    }))
+
+    const result = await adapterWith(fn).checkProviderReadiness(['codex', 'claude'])
+
+    expect(result.ready).toBe(false)
+    expect(result.findings.map((finding) => finding.status)).toEqual(['ok', 'needs_attention'])
+    expect(calls[0]?.url.pathname).toBe('/v0/city/factoru-spike/provider-readiness')
+  })
+})
+
 describe('GasCityAdapter.listRigs', () => {
   it('parses the recorded rigs response', async () => {
     // Recorded from GET /v0/city/{city}/rigs. Fields are lower-snake, prefix

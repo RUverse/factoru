@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -11,6 +12,8 @@ import {
   SupervisorClient,
 } from '@factoru/gas-city'
 import { buildServer } from './app.js'
+import { configureCity } from './city-bootstrap.js'
+import { parseCliArgs, renderCliHelp } from './cli.js'
 import { loadServerConfig } from './config.js'
 import { ensureServerId } from './identity.js'
 import { ProjectService } from './project-service.js'
@@ -21,12 +24,16 @@ import { TaskService } from './task-service.js'
 import { AgentToolService } from './agent-tool-service.js'
 import { writeLocalEnrollmentFile } from './local-enrollment.js'
 import { CapsuleService } from './capsule-service.js'
+import { renderDoctorReport, runRemoteDoctor, systemDoctorEnvironment } from './doctor.js'
 import {
-  parseDoctorArgs,
-  renderDoctorReport,
-  runRemoteDoctor,
-  systemDoctorEnvironment,
-} from './doctor.js'
+  listOperatorActivity,
+  readOperatorStatus,
+  readProviderFindings,
+  renderOperatorActivity,
+  renderOperatorStatus,
+  renderProviderFindings,
+  serverUrlFor,
+} from './operator-cli.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -39,30 +46,103 @@ function pairingCode(): string {
 }
 
 async function main(): Promise<void> {
-  if (process.argv[2] === 'doctor') {
-    const provider = parseDoctorArgs(process.argv.slice(3))
-    const report = await runRemoteDoctor(provider, await systemDoctorEnvironment())
+  const command = parseCliArgs(process.argv.slice(2))
+
+  if (command.kind === 'help') {
+    console.log(renderCliHelp())
+    return
+  }
+  if (command.kind === 'version') {
+    console.log(SERVER_VERSION)
+    return
+  }
+  if (command.kind === 'doctor') {
+    const report = await runRemoteDoctor(command.provider, await systemDoctorEnvironment())
     console.log(renderDoctorReport(report))
     if (!report.ok) process.exitCode = 1
     return
   }
 
   const config = loadServerConfig()
+
+  if (command.kind === 'status') {
+    const status = await readOperatorStatus(config)
+    console.log(command.json ? JSON.stringify(status, null, 2) : renderOperatorStatus(status))
+    if (status.process !== 'running') process.exitCode = 1
+    return
+  }
+
+  if (command.kind === 'sessions') {
+    const activity = await listOperatorActivity(config, command.activeOnly)
+    console.log(command.json ? JSON.stringify(activity, null, 2) : renderOperatorActivity(activity))
+    return
+  }
+
+  if (command.kind === 'providers-list') {
+    const result = await readProviderFindings(config)
+    console.log(command.json ? JSON.stringify(result, null, 2) : renderProviderFindings(result))
+    if (!result.ready) process.exitCode = 1
+    return
+  }
+
   const serverId = await ensureServerId(config.dataDir)
+
+  if (command.kind === 'providers-configure') {
+    const configured = await configureCity(
+      config,
+      serverId,
+      command.providers,
+      command.defaultProvider,
+    )
+    const result = await readProviderFindings(config, command.providers)
+    console.log(
+      `${configured.created ? 'Initialized' : 'Retained'} Factoru city ${configured.cityName} at ${config.gasCityPath}.`,
+    )
+    if (!configured.created) {
+      console.log(
+        'Existing trusted provider configuration was not rewritten; requested providers were verified instead.',
+      )
+    }
+    console.log(renderProviderFindings(result))
+    if (!result.ready) process.exitCode = 1
+    return
+  }
+
   const database = new FactoruDatabase(config.databaseFile, serverId)
 
-  if (process.argv[2] === 'pair') {
+  if (command.kind === 'pair') {
     const code = pairingCode()
-    database.createPairingCode(code, new Date(Date.now() + 10 * 60_000))
-    console.log(code)
+    const expiresAt = new Date(Date.now() + 10 * 60_000)
+    database.createPairingCode(code, expiresAt)
+    const desktopUrl = `http://127.0.0.1:${command.localPort}`
+    const sshCommand = command.sshHost
+      ? `ssh -N -L ${command.localPort}:127.0.0.1:${config.port} ${command.sshHost}`
+      : null
+    const result = {
+      serverId,
+      code,
+      expiresAt: expiresAt.toISOString(),
+      serverUrl: serverUrlFor(config),
+      desktopUrl,
+      sshCommand,
+    }
+    if (command.json) {
+      console.log(JSON.stringify(result, null, 2))
+    } else {
+      console.log('Factoru Desktop pairing')
+      console.log(`  Server ID       ${serverId}`)
+      console.log(`  Pairing code    ${code}`)
+      console.log(`  Expires         ${result.expiresAt}`)
+      console.log(`  Desktop URL     ${desktopUrl}`)
+      if (sshCommand) console.log(`  SSH tunnel      ${sshCommand}`)
+      else console.log('  SSH tunnel      rerun with --ssh-host user@server to print the command')
+    }
     database.close()
     return
   }
 
-  if (process.argv[2] === 'backup') {
-    const destination = process.argv[3]
-    if (!destination) throw new Error('Usage: factoru-server backup <absolute-destination>')
-    if (!path.isAbsolute(destination)) throw new Error('Backup destination must be absolute')
+  if (command.kind === 'backup') {
+    const destination = command.destination
     if (fs.existsSync(destination)) throw new Error('Backup destination already exists')
     await database.backup(destination)
     const restored = new FactoruDatabase(destination, serverId)
@@ -75,7 +155,7 @@ async function main(): Promise<void> {
   }
 
   const repositories = new RepositoryService(config.repositoryRoots)
-  const serverUrl = `http://${config.host.includes(':') ? `[${config.host}]` : config.host}:${config.port}`
+  const serverUrl = serverUrlFor(config)
   const localEnrollment = writeLocalEnrollmentFile(config.localEnrollmentFile, {
     serverId,
     serverUrl,
@@ -184,6 +264,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error('[factoru-server] failed to start:', error)
+  console.error('[factoru-server] error:', error instanceof Error ? error.message : error)
   process.exitCode = 1
 })

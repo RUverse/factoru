@@ -427,11 +427,12 @@ export function App() {
                   Codex, install and validate the pinned host runtime in one command:
                 </p>
                 <pre aria-label="Remote server setup commands">
-                  <code>./scripts/remote-bootstrap.sh --provider codex</code>
+                  <code>{`./scripts/remote-bootstrap.sh --provider codex
+factoru-server providers configure --provider codex`}</code>
                 </pre>
                 <p className="install-note">
-                  Use --provider claude when appropriate. Keep Server on loopback and connect
-                  through SSH or trusted HTTPS. The complete source runbook is
+                  Then run factoru-server start in tmux and use factoru-server pair --ssh-host
+                  user@server. Keep Server on loopback. The complete source runbook is
                   docs/remote-connection.md; packaged installation remains Milestone 7 work.
                 </p>
               </details>

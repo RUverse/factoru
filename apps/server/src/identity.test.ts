@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { isServerId } from '@factoru/domain'
-import { SERVER_ID_FILENAME, ServerIdentityError, ensureServerId } from './identity.js'
+import {
+  SERVER_ID_FILENAME,
+  ServerIdentityError,
+  ensureServerId,
+  readServerId,
+} from './identity.js'
 
 const created: string[] = []
 
@@ -18,6 +23,14 @@ afterEach(async () => {
 })
 
 describe('server identity', () => {
+  it('reads no identity without creating state', async () => {
+    const dataDir = path.join(await tempDataDir(), 'not-created')
+    await expect(readServerId(dataDir)).resolves.toBeNull()
+    await expect(readFile(path.join(dataDir, SERVER_ID_FILENAME), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+
   it('creates an identity on first start', async () => {
     const dataDir = await tempDataDir()
     const serverId = await ensureServerId(dataDir)

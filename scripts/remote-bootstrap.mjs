@@ -1,6 +1,17 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, copyFile, mkdir, mkdtemp, readdir, rename, rm, stat } from 'node:fs/promises'
+import {
+  chmod,
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rename,
+  rm,
+  stat,
+  symlink,
+} from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -197,6 +208,30 @@ export async function ensureRuntimeDependency(spec, context) {
   return true
 }
 
+export async function installCliLauncher(root, binDirectory) {
+  const source = path.join(root, 'scripts', 'factoru-server.mjs')
+  const destination = path.join(binDirectory, 'factoru-server')
+  await chmod(source, 0o755)
+  await mkdir(binDirectory, { recursive: true })
+  try {
+    const existing = await lstat(destination)
+    if (!existing.isSymbolicLink()) {
+      throw new Error(`Refusing to replace non-symlink Factoru CLI path: ${destination}`)
+    }
+    await rm(destination)
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') {
+      // No previous Factoru-managed launcher exists.
+    } else if (error instanceof Error) {
+      throw error
+    } else {
+      throw new Error(String(error), { cause: error })
+    }
+  }
+  await symlink(source, destination)
+  return destination
+}
+
 async function requireCleanDevCheckout() {
   const branch = await run('git', ['branch', '--show-current'], { capture: true })
   if (branch.stdout.trim() !== 'dev') {
@@ -253,9 +288,11 @@ async function main() {
 
   process.stdout.write('Running the complete read-only preflight...\n')
   await run('pnpm', ['remote:preflight', '--', '--provider', provider])
+  const cliPath = await installCliLauncher(repositoryRoot, binDirectory)
   process.stdout.write('\nFactoru remote bootstrap completed. No Factoru state was created.\n')
   process.stdout.write(`Project repositories: ${repositoriesRoot}\n`)
-  process.stdout.write('Next: follow docs/remote-connection.md to start the named tmux session.\n')
+  process.stdout.write(`Operator CLI: ${cliPath}\n`)
+  process.stdout.write(`Next: factoru-server providers configure --provider ${provider}\n`)
 }
 
 const directRun =

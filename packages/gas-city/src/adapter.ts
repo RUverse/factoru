@@ -352,10 +352,8 @@ export class GasCityAdapter {
     const findings = await checkDependencies(this.#probe)
 
     try {
-      const raw = await this.#client.get(`/city/${this.#cityName}/provider-readiness`)
-      findings.push(
-        ...evaluateProviderReadiness(providerReadinessSchema.parse(raw), SUPPORTED_HARNESSES),
-      )
+      const providers = await this.checkProviderReadiness()
+      findings.push(...providers.findings)
     } catch (error) {
       findings.push({
         name: 'Gas City supervisor',
@@ -371,6 +369,24 @@ export class GasCityAdapter {
       })
     }
 
+    return { ready: isReady(findings), findings }
+  }
+
+  /**
+   * Read only the city-scoped provider state for operator diagnostics.
+   *
+   * This remains behind the adapter because the supervisor response is Gas
+   * City vocabulary. Factoru's CLI receives the same normalized findings used
+   * by startup readiness rather than parsing a second wire shape.
+   */
+  async checkProviderReadiness(
+    requiredHarnesses: readonly string[] = SUPPORTED_HARNESSES,
+  ): Promise<{ ready: boolean; findings: ReadinessFinding[] }> {
+    const raw = await this.#client.get(`/city/${this.#cityName}/provider-readiness`)
+    const findings = evaluateProviderReadiness(
+      providerReadinessSchema.parse(raw),
+      requiredHarnesses,
+    )
     return { ready: isReady(findings), findings }
   }
 

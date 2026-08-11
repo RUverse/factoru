@@ -812,6 +812,11 @@ restarts.
 - Ship a signed/notarized macOS desktop build.
 - Package the server for macOS and Linux with a pinned Gas City compatibility
   range and documented dependency installation.
+- Ship one `factoru-server` operator CLI in those artifacts and the RUverse
+  Homebrew tap. Its source-preview form already covers start/version, host
+  doctor, provider/city setup and readiness, status, Factoru-correlated active
+  work, pairing/SSH-forward details, and verified SQLite backup; packaged
+  lifecycle, logs, restore, and service management remain in this milestone.
 - Add backup/restore for Factoru SQLite plus documented Gas City/Dolt recovery,
   migrations, diagnostics, logs, update policy, and health reporting.
 - Monitor Dolt and Beads backup growth, free-space headroom, compaction status,

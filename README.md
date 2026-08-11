@@ -93,11 +93,23 @@ one idempotent command:
 ./scripts/remote-bootstrap.sh --provider codex
 ```
 
+The bootstrap installs a source-preview operator command. Use it to configure
+the dedicated city, run Server, inspect health/activity, and print pairing plus
+SSH-forward details:
+
+```bash
+factoru-server providers configure --provider codex
+factoru-server start
+factoru-server status
+factoru-server pair --ssh-host user@server
+```
+
 See [Remote Linux source deployment over SSH](./docs/remote-connection.md) for
 the exact prerequisites plus pairing, full-loop test, update, and recovery
-limitations. The bootstrap installs the pinned Node/pnpm and Gas City runtime
-chain; it does not claim packaged Raspberry Pi support or automate provider
-account login.
+limitations. The bootstrap installs the pinned Node/pnpm, Gas City runtime
+chain, and CLI launcher; it does not claim packaged Raspberry Pi support or
+automate provider account login. `factoru-server help` documents the complete
+operator surface.
 
 Run the applications individually when needed:
 

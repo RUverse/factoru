@@ -38,9 +38,16 @@ encrypting and authenticating the network leg.
   artifacts, the frozen workspace, and then runs the read-only preflight. The
   bootstrap refuses root, dirty/non-`dev` checkouts, unsupported architectures,
   and checksum failures.
-- Provider installation/login and process startup remain explicit operator
-  actions: credentials cannot be granted safely by a repository installer, and
-  starting Server or Gas City would create state beyond dependency setup.
+- The bootstrap installs a source-bound `factoru-server` launcher. Provider
+  login and process startup remain explicit operator actions: credentials
+  cannot be granted safely by a repository installer, and starting Server or
+  Gas City would create state beyond dependency setup. The CLI then initializes
+  or verifies the selected city providers, starts the source Server, reports
+  status and Factoru-correlated activity, and prints the exact pairing URL/code
+  plus SSH local-forward command.
+- Gas City 1.4's stable supervisor API does not enumerate all provider-native
+  sessions. The operator CLI reports Factoru-owned planning, Queue, and delivery
+  correlations and does not scrape human-readable `gc` or tmux output.
 
 ## Consequences
 
@@ -50,6 +57,8 @@ encrypting and authenticating the network leg.
 - Initial source setup after cloning is one command and can be rerun after a
   safe update; compatible external tools are reused and Factoru-managed tools
   live under the unprivileged account rather than overwriting system binaries.
+- The source CLI path is more usable but is not a packaged support claim: its
+  launcher depends on the stable checkout and repository-pinned Node workspace.
 - The tunnel must remain alive, its Mac-side port must be free, and the operator
   must rediscover the development server port after restarts that resolve a port
   collision differently.
