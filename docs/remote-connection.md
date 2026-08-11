@@ -78,6 +78,10 @@ The bootstrap refuses root, 32-bit/unsupported hosts, non-`dev` branches, dirty
 deployment checkouts, and failed artifact checksums. It may prompt for `sudo`
 only when base operating-system packages are missing. It does not start Server
 or Gas City and does not create Factoru identity, database, or city state.
+Its final `Next:` line uses the absolute CLI path so it works in the current
+shell. New login shells load the shorter `factoru-server` command from
+`$HOME/.profile`; alternatively export
+`PATH="$HOME/.local/share/factoru/bin:$PATH"` in the current shell.
 
 The final preflight is read-only with respect to Factoru state. It builds the
 Server dependency graph, then checks Linux architecture, the repository's

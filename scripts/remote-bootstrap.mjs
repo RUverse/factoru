@@ -292,7 +292,7 @@ async function main() {
   process.stdout.write('\nFactoru remote bootstrap completed. No Factoru state was created.\n')
   process.stdout.write(`Project repositories: ${repositoriesRoot}\n`)
   process.stdout.write(`Operator CLI: ${cliPath}\n`)
-  process.stdout.write(`Next: factoru-server providers configure --provider ${provider}\n`)
+  process.stdout.write(`Next: ${cliPath} providers configure --provider ${provider}\n`)
 }
 
 const directRun =
