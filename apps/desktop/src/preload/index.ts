@@ -11,6 +11,7 @@ import {
   IPC_PRODUCT_CHANGED,
   IPC_PRODUCT_CANCEL_PLANNER,
   IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER,
+  IPC_PRODUCT_CHECK_REPOSITORY_ACCESS,
   IPC_PRODUCT_CREATE,
   IPC_PRODUCT_DEVICES,
   IPC_PRODUCT_ADD_MEMORY,
@@ -58,6 +59,8 @@ const product: ProductBridge = {
     ipcRenderer.invoke(IPC_PRODUCT_PREVIEW, factoryId, rootId, relativePath, defaultBranch),
   chooseRepositoryFolder: (factoryId) =>
     ipcRenderer.invoke(IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER, factoryId),
+  checkRepositoryAccess: (factoryId, url) =>
+    ipcRenderer.invoke(IPC_PRODUCT_CHECK_REPOSITORY_ACCESS, factoryId, url),
   create: (factoryId, params) => ipcRenderer.invoke(IPC_PRODUCT_CREATE, factoryId, params),
   retry: (project) => ipcRenderer.invoke(IPC_PRODUCT_RETRY, project),
   devices: (factoryId) => ipcRenderer.invoke(IPC_PRODUCT_DEVICES, factoryId),

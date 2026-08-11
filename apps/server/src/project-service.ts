@@ -194,6 +194,12 @@ export class ProjectService {
         defaultBranch: preview.defaultBranch,
       })
     }
+    const remoteUrls = [
+      ...new Set(
+        prepared.flatMap((candidate) => (candidate.sourceUrl ? [candidate.sourceUrl] : [])),
+      ),
+    ]
+    await this.#checkRemoteAccess(remoteUrls)
     const projectId = `prj_${randomUUID().replaceAll('-', '')}`
     const short = projectId.slice(4, 16)
     const repositoryInputs = prepared.map((candidate, index) => {
@@ -257,7 +263,24 @@ export class ProjectService {
     }
   }
 
-  retrySetup(device: TrustedDevice, commandId: string, projectId: string): Project {
+  async retrySetup(device: TrustedDevice, commandId: string, projectId: string): Promise<Project> {
+    const current = this.database.getProject(projectId)
+    if (!current) throw new ApplicationError('not_found', 'Project not found')
+    if (current.setupState !== 'needs_attention') {
+      throw new ApplicationError(
+        'invalid_project_state',
+        'Only projects needing attention can be retried',
+      )
+    }
+    await this.#checkRemoteAccess([
+      ...new Set(
+        current.repositories.flatMap((repository) =>
+          repository.rig.registrationState === 'failed' && repository.sourceUrl
+            ? [repository.sourceUrl]
+            : [],
+        ),
+      ),
+    ])
     try {
       return this.publicProject(this.database.retryProjectSetup(commandId, device.id, projectId))
     } catch (error) {
@@ -277,6 +300,16 @@ export class ProjectService {
         )
       }
       throw error
+    }
+  }
+
+  async #checkRemoteAccess(sourceUrls: readonly string[]): Promise<void> {
+    for (let index = 0; index < sourceUrls.length; index += 4) {
+      await Promise.all(
+        sourceUrls
+          .slice(index, index + 4)
+          .map((sourceUrl) => this.repositories.checkRemoteAccess(sourceUrl)),
+      )
     }
   }
 

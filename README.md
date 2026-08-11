@@ -104,6 +104,7 @@ factoru-server providers configure --provider codex
 factoru-server start
 factoru-server status
 factoru-server pair --ssh-host user@server
+factoru-server repositories check --url git@github.com:OWNER/REPOSITORY.git
 ```
 
 See [Remote Linux source deployment over SSH](./docs/remote-connection.md) for
@@ -113,6 +114,11 @@ chain, and CLI launcher; it does not claim packaged Raspberry Pi support or
 automate provider account login. `factoru-server help` documents the complete
 operator surface. Desktop maintains independent connections to every saved
 server; give each SSH-forwarded server a distinct Mac loopback port.
+
+Remote project URLs are cloned by their home Factoru Server. Configure Git
+credentials for the operating-system user running that server before project
+creation. See [Git authentication on a Factoru factory](./docs/git-authentication.md)
+for GitHub, GitLab, HTTPS credential helpers, and multiple SSH identities.
 
 Run the applications individually when needed:
 

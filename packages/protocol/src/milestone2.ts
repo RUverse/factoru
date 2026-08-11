@@ -5,6 +5,7 @@ export const CAPABILITY_PAIRING = 'pairing-v1'
 export const CAPABILITY_LOCAL_ENROLLMENT = 'local-enrollment-v1'
 export const CAPABILITY_LIVE = 'live-v1'
 export const CAPABILITY_PROJECTS = 'projects-v2'
+export const CAPABILITY_REPOSITORY_ACCESS_CHECK = 'repository-access-check-v1'
 export const CAPABILITY_TRUSTED_DEVICES = 'trusted-devices-v1'
 export const PAIRING_EXCHANGE_PATH = '/api/v1/pairing/exchange'
 export const LOCAL_ENROLLMENT_PATH = '/api/v1/pairing/local'
@@ -144,6 +145,7 @@ export const liveMethodSchema = z.enum([
   'repositories.roots',
   'repositories.browse',
   'repositories.previewPath',
+  'repositories.checkRemoteAccess',
   'projects.previewCreate',
   'projects.list',
   'projects.get',
@@ -200,6 +202,27 @@ export const projectPreviewParamsSchema = repositoryBrowseParamsSchema.extend({
 export const repositoryPreviewPathParamsSchema = z.object({
   absolutePath: z.string().min(1),
 })
+export const repositoryAccessCheckParamsSchema = z.object({
+  url: z.string().trim().min(1).max(2_048),
+})
+export const repositoryAccessCheckSchema = z.object({
+  transport: z.enum(['ssh', 'https']),
+  host: z.string().min(1),
+  accessible: z.literal(true),
+})
+export type RepositoryAccessCheck = z.infer<typeof repositoryAccessCheckSchema>
+export const repositoryAccessErrorCodeSchema = z.enum([
+  'git_unavailable',
+  'repository_authentication_required',
+  'repository_host_key_required',
+  'repository_not_found_or_forbidden',
+  'repository_network_unavailable',
+  'repository_access_timeout',
+  'repository_access_failed',
+  'repository_url_invalid',
+  'repository_url_contains_credentials',
+])
+export type RepositoryAccessErrorCode = z.infer<typeof repositoryAccessErrorCodeSchema>
 export const localProjectRepositoryInputSchema = z.object({
   kind: z.literal('local'),
   rootId: z.string(),

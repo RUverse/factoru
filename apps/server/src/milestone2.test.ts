@@ -8,6 +8,7 @@ import { parseServerId } from '@factoru/domain'
 import type { RigRegistrar } from '@factoru/gas-city'
 import {
   CAPABILITY_LOCAL_ENROLLMENT,
+  CAPABILITY_REPOSITORY_ACCESS_CHECK,
   CONNECTION_TICKET_PATH,
   HANDSHAKE_PATH,
   LOCAL_ENROLLMENT_PATH,
@@ -118,6 +119,7 @@ describe('Milestone 2 server slice', () => {
       },
     })
     expect(handshake.json().server.capabilities).toContain(CAPABILITY_LOCAL_ENROLLMENT)
+    expect(handshake.json().server.capabilities).toContain(CAPABILITY_REPOSITORY_ACCESS_CHECK)
     const rejected = await app.inject({
       method: 'POST',
       url: LOCAL_ENROLLMENT_PATH,
@@ -220,7 +222,10 @@ describe('Milestone 2 server slice', () => {
       parseServerId('srv_11111111111111111111111111111111'),
     )
     const device = database.createTrustedDevice('Mac').device
-    const repositories = new RepositoryService([{ id: 'root_test', label: 'Repos', path: root }])
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      async () => ({ stdout: 'ref: refs/heads/main\tHEAD\n', stderr: '' }),
+    )
     const service = new ProjectService({
       database,
       repositories,
@@ -242,6 +247,113 @@ describe('Milestone 2 server slice', () => {
       rig: { registrationState: 'pending' },
     })
     expect(fs.existsSync(planned.repository.realPath)).toBe(false)
+    expect(database.claimDueOutbox()).toHaveLength(1)
+    database.close()
+  })
+
+  it('persists nothing when any remote repository is inaccessible', async () => {
+    const root = fixtureDirectory()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      async (args) => {
+        if (args.includes('git@github-work:private/denied.git')) {
+          throw Object.assign(new Error('git failed'), {
+            code: 128,
+            stderr: 'git@github-work: Permission denied (publickey).',
+          })
+        }
+        return { stdout: 'ref: refs/heads/main\tHEAD\n', stderr: '' }
+      },
+    )
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar: { register: async () => undefined },
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+
+    await expect(
+      service.createProject(device, 'cmd_inaccessible', {
+        name: 'Private platform',
+        repositories: [
+          { kind: 'remote', rootId: 'root_test', url: 'https://gitlab.com/open/api.git' },
+          {
+            kind: 'remote',
+            rootId: 'root_test',
+            url: 'git@github-work:private/denied.git',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'repository_authentication_required' })
+
+    expect(database.listProjects()).toEqual([])
+    expect(database.currentSequence()).toBe(0)
+    expect(database.claimDueOutbox()).toEqual([])
+    expect(fs.readdirSync(root).filter((entry) => entry.includes('api-'))).toEqual([])
+    database.close()
+  })
+
+  it('revalidates failed remote access before requeueing repository setup', async () => {
+    const root = fixtureDirectory()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    let accessible = true
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      async () => {
+        if (!accessible) {
+          throw Object.assign(new Error('git failed'), {
+            code: 128,
+            stderr: 'git@github.com: Permission denied (publickey).',
+          })
+        }
+        return { stdout: 'ref: refs/heads/main\tHEAD\n', stderr: '' }
+      },
+    )
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar: { register: async () => undefined },
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+    const project = await service.createProject(device, 'cmd_create_retry', {
+      name: 'Retry project',
+      repositories: [
+        { kind: 'remote', rootId: 'root_test', url: 'git@github.com:owner/private.git' },
+      ],
+    })
+    const [outbox] = database.claimDueOutbox()
+    expect(outbox).toBeDefined()
+    database.failProvisioning(
+      outbox!.id,
+      project.id,
+      6,
+      'repository_authentication_required',
+      'Configure Git authentication.',
+      outbox!.repositoryId,
+    )
+
+    accessible = false
+    await expect(service.retrySetup(device, 'cmd_retry_blocked', project.id)).rejects.toMatchObject(
+      { code: 'repository_authentication_required' },
+    )
+    expect(service.getProject(project.id).setupState).toBe('needs_attention')
+    expect(database.claimDueOutbox()).toEqual([])
+
+    accessible = true
+    await expect(service.retrySetup(device, 'cmd_retry_ready', project.id)).resolves.toMatchObject({
+      setupState: 'setting_up',
+    })
     expect(database.claimDueOutbox()).toHaveLength(1)
     database.close()
   })

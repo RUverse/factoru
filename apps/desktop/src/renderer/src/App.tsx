@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import type { ProjectPreview, Task, TrustedDevice, WorkerType } from '@factoru/protocol'
+import type {
+  ProjectPreview,
+  RepositoryAccessCheck,
+  Task,
+  TrustedDevice,
+  WorkerType,
+} from '@factoru/protocol'
 import type { ProductSnapshot, ServerProfileSummary } from '../../shared/product'
 import {
   FACTORY_NAME_MAX_LENGTH,
@@ -11,7 +17,13 @@ type Root = { id: string; label: string }
 type Entry = { name: string; relativePath: string; kind: 'directory' | 'repository' }
 type RepositoryDraft =
   | { id: string; kind: 'local'; preview: ProjectPreview }
-  | { id: string; kind: 'remote'; rootId: string; url: string }
+  | {
+      id: string
+      kind: 'remote'
+      rootId: string
+      url: string
+      access: RepositoryAccessCheck
+    }
 
 const taskColumns = [
   ['backlog', 'Backlog'],
@@ -48,6 +60,9 @@ export function App() {
   const [projectDescription, setProjectDescription] = useState('')
   const [repositoryUrl, setRepositoryUrl] = useState('')
   const [repositoryDrafts, setRepositoryDrafts] = useState<RepositoryDraft[]>([])
+  const [checkingRepositoryAccess, setCheckingRepositoryAccess] = useState(false)
+  const [repositoryAccessError, setRepositoryAccessError] = useState<string | null>(null)
+  const [projectCreateError, setProjectCreateError] = useState<string | null>(null)
   const [showServerBrowser, setShowServerBrowser] = useState(false)
   const [devices, setDevices] = useState<TrustedDevice[]>([])
   const [showDevices, setShowDevices] = useState(false)
@@ -252,6 +267,8 @@ export function App() {
     setProjectDescription('')
     setRepositoryUrl('')
     setRepositoryDrafts([])
+    setRepositoryAccessError(null)
+    setProjectCreateError(null)
     setPreview(null)
     setShowServerBrowser(false)
     setShowProjectSetup(true)
@@ -315,18 +332,46 @@ export function App() {
     setProjectFactoryId(factoryId)
     setRepositoryDrafts([])
     setRepositoryUrl('')
+    setRepositoryAccessError(null)
+    setProjectCreateError(null)
     setPreview(null)
     setShowServerBrowser(false)
     await loadFactoryRoots(factoryId)
   }
 
-  const addRepositoryUrl = () => {
+  const addRepositoryUrl = async () => {
     const url = repositoryUrl.trim()
-    if (!url || !rootId) return
+    if (!url || !rootId || !projectFactoryId || checkingRepositoryAccess) return
+    if (repositoryDrafts.some((draft) => draft.kind === 'remote' && draft.url === url)) {
+      setRepositoryUrl('')
+      setRepositoryAccessError(null)
+      return
+    }
+    setCheckingRepositoryAccess(true)
+    setRepositoryAccessError(null)
+    setProjectCreateError(null)
+    let outcome
+    try {
+      outcome = await window.factoru.product.checkRepositoryAccess(projectFactoryId, url)
+    } catch (caught) {
+      setRepositoryAccessError(caught instanceof Error ? caught.message : String(caught))
+      setCheckingRepositoryAccess(false)
+      return
+    }
+    setCheckingRepositoryAccess(false)
+    if (!outcome.ok) {
+      setRepositoryAccessError(
+        `${projectFactory?.name ?? 'The selected factory'} cannot access this repository. ${outcome.error.message}`,
+      )
+      return
+    }
     setRepositoryDrafts((current) =>
       current.some((draft) => draft.kind === 'remote' && draft.url === url)
         ? current
-        : [...current, { id: `remote:${url}`, kind: 'remote', rootId, url }],
+        : [
+            ...current,
+            { id: `remote:${url}`, kind: 'remote', rootId, url, access: outcome.result },
+          ],
     )
     if (!projectName) {
       const suggested =
@@ -342,8 +387,10 @@ export function App() {
   const createProject = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (repositoryDrafts.length === 0 || projectFactory?.connectionState !== 'connected') return
-    void run(() =>
-      window.factoru.product.create(projectFactoryId, {
+    setBusy(true)
+    setProjectCreateError(null)
+    void window.factoru.product
+      .create(projectFactoryId, {
         name: projectName.trim(),
         description: projectDescription.trim() || undefined,
         repositories: repositoryDrafts.map((draft) =>
@@ -361,16 +408,23 @@ export function App() {
                 url: draft.url,
               },
         ),
-      }),
-    ).then((value) => {
-      if (value) {
+      })
+      .then((value) => {
         setSnapshot(value)
         setFactoryFilterId(projectFactoryId)
         setShowProjectSetup(false)
         setPreview(null)
         setRepositoryDrafts([])
-      }
-    })
+      })
+      .catch((caught: unknown) => {
+        setProjectCreateError(caught instanceof Error ? caught.message : String(caught))
+      })
+      .finally(() => setBusy(false))
+  }
+
+  const retryProjectSetup = () => {
+    if (!activeProjectRef || activeLocatedProject?.factoryConnectionState !== 'connected') return
+    void run(() => window.factoru.product.retry(activeProjectRef))
   }
 
   const sendMessage = (event: FormEvent<HTMLFormElement>) => {
@@ -879,6 +933,70 @@ factoru-server providers configure --provider codex`}</code>
           <p className="offline-banner">Showing cached history. Sending and editing are paused.</p>
         )}
 
+        {!showProjectSetup && activeProject?.setupState !== 'ready' && activeProject && (
+          <section
+            className={`project-provisioning ${activeProject.setupState}`}
+            aria-live="polite"
+          >
+            <div>
+              <p className="eyebrow">Repository setup</p>
+              <h2>
+                {activeProject.setupState === 'setting_up'
+                  ? 'Preparing project repositories…'
+                  : 'Repository setup needs attention'}
+              </h2>
+              <p>
+                {activeProject.setupState === 'setting_up'
+                  ? `${activeLocatedProject?.factoryName ?? 'The home factory'} is cloning remote sources and registering execution rigs.`
+                  : (activeProject.setupError?.message ??
+                    'Fix the repository setup on the home factory, then retry.')}
+              </p>
+              {activeProject.setupState === 'needs_attention' &&
+                activeProject.repositories.some((repository) =>
+                  repository.rig.error
+                    ? repository.rig.error.code.startsWith('repository_') ||
+                      repository.rig.error.code === 'git_unavailable'
+                    : false,
+                ) && (
+                  <p className="provisioning-remedy">
+                    Configure Git authentication for the operating-system user running{' '}
+                    {activeLocatedProject?.factoryName ?? 'Factoru Server'}. Credentials and SSH
+                    keys stay on that factory.
+                  </p>
+                )}
+            </div>
+            <ul>
+              {activeProject.repositories.map((repository) => (
+                <li key={repository.id}>
+                  <span className={`status-dot ${repository.rig.registrationState}`} />
+                  <span>
+                    <strong>
+                      {(repository.sourceUrl ?? repository.repository.relativePath) || 'Repository'}
+                    </strong>
+                    <small>
+                      {statusLabel(repository.rig.registrationState)}
+                      {repository.rig.error ? ` · ${repository.rig.error.message}` : ''}
+                    </small>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {activeProject.setupState === 'needs_attention' && (
+              <button
+                className="primary"
+                onClick={retryProjectSetup}
+                disabled={
+                  busy ||
+                  activeLocatedProject?.factoryConnectionState !== 'connected' ||
+                  snapshot.cached
+                }
+              >
+                {busy ? 'Retrying…' : 'Retry repository setup'}
+              </button>
+            )}
+          </section>
+        )}
+
         {showProjectSetup ? (
           <section className="setup-panel">
             <header>
@@ -916,7 +1034,9 @@ factoru-server providers configure --provider codex`}</code>
                       name="projectFactory"
                       value={profile.serverId}
                       checked={projectFactoryId === profile.serverId}
-                      disabled={profile.connectionState !== 'connected' || busy}
+                      disabled={
+                        profile.connectionState !== 'connected' || busy || checkingRepositoryAccess
+                      }
                       onChange={() => void changeProjectFactory(profile.serverId)}
                     />
                     <span className={`status-dot ${profile.connectionState}`} aria-hidden="true" />
@@ -959,13 +1079,18 @@ factoru-server providers configure --provider codex`}</code>
 
                 <div className="url-add-row">
                   <input
-                    type="url"
+                    type="text"
+                    inputMode="url"
                     value={repositoryUrl}
-                    onChange={(event) => setRepositoryUrl(event.target.value)}
+                    onChange={(event) => {
+                      setRepositoryUrl(event.target.value)
+                      setRepositoryAccessError(null)
+                      setProjectCreateError(null)
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && repositoryUrl.trim()) {
                         event.preventDefault()
-                        addRepositoryUrl()
+                        void addRepositoryUrl()
                       }
                     }}
                     placeholder="https://github.com/organization/repository.git"
@@ -984,12 +1109,29 @@ factoru-server providers configure --provider codex`}</code>
                   </select>
                   <button
                     type="button"
-                    onClick={addRepositoryUrl}
-                    disabled={!repositoryUrl.trim() || !rootId}
+                    onClick={() => void addRepositoryUrl()}
+                    disabled={
+                      !repositoryUrl.trim() ||
+                      !rootId ||
+                      checkingRepositoryAccess ||
+                      projectFactory?.connectionState !== 'connected'
+                    }
                   >
-                    Add URL
+                    {checkingRepositoryAccess ? 'Checking…' : 'Add URL'}
                   </button>
                 </div>
+
+                {repositoryAccessError && (
+                  <div className="repository-access-error" role="alert">
+                    <strong>Repository access must be fixed before continuing.</strong>
+                    <p>{repositoryAccessError}</p>
+                    <small>
+                      On {projectFactory?.name ?? 'the factory'}, run{' '}
+                      <code>factoru-server repositories check --url &lt;repository-url&gt;</code>{' '}
+                      after configuring Git or SSH access.
+                    </small>
+                  </div>
+                )}
 
                 {projectFactory?.kind === 'local' && (
                   <>
@@ -1098,7 +1240,7 @@ factoru-server providers configure --provider codex`}</code>
                         <small>
                           {draft.kind === 'local'
                             ? `${draft.preview.relativePath || '/'} · ${draft.preview.defaultBranch}`
-                            : draft.url}
+                            : `${draft.url} · Access verified via ${draft.access.transport.toUpperCase()} (${draft.access.host})`}
                         </small>
                       </span>
                       {index === 0 && <span className="primary-rig-badge">Primary rig</span>}
@@ -1120,17 +1262,26 @@ factoru-server providers configure --provider codex`}</code>
               )}
 
               <footer className="project-create-actions">
-                <p>
-                  {repositoryDrafts.length === 0
-                    ? 'Add at least one repository to continue.'
-                    : `${repositoryDrafts.length} ${repositoryDrafts.length === 1 ? 'rig' : 'rigs'} will be created.`}
-                </p>
+                <div>
+                  <p>
+                    {repositoryDrafts.length === 0
+                      ? 'Add at least one repository to continue.'
+                      : `${repositoryDrafts.length} ${repositoryDrafts.length === 1 ? 'rig' : 'rigs'} will be created.`}
+                  </p>
+                  {projectCreateError && (
+                    <p className="error" role="alert">
+                      {projectCreateError} The project was not created; your repository selections
+                      are still here.
+                    </p>
+                  )}
+                </div>
                 <button
                   className="primary"
                   disabled={
                     !projectName.trim() ||
                     repositoryDrafts.length === 0 ||
                     projectFactory?.connectionState !== 'connected' ||
+                    checkingRepositoryAccess ||
                     busy
                   }
                 >

@@ -14,6 +14,8 @@ import {
   taskSchema,
   taskMergeProposalSchema,
   executionRunSchema,
+  repositoryAccessCheckSchema,
+  repositoryAccessErrorCodeSchema,
   type MemoryEntry,
   type PairingExchangeResponse,
   type PlannerProbe,
@@ -29,8 +31,8 @@ import {
 import { DESKTOP_NAME, DESKTOP_VERSION } from './version'
 import { normalizeProfileUrl } from './profile-store'
 import { type CredentialStore, type ProfileStore, type ServerProfile } from './profile-store'
-import { LiveFactoruClient } from './live-client'
-import type { ProductSnapshot, ProjectRef } from '../shared/product'
+import { LiveFactoruClient, LiveRequestError } from './live-client'
+import type { ProductSnapshot, ProjectRef, RepositoryAccessOutcome } from '../shared/product'
 import { normalizeFactoryName } from '../shared/factory'
 import { readLocalEnrollmentFile } from './local-enrollment'
 
@@ -449,6 +451,30 @@ export class ProductRuntime {
     return (await this.request(factoryId, 'repositories.previewPath', {
       absolutePath,
     })) as ProjectPreview
+  }
+  async checkRepositoryAccess(factoryId: string, url: string): Promise<RepositoryAccessOutcome> {
+    try {
+      return {
+        ok: true,
+        result: repositoryAccessCheckSchema.parse(
+          await this.request(factoryId, 'repositories.checkRemoteAccess', { url }),
+        ),
+      }
+    } catch (error) {
+      if (error instanceof LiveRequestError) {
+        const code = repositoryAccessErrorCodeSchema.safeParse(error.code)
+        if (code.success) {
+          return { ok: false, error: { code: code.data, message: error.message } }
+        }
+      }
+      return {
+        ok: false,
+        error: {
+          code: 'unavailable',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }
+    }
   }
   async create(factoryId: string, params: unknown): Promise<ProductSnapshot> {
     const project = projectSchema.parse(

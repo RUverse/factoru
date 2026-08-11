@@ -11,6 +11,7 @@ import {
   CAPABILITY_LOCAL_ENROLLMENT,
   CAPABILITY_PAIRING,
   CAPABILITY_PROJECTS,
+  CAPABILITY_REPOSITORY_ACCESS_CHECK,
   CAPABILITY_TRUSTED_DEVICES,
   CAPABILITY_CONVERSATIONS,
   CAPABILITY_WORKSPACES,
@@ -51,6 +52,7 @@ import {
   executionRequestChangesParamsSchema,
   executionRunParamsSchema,
   repositoryBrowseParamsSchema,
+  repositoryAccessCheckParamsSchema,
   repositoryPreviewPathParamsSchema,
   type HealthResponse,
   type LiveRequest,
@@ -137,6 +139,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           ...(options.localEnrollmentProof ? [CAPABILITY_LOCAL_ENROLLMENT] : []),
           CAPABILITY_LIVE,
           CAPABILITY_PROJECTS,
+          CAPABILITY_REPOSITORY_ACCESS_CHECK,
           CAPABILITY_TRUSTED_DEVICES,
           ...(workspaces
             ? [
@@ -381,6 +384,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'repositories.roots': 'projects:read',
       'repositories.browse': 'projects:read',
       'repositories.previewPath': 'projects:write',
+      'repositories.checkRemoteAccess': 'projects:write',
       'projects.previewCreate': 'projects:write',
       'projects.list': 'projects:read',
       'projects.get': 'projects:read',
@@ -424,6 +428,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           result = await projects.repositories.previewAbsolute(params.absolutePath)
           break
         }
+        case 'repositories.checkRemoteAccess': {
+          const params = repositoryAccessCheckParamsSchema.parse(request.params)
+          result = await projects.repositories.checkRemoteAccess(params.url)
+          break
+        }
         case 'projects.previewCreate': {
           const params = projectPreviewParamsSchema.parse(request.params)
           result = (
@@ -454,7 +463,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         case 'projects.retrySetup': {
           if (!request.commandId)
             throw new ApplicationError('command_id_required', 'Setup retry requires commandId')
-          result = projects.retrySetup(
+          result = await projects.retrySetup(
             currentDevice,
             request.commandId,
             projectIdParamsSchema.parse(request.params).projectId,

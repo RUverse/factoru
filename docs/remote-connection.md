@@ -95,6 +95,19 @@ disposable Git repository while validating this preview.
 Do not move or delete the Factoru checkout: its path owns the development state,
 server identity, and derived port block.
 
+Before adding private project repository URLs, configure Git access for this
+same Linux account. Factoru validates URLs non-interactively and clones them on
+this host; keys available only on the Desktop Mac are not used. Verify each URL
+before opening Desktop:
+
+```sh
+factoru-server repositories check --url git@github.com:OWNER/REPOSITORY.git
+```
+
+For GitHub plus GitLab, multiple accounts on one provider, HTTPS tokens,
+passphrase-protected keys, and verified `known_hosts` setup, follow
+[Git authentication on a Factoru factory](./git-authentication.md).
+
 ## 3. Configure providers and start the services
 
 Initialize Factoru's dedicated Gas City city with the authenticated harness:
@@ -201,7 +214,8 @@ Do not set `FACTORU_TRUST_PROXY` for the SSH path.
 ## 5. Prove the full loop
 
 Use a disposable repository under `$HOME/factoru-repositories`, or give Factoru
-an HTTPS/SSH repository URL to clone below that approved root. Then:
+an HTTPS/SSH repository URL that the CLI access check accepts. Desktop verifies
+the URL again before the server clones it below that approved root. Then:
 
 1. Create and open a project.
 2. In **Workers**, configure Project Manager `chat` and `planning`, plus
@@ -242,6 +256,7 @@ factoru-server status --json
 factoru-server providers list
 factoru-server sessions --active
 factoru-server doctor --provider codex
+factoru-server repositories check --url git@github.com:OWNER/REPOSITORY.git
 gc version
 dolt version
 bd version
@@ -260,6 +275,13 @@ Common failures:
   that runs Factoru and Gas City.
 - **Provider configuration refuses initialization:** resolve every reported Gas City,
   Dolt, Beads, or provider-readiness finding, then rerun it.
+- **Repository authentication is required:** configure the SSH identity or HTTPS
+  credential helper for this Linux account, verify the URL with
+  `factoru-server repositories check`, and retry in Desktop. Use SSH host aliases
+  when the same provider has multiple accounts.
+- **Repository host key is untrusted:** compare the fingerprint with the
+  provider's independently published value before adding it to `known_hosts`.
+  Factoru will not accept it automatically.
 - **Mac port 18787 is occupied:** rerun `factoru-server pair` with
   `--local-port <unused-port>`, use that port in `ssh -L`, and enter its
   `http://127.0.0.1:<port>` URL in Desktop. Do not reuse one local port for two

@@ -7,6 +7,8 @@ import {
   pairingExchangeRequestSchema,
   projectSnapshotSchema,
   projectCreateParamsSchema,
+  repositoryAccessCheckParamsSchema,
+  repositoryAccessCheckSchema,
 } from './milestone2.js'
 
 describe('Milestone 2 protocol', () => {
@@ -94,5 +96,18 @@ describe('Milestone 2 protocol', () => {
     expect(projectCreateParamsSchema.safeParse({ name: 'Empty', repositories: [] }).success).toBe(
       false,
     )
+  })
+
+  it('validates remote repository access requests and successful results', () => {
+    expect(
+      repositoryAccessCheckParamsSchema.parse({ url: ' git@github-work:RUverse/factoru.git ' }),
+    ).toEqual({ url: 'git@github-work:RUverse/factoru.git' })
+    expect(
+      repositoryAccessCheckSchema.parse({
+        transport: 'ssh',
+        host: 'github-work',
+        accessible: true,
+      }),
+    ).toEqual({ transport: 'ssh', host: 'github-work', accessible: true })
   })
 })

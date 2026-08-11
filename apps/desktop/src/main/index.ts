@@ -27,6 +27,7 @@ import {
   IPC_PRODUCT_CHANGED,
   IPC_PRODUCT_CANCEL_PLANNER,
   IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER,
+  IPC_PRODUCT_CHECK_REPOSITORY_ACCESS,
   IPC_PRODUCT_CREATE,
   IPC_PRODUCT_DEVICES,
   IPC_PRODUCT_GET,
@@ -179,6 +180,9 @@ function registerIpc(): void {
     const selectedPath = selection.filePaths[0]
     return selection.canceled || !selectedPath ? null : product.previewPath(factoryId, selectedPath)
   })
+  ipcMain.handle(IPC_PRODUCT_CHECK_REPOSITORY_ACCESS, (_event, factoryId: string, url: string) =>
+    product.checkRepositoryAccess(factoryId, url),
+  )
   ipcMain.handle(IPC_PRODUCT_CREATE, (_event, factoryId: string, params: unknown) =>
     product.create(factoryId, params),
   )

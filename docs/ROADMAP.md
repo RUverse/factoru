@@ -205,9 +205,13 @@ previews, cloning, and creation route to that factory. Local Factory can use the
 native macOS folder picker; the selected path is validated by Factoru Server
 against approved repository roots and is never exposed as a general renderer
 filesystem capability. Remote factories use their approved-root browser or
-HTTPS/SSH repository URLs, which the server clones into an approved root. URLs
-containing credentials are rejected; repository access is configured on the
-server.
+HTTPS/SSH repository URLs. The chosen server validates each URL
+non-interactively before Desktop stages it and rechecks all URLs before project
+persistence, then clones them asynchronously into an approved root. URLs
+containing credentials are rejected. Repository access comes from the
+unprivileged server account's standard OpenSSH configuration, agent, known
+hosts, or HTTPS credential helper; Factoru diagnoses that setup but never
+stores Git keys or tokens.
 
 ### Task lifecycle
 
@@ -829,8 +833,9 @@ restarts.
 - Ship one `factoru-server` operator CLI in those artifacts and the RUverse
   Homebrew tap. Its source-preview form already covers start/version, host
   doctor, provider/city setup and readiness, status, Factoru-correlated active
-  work, pairing/SSH-forward details, and verified SQLite backup; packaged
-  lifecycle, logs, restore, and service management remain in this milestone.
+  work, repository-access diagnostics, pairing/SSH-forward details, and verified
+  SQLite backup; packaged lifecycle, explicit service-account Git credential
+  handling, logs, restore, and service management remain in this milestone.
 - Add backup/restore for Factoru SQLite plus documented Gas City/Dolt recovery,
   migrations, diagnostics, logs, update policy, and health reporting.
 - Monitor Dolt and Beads backup growth, free-space headroom, compaction status,

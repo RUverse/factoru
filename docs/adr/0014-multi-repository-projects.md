@@ -36,6 +36,16 @@ filesystem or shell access.
   into a deterministic location below an approved root. URLs containing
   credentials are rejected. Clone and rig-registration mutations occur after
   durable intent and are bounded/idempotent.
+- Desktop requests a bounded, non-interactive access check before staging a
+  remote source, and `projects.create` repeats it before persisting any project,
+  receipt, event, or outbox item. Setup retry repeats the check for failed remote
+  sources before requeueing them. The later clone remains asynchronous so
+  network work never enters the project transaction.
+- Git authentication is owned by the unprivileged operating-system account that
+  runs Factoru Server. Factoru honors its standard OpenSSH config, host aliases,
+  known hosts, agent socket, and Git credential helpers. It does not import or
+  persist private keys/tokens and never auto-accepts host keys. Multiple
+  identities on one provider use normal SSH host aliases in repository URLs.
 - Electron main owns the native macOS folder dialog. The selected absolute path
   goes directly to the server for canonical approved-root validation; the
   renderer receives only the bounded repository preview. Approved server-root
@@ -56,8 +66,8 @@ filesystem or shell access.
   that a folder on a remote desktop exists on the server. The server rejects
   selections outside its approved roots with an actionable error.
 - Remote clone authentication remains server/operator configuration. Factoru
-  does not collect credentials in repository URLs or send them through the
-  renderer.
+  checks and classifies access without collecting credentials in repository
+  URLs, sending them through the renderer, or returning raw Git stderr.
 - Additional rigs are durable project context now, but tasks do not yet choose
   or span them. Product copy must not imply cross-repository execution until
   task routing, Formula variables, capsules, evidence, and review all carry the
@@ -69,7 +79,7 @@ filesystem or shell access.
 - Project Manager planning can safely infer cross-repository changes;
 - a project needs to add, remove, reorder, or change its primary repository
   after creation;
-- packaged remote-server onboarding needs managed Git credentials or clone
-  progress/cancellation; or
+- packaged remote-server onboarding needs an explicit service-account
+  credential lifecycle or clone progress/cancellation; or
 - Gas City introduces a first-class multi-rig workflow primitive that changes
   the ownership boundary.

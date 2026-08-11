@@ -9,6 +9,7 @@ import {
   type ProductLiveClient,
   type ProductRuntimeOptions,
 } from './product-runtime'
+import { LiveRequestError } from './live-client'
 
 const directories: string[] = []
 
@@ -90,6 +91,8 @@ class FakeLiveClient implements ProductLiveClient {
   connectCount = 0
   closeCount = 0
   readonly requests: LiveMethod[] = []
+  readonly requestParams: unknown[] = []
+  nextError: Error | null = null
   #closeListener: (() => void) | null = null
 
   constructor(readonly url: string) {}
@@ -112,10 +115,19 @@ class FakeLiveClient implements ProductLiveClient {
     this.#closeListener?.()
   }
 
-  async request(method: LiveMethod): Promise<unknown> {
+  async request(method: LiveMethod, params?: unknown): Promise<unknown> {
     this.requests.push(method)
+    this.requestParams.push(params)
+    if (this.nextError) {
+      const error = this.nextError
+      this.nextError = null
+      throw error
+    }
     if (method === 'projects.subscribe') {
       return { cursor: 0, projects: [], resynchronized: false, events: [] }
+    }
+    if (method === 'repositories.checkRemoteAccess') {
+      return { transport: 'ssh', host: 'github-work', accessible: true }
     }
     return { url: this.url }
   }
@@ -276,6 +288,76 @@ describe('multi-server product runtime', () => {
     expect(runtime.snapshot.profiles).toEqual([
       expect.objectContaining({ serverId: second.serverId, connectionState: 'connected' }),
     ])
+    runtime.dispose()
+  })
+
+  it('checks repository access on the targeted factory and preserves typed failures', async () => {
+    const root = directory()
+    const profiles = new ProfileStore(root)
+    const factory = profile(`srv_${'9'.repeat(32)}`, 'http://127.0.0.1:18789', 'Build Pi')
+    profiles.save(factory)
+    const credentials = new CredentialStore(root, {
+      isEncryptionAvailable: () => true,
+      encryptString: (value) => Buffer.from(value),
+      decryptString: (value) => value.toString(),
+    })
+    credentials.set(factory.serverId, 'factory-token')
+    let live: FakeLiveClient | undefined
+    const runtime = new ProductRuntime(profiles, credentials, {
+      createClient: () => ({
+        baseUrl: factory.url,
+        handshake: async () => ({
+          response: {
+            server: {
+              serverId: factory.serverId,
+              serverVersion: '0.0.0',
+              protocolVersion: 1,
+              minProtocolVersion: 1,
+              capabilities: [],
+            },
+            compatible: true,
+            negotiatedProtocolVersion: 1,
+            incompatibility: null,
+          },
+          compatibility: {
+            compatible: true,
+            negotiatedProtocolVersion: 1,
+            incompatibility: null,
+          },
+        }),
+        pair: async () => {
+          throw new Error('pair is not used')
+        },
+        pairLocal: async () => {
+          throw new Error('pairLocal is not used')
+        },
+      }),
+      createLiveClient: (options) => (live = new FakeLiveClient(options.baseUrl)),
+    })
+    await runtime.connectAll()
+
+    await expect(
+      runtime.checkRepositoryAccess(factory.serverId, 'git@github-work:owner/repo.git'),
+    ).resolves.toEqual({
+      ok: true,
+      result: { transport: 'ssh', host: 'github-work', accessible: true },
+    })
+    expect(live?.requests).toContain('repositories.checkRemoteAccess')
+    expect(live?.requestParams).toContainEqual({ url: 'git@github-work:owner/repo.git' })
+
+    live!.nextError = new LiveRequestError(
+      'repository_authentication_required',
+      'Configure an SSH identity on Build Pi.',
+    )
+    await expect(
+      runtime.checkRepositoryAccess(factory.serverId, 'git@github-work:owner/private.git'),
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'repository_authentication_required',
+        message: 'Configure an SSH identity on Build Pi.',
+      },
+    })
     runtime.dispose()
   })
 

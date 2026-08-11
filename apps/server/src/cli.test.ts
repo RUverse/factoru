@@ -73,4 +73,22 @@ describe('Factoru Server CLI parser', () => {
     })
     expect(() => parseCliArgs(['backup', 'relative.sqlite'])).toThrow('absolute')
   })
+
+  it('parses repository access diagnostics', () => {
+    expect(
+      parseCliArgs([
+        'repositories',
+        'check',
+        '--url',
+        'git@github-work:RUverse/factoru.git',
+        '--json',
+      ]),
+    ).toEqual({
+      kind: 'repositories-check',
+      url: 'git@github-work:RUverse/factoru.git',
+      json: true,
+    })
+    expect(() => parseCliArgs(['repositories', 'check'])).toThrow('--url')
+    expect(renderCliHelp()).toContain('repositories check --url')
+  })
 })

@@ -14,6 +14,30 @@ import type { ProjectPreview } from '@factoru/protocol'
 import type { RepositoryRootConfig } from './config.js'
 
 const exec = promisify(execFile)
+const REMOTE_ACCESS_TIMEOUT_MS = 15_000
+
+export interface GitCommandOptions {
+  readonly cwd: string
+  readonly env?: NodeJS.ProcessEnv
+  readonly timeout?: number
+  readonly maxBuffer?: number
+}
+
+export type GitCommandRunner = (
+  args: readonly string[],
+  options: GitCommandOptions,
+) => Promise<{ stdout: string; stderr: string }>
+
+const runGitCommand: GitCommandRunner = async (args, options) => {
+  const result = await exec('git', [...args], {
+    cwd: options.cwd,
+    env: options.env,
+    timeout: options.timeout,
+    maxBuffer: options.maxBuffer,
+    encoding: 'utf8',
+  })
+  return { stdout: result.stdout, stderr: result.stderr }
+}
 
 export class RepositoryError extends Error {
   constructor(
@@ -36,6 +60,18 @@ export interface ImportedRepository {
   sourceUrl: string
 }
 
+export interface RepositoryAccessCheck {
+  readonly transport: 'ssh' | 'https'
+  readonly host: string
+  readonly accessible: true
+}
+
+interface ValidatedRemoteUrl {
+  readonly sourceUrl: string
+  readonly transport: RepositoryAccessCheck['transport']
+  readonly host: string
+}
+
 export interface RepositoryEntry {
   name: string
   relativePath: string
@@ -44,14 +80,16 @@ export interface RepositoryEntry {
 
 export class RepositoryService {
   readonly #roots: ReadonlyMap<string, RepositoryRootConfig>
+  readonly #runGit: GitCommandRunner
 
-  constructor(roots: readonly RepositoryRootConfig[]) {
+  constructor(roots: readonly RepositoryRootConfig[], runGit: GitCommandRunner = runGitCommand) {
     this.#roots = new Map(
       roots.map((root) => {
         const normalized = { ...root, path: fsSync.realpathSync(root.path) }
         return [normalized.id, normalized]
       }),
     )
+    this.#runGit = runGit
   }
 
   roots(): Array<{ id: string; label: string }> {
@@ -106,16 +144,18 @@ export class RepositoryService {
       }
     } else {
       try {
-        await exec('git', ['clone', '--', sourceUrl, destination], {
+        await this.#runGit(['clone', '--', sourceUrl, destination], {
           cwd: root.path,
-          encoding: 'utf8',
+          env: this.#nonInteractiveGitEnvironment(),
           maxBuffer: 4 * 1024 * 1024,
         })
-      } catch {
+      } catch (error) {
         await fs.rm(destination, { recursive: true, force: true })
+        const accessError = this.#classifyAccessFailure(error, this.#validateRemoteUrl(sourceUrl))
+        if (accessError.code !== 'repository_access_failed') throw accessError
         throw new RepositoryError(
           'repository_clone_failed',
-          'Factoru could not clone that repository URL. Check access and try again.',
+          'Factoru Server could not clone the repository after access was validated. Check the factory network and available storage, then retry repository setup.',
         )
       }
     }
@@ -125,12 +165,27 @@ export class RepositoryService {
     }
   }
 
+  async checkRemoteAccess(urlValue: string): Promise<RepositoryAccessCheck> {
+    const remote = this.#validateRemoteUrl(urlValue)
+    try {
+      await this.#runGit(['ls-remote', '--symref', '--', remote.sourceUrl, 'HEAD'], {
+        cwd: process.cwd(),
+        env: this.#nonInteractiveGitEnvironment(),
+        timeout: REMOTE_ACCESS_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+      })
+    } catch (error) {
+      throw this.#classifyAccessFailure(error, remote)
+    }
+    return { transport: remote.transport, host: remote.host, accessible: true }
+  }
+
   planClone(urlValue: string, rootId: string): ImportedRepository {
     const root = this.#roots.get(rootId)
     if (!root) {
       throw new RepositoryError('repository_root_not_found', 'Clone destination is unavailable')
     }
-    const sourceUrl = this.#validateRemoteUrl(urlValue)
+    const sourceUrl = this.#validateRemoteUrl(urlValue).sourceUrl
     const baseName = this.#remoteRepositoryName(sourceUrl)
     const suffix = createHash('sha256').update(sourceUrl).digest('hex').slice(0, 8)
     const relativePath = `${baseName}-${suffix}`
@@ -301,9 +356,10 @@ export class RepositoryService {
     }
   }
 
-  #validateRemoteUrl(value: string): string {
+  #validateRemoteUrl(value: string): ValidatedRemoteUrl {
     const trimmed = value.trim()
-    if (/^[\w.-]+@[\w.-]+:[^\s]+$/.test(trimmed)) return trimmed
+    const scp = /^([\w.-]+)@([\w.-]+):([^\s]+)$/.exec(trimmed)
+    if (scp) return { sourceUrl: trimmed, transport: 'ssh', host: scp[2]! }
     let url: URL
     try {
       url = new URL(trimmed)
@@ -313,14 +369,109 @@ export class RepositoryService {
     if (!['https:', 'ssh:'].includes(url.protocol) || !url.hostname) {
       throw new RepositoryError('repository_url_invalid', 'Use an HTTPS or SSH Git repository URL')
     }
-    if (url.username || url.password) {
+    if (url.password || (url.protocol === 'https:' && url.username)) {
       throw new RepositoryError(
         'repository_url_contains_credentials',
         'Repository URLs must not contain credentials; configure access on the server instead',
       )
     }
     url.hash = ''
-    return url.toString()
+    return {
+      sourceUrl: url.toString(),
+      transport: url.protocol === 'ssh:' ? 'ssh' : 'https',
+      host: url.hostname,
+    }
+  }
+
+  #nonInteractiveGitEnvironment(): NodeJS.ProcessEnv {
+    return {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GCM_INTERACTIVE: 'Never',
+      SSH_ASKPASS_REQUIRE: 'never',
+      GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND || 'ssh -o BatchMode=yes',
+    }
+  }
+
+  #classifyAccessFailure(error: unknown, remote: ValidatedRemoteUrl): RepositoryError {
+    const failure = error as {
+      code?: string | number
+      killed?: boolean
+      signal?: string
+      stderr?: string | Buffer
+      stdout?: string | Buffer
+    }
+    const output = `${String(failure.stderr ?? '')}\n${String(failure.stdout ?? '')}`.toLowerCase()
+    if (failure.code === 'ENOENT') {
+      return new RepositoryError(
+        'git_unavailable',
+        'Git is not installed or is unavailable to the operating-system user running Factoru Server.',
+      )
+    }
+    if (failure.killed || failure.signal === 'SIGTERM' || failure.code === 'ETIMEDOUT') {
+      return new RepositoryError(
+        'repository_access_timeout',
+        `Factoru Server timed out while checking ${remote.host}. Check the factory network and try again.`,
+      )
+    }
+    if (
+      output.includes('host key verification failed') ||
+      output.includes('remote host identification has changed') ||
+      output.includes('authenticity of host')
+    ) {
+      return new RepositoryError(
+        'repository_host_key_required',
+        `Factoru Server does not trust the SSH host key for ${remote.host}. Verify the provider fingerprint and add it to the server user's known_hosts, then retry.`,
+      )
+    }
+    if (
+      output.includes('permission denied (publickey') ||
+      output.includes('authentication failed') ||
+      output.includes('http basic: access denied') ||
+      output.includes('invalid username or password') ||
+      output.includes('invalid username or token') ||
+      output.includes('error: 401') ||
+      output.includes('could not read username') ||
+      output.includes('terminal prompts disabled') ||
+      output.includes('no such identity') ||
+      output.includes('sign_and_send_pubkey')
+    ) {
+      return new RepositoryError(
+        'repository_authentication_required',
+        `Factoru Server cannot authenticate to ${remote.host}. Configure Git credentials or an SSH identity for the operating-system user running Factoru Server, then retry.`,
+      )
+    }
+    if (
+      output.includes('repository not found') ||
+      output.includes('does not appear to be a git repository') ||
+      output.includes('could not read from remote repository') ||
+      output.includes('error: 403') ||
+      output.includes('not found')
+    ) {
+      return new RepositoryError(
+        'repository_not_found_or_forbidden',
+        `Factoru Server cannot read that repository on ${remote.host}. Verify the URL and the server user's repository permission, then retry.`,
+      )
+    }
+    if (
+      output.includes('could not resolve host') ||
+      output.includes('could not resolve hostname') ||
+      output.includes('connection timed out') ||
+      output.includes('operation timed out') ||
+      output.includes('failed to connect') ||
+      output.includes('connection refused') ||
+      output.includes('network is unreachable') ||
+      output.includes('no route to host')
+    ) {
+      return new RepositoryError(
+        'repository_network_unavailable',
+        `Factoru Server cannot reach ${remote.host}. Check DNS, firewall, and network access on the factory, then retry.`,
+      )
+    }
+    return new RepositoryError(
+      'repository_access_failed',
+      `Factoru Server could not verify repository access on ${remote.host}. Run factoru-server repositories check --url <repository-url> on the factory for a focused diagnostic.`,
+    )
   }
 
   #remoteRepositoryName(sourceUrl: string): string {

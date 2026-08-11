@@ -518,6 +518,18 @@ code {
   background: var(--factoru-error);
 }
 
+.status-dot.ready {
+  background: var(--factoru-ok);
+}
+
+.status-dot.pending {
+  background: var(--factoru-warn);
+}
+
+.status-dot.failed {
+  background: var(--factoru-error);
+}
+
 .sidebar-section-head {
   display: flex;
   align-items: center;
@@ -665,6 +677,70 @@ code {
   padding: 7px 18px;
   color: var(--factoru-warn);
   font-size: 11px;
+}
+
+.project-provisioning {
+  display: grid;
+  gap: 10px;
+  border-bottom: 1px solid var(--factoru-border);
+  background: rgba(239, 189, 91, 0.06);
+  padding: 14px 18px;
+}
+
+.project-provisioning.needs_attention {
+  background: rgba(239, 125, 125, 0.06);
+}
+
+.project-provisioning h2 {
+  margin: 2px 0 4px;
+  font-size: 15px;
+}
+
+.project-provisioning p {
+  color: var(--factoru-text-muted);
+  font-size: 11px;
+}
+
+.project-provisioning .provisioning-remedy {
+  margin-top: 6px;
+  color: var(--factoru-warn);
+}
+
+.project-provisioning ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-provisioning li {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.project-provisioning li > span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.project-provisioning li strong,
+.project-provisioning li small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-provisioning li small {
+  color: var(--factoru-text-faint);
+  font-size: 10px;
+}
+
+.project-provisioning > button {
+  justify-self: start;
 }
 
 .message-list {
@@ -944,6 +1020,26 @@ code {
   padding: 9px;
 }
 
+.repository-access-error {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(239, 125, 125, 0.28);
+  border-radius: 8px;
+  background: rgba(239, 125, 125, 0.08);
+  padding: 10px;
+  color: var(--factoru-error);
+  font-size: 11px;
+}
+
+.repository-access-error p,
+.repository-access-error small {
+  color: var(--factoru-text-muted);
+}
+
+.repository-access-error code {
+  color: var(--factoru-text);
+}
+
 .selected-repositories {
   display: grid;
   gap: 7px;
@@ -1022,6 +1118,16 @@ code {
 .project-create-actions p {
   color: var(--factoru-text-faint);
   font-size: 11px;
+}
+
+.project-create-actions > div {
+  display: grid;
+  gap: 6px;
+}
+
+.project-create-actions .error {
+  max-width: 560px;
+  color: var(--factoru-error);
 }
 
 .browser-toolbar {

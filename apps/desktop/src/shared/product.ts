@@ -10,6 +10,8 @@ import type {
   Task,
   TaskMergeProposal,
   ExecutionRun,
+  RepositoryAccessCheck,
+  RepositoryAccessErrorCode,
 } from '@factoru/protocol'
 
 export interface ServerProfileSummary {
@@ -49,6 +51,13 @@ export interface ProductSnapshot {
   remoteFactoryIntroComplete: boolean
 }
 
+export type RepositoryAccessOutcome =
+  | { ok: true; result: RepositoryAccessCheck }
+  | {
+      ok: false
+      error: { code: RepositoryAccessErrorCode | 'unavailable'; message: string }
+    }
+
 export const IPC_PRODUCT_GET = 'factoru:product:get'
 export const IPC_PRODUCT_PAIR = 'factoru:product:pair'
 export const IPC_PRODUCT_PAIR_LOCAL = 'factoru:product:pair-local'
@@ -59,6 +68,7 @@ export const IPC_PRODUCT_ROOTS = 'factoru:product:roots'
 export const IPC_PRODUCT_BROWSE = 'factoru:product:browse'
 export const IPC_PRODUCT_PREVIEW = 'factoru:product:preview'
 export const IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER = 'factoru:product:choose-repository-folder'
+export const IPC_PRODUCT_CHECK_REPOSITORY_ACCESS = 'factoru:product:check-repository-access'
 export const IPC_PRODUCT_CREATE = 'factoru:product:create'
 export const IPC_PRODUCT_RETRY = 'factoru:product:retry'
 export const IPC_PRODUCT_DEVICES = 'factoru:product:devices'
@@ -104,6 +114,7 @@ export interface ProductBridge {
     defaultBranch?: string,
   ): Promise<ProjectPreview>
   chooseRepositoryFolder(factoryId: string): Promise<ProjectPreview | null>
+  checkRepositoryAccess(factoryId: string, url: string): Promise<RepositoryAccessOutcome>
   create(
     factoryId: string,
     params: {

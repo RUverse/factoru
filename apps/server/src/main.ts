@@ -17,7 +17,7 @@ import { parseCliArgs, renderCliHelp } from './cli.js'
 import { loadServerConfig } from './config.js'
 import { ensureServerId } from './identity.js'
 import { ProjectService } from './project-service.js'
-import { RepositoryService } from './repositories.js'
+import { RepositoryError, RepositoryService } from './repositories.js'
 import { SERVER_VERSION } from './version.js'
 import { WorkspaceService } from './workspace-service.js'
 import { TaskService } from './task-service.js'
@@ -64,6 +64,39 @@ async function main(): Promise<void> {
   }
 
   const config = loadServerConfig()
+
+  if (command.kind === 'repositories-check') {
+    try {
+      const result = await new RepositoryService(config.repositoryRoots).checkRemoteAccess(
+        command.url,
+      )
+      if (command.json) {
+        console.log(JSON.stringify({ ready: true, ...result }, null, 2))
+      } else {
+        console.log('Factoru repository access')
+        console.log(`  transport       ${result.transport}`)
+        console.log(`  host            ${result.host}`)
+        console.log('  access          ready')
+      }
+    } catch (error) {
+      if (!(error instanceof RepositoryError)) throw error
+      if (command.json) {
+        console.log(
+          JSON.stringify(
+            { ready: false, error: { code: error.code, message: error.message } },
+            null,
+            2,
+          ),
+        )
+      } else {
+        console.log('Factoru repository access')
+        console.log(`  access          failed (${error.code})`)
+        console.log(`  remedy          ${error.message}`)
+      }
+      process.exitCode = 1
+    }
+    return
+  }
 
   if (command.kind === 'status') {
     const status = await readOperatorStatus(config)

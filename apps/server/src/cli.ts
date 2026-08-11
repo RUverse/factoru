@@ -16,6 +16,7 @@ export type CliCommand =
       readonly defaultProvider: CliProvider
     }
   | { readonly kind: 'providers-list'; readonly json: boolean }
+  | { readonly kind: 'repositories-check'; readonly url: string; readonly json: boolean }
   | {
       readonly kind: 'pair'
       readonly sshHost: string | undefined
@@ -171,6 +172,30 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
         'Run factoru-server help for examples.',
     )
   }
+  if (command === 'repositories') {
+    if (args[1] !== 'check') {
+      throw new Error('Usage: factoru-server repositories check --url <repository-url> [--json]')
+    }
+    let url: string | undefined
+    let json = false
+    for (let index = 2; index < args.length; index += 1) {
+      const argument = args[index]
+      if (argument === '--json') {
+        json = true
+        continue
+      }
+      if (argument === '--url' && !url) {
+        url = args[index + 1]?.trim()
+        index += 1
+        continue
+      }
+      throw new Error('Usage: factoru-server repositories check --url <repository-url> [--json]')
+    }
+    if (!url) {
+      throw new Error('Usage: factoru-server repositories check --url <repository-url> [--json]')
+    }
+    return { kind: 'repositories-check', url, json }
+  }
   if (command === 'pair') return parsePair(args.slice(1))
   if (command === 'backup') {
     const destination = args[1]
@@ -193,6 +218,8 @@ Commands:
   status [--json]                    Show identity, endpoint, health, city, and activity
   providers configure --provider P   Initialize the dedicated city with codex/claude
   providers list [--json]            Check configured provider readiness
+  repositories check --url U [--json]
+                                     Verify non-interactive Git access as the Server user
   sessions [--active] [--json]       Show Factoru-correlated orchestration activity
   pair [--ssh-host H] [--local-port P] [--json]
                                      Create a 10-minute code and SSH connection details
@@ -202,5 +229,6 @@ Commands:
   help                               Show this help
 
 Provider authentication remains provider-owned: run codex login or claude auth login.
+Git authentication remains server-user-owned; see docs/git-authentication.md.
 Project model slots are configured in Factoru Desktop after pairing.`
 }
