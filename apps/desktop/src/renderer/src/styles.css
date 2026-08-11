@@ -393,8 +393,10 @@ code {
   overflow: auto;
 }
 
-.factory-list > button {
+.factory-list > button,
+.factory-list-item > button:first-child {
   display: grid;
+  width: 100%;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
@@ -404,14 +406,37 @@ code {
   text-align: left;
 }
 
-.factory-list > button.active {
+.factory-list > button.active,
+.factory-list-item > button:first-child.active {
   border-color: rgba(138, 180, 255, 0.2);
   background: var(--factoru-accent-soft);
 }
 
-.factory-list > button > span:nth-child(2) {
+.factory-list > button > span:nth-child(2),
+.factory-list-item > button:first-child > span:nth-child(2) {
   display: grid;
   min-width: 0;
+}
+
+.factory-list-item {
+  position: relative;
+  min-width: 0;
+}
+
+.factory-list-item > button:first-child {
+  padding-right: 33px;
+}
+
+.factory-manage-button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  border-color: transparent;
+  background: transparent;
+  padding: 4px;
+  color: var(--factoru-text-faint);
+  font-size: 9px;
+  transform: translateY(-50%);
 }
 
 .factory-actions {
@@ -754,6 +779,50 @@ code {
   display: grid;
   max-width: 760px;
   gap: 16px;
+}
+
+.factory-choice {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  border: 1px solid var(--factoru-border);
+  border-radius: 12px;
+  background: var(--factoru-surface);
+  padding: 13px;
+}
+
+.factory-choice legend {
+  padding: 0 5px;
+  font-weight: 700;
+}
+
+.factory-choice > p {
+  color: var(--factoru-text-faint);
+  font-size: 11px;
+}
+
+.factory-choice label {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  padding: 8px 10px;
+}
+
+.factory-choice label:has(input:checked) {
+  border-color: rgba(138, 180, 255, 0.35);
+  background: var(--factoru-accent-soft);
+}
+
+.factory-choice label > span:last-child {
+  display: grid;
+}
+
+.factory-choice small {
+  color: var(--factoru-text-faint);
+  font-size: 10px;
 }
 
 .project-basics {
@@ -1486,6 +1555,57 @@ button.danger {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 30;
+  display: grid;
+  inset: 0;
+  place-items: center;
+  overflow: auto;
+  padding: 24px;
+  background: rgba(5, 7, 10, 0.76);
+  backdrop-filter: blur(6px);
+}
+
+.remote-factory-intro {
+  display: grid;
+  width: min(520px, 100%);
+  gap: 13px;
+  border: 1px solid var(--factoru-border-strong);
+  border-radius: var(--factoru-radius-lg);
+  background: var(--factoru-surface-raised);
+  box-shadow: var(--factoru-shadow);
+  padding: 26px;
+}
+
+.remote-factory-intro h2 {
+  font-size: 23px;
+}
+
+.remote-factory-intro ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 22px;
+  color: var(--factoru-text-muted);
+  font-size: 12px;
+}
+
+.remote-factory-intro pre {
+  overflow: auto;
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  background: #090c10;
+  padding: 11px;
+  font-size: 11px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @media (max-width: 1050px) {

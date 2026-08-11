@@ -171,8 +171,10 @@ named `~/.ssh/config` host when the identity and address are used repeatedly.
 Port 18787 is only the Mac-side endpoint and may be changed if already in use.
 Give every concurrently connected remote server its own Mac-side loopback port
 (for example 18788, 18789, and 18790). Factoru Desktop keeps independent live
-connections and credentials keyed by stable server ID while the selected server
-controls the visible projects and command destination.
+connections and credentials keyed by stable server ID. Its project list can show
+all factories together; selecting a project routes commands to that project's
+authoritative home factory, while the factory list filters projects and manages
+connections.
 The remote target must remain the exact loopback Factoru port. Do not forward
 Gas City port 8372, any Gas City dashboard/controller, agent-tool endpoint, or
 Dolt listener.

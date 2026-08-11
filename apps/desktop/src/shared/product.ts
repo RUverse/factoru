@@ -24,21 +24,34 @@ export interface ServerProfileSummary {
   error: string | null
 }
 
+export interface ProjectRef {
+  factoryId: string
+  projectId: string
+}
+
+export interface LocatedProject {
+  ref: ProjectRef
+  project: Project
+  factoryName: string
+  factoryKind: ServerProfileSummary['kind']
+  factoryConnectionState: ServerProfileSummary['connectionState']
+}
+
 export interface ProductSnapshot {
+  initialized: boolean
   profiles: ServerProfileSummary[]
-  activeServerId: string | null
-  projects: Project[]
-  activeProjectId: string | null
+  projects: LocatedProject[]
+  activeProjectRef: ProjectRef | null
   workspace: Workspace | null
   connected: boolean
   cached: boolean
   error: string | null
+  remoteFactoryIntroComplete: boolean
 }
 
 export const IPC_PRODUCT_GET = 'factoru:product:get'
 export const IPC_PRODUCT_PAIR = 'factoru:product:pair'
 export const IPC_PRODUCT_PAIR_LOCAL = 'factoru:product:pair-local'
-export const IPC_PRODUCT_ACTIVATE = 'factoru:product:activate'
 export const IPC_PRODUCT_RENAME = 'factoru:product:rename'
 export const IPC_PRODUCT_REMOVE = 'factoru:product:remove'
 export const IPC_PRODUCT_RECONNECT = 'factoru:product:reconnect'
@@ -67,93 +80,104 @@ export const IPC_PRODUCT_RETRY_RUN = 'factoru:product:retry-run'
 export const IPC_PRODUCT_REQUEST_RUN_CHANGES = 'factoru:product:request-run-changes'
 export const IPC_PRODUCT_APPROVE_RUN = 'factoru:product:approve-run'
 export const IPC_PRODUCT_ARCHIVE_RUN = 'factoru:product:archive-run'
+export const IPC_PRODUCT_COMPLETE_REMOTE_FACTORY_INTRO =
+  'factoru:product:complete-remote-factory-intro'
 
 export interface ProductBridge {
   get(): Promise<ProductSnapshot>
   pair(url: string, code: string, deviceName: string, factoryName: string): Promise<ProductSnapshot>
   pairLocal(deviceName: string): Promise<ProductSnapshot>
-  activate(serverId: string): Promise<ProductSnapshot>
   rename(serverId: string, name: string): Promise<ProductSnapshot>
   remove(serverId: string): Promise<ProductSnapshot>
   reconnect(serverId: string): Promise<ProductSnapshot>
-  roots(): Promise<Array<{ id: string; label: string }>>
+  completeRemoteFactoryIntro(): Promise<ProductSnapshot>
+  roots(factoryId: string): Promise<Array<{ id: string; label: string }>>
   browse(
+    factoryId: string,
     rootId: string,
     relativePath: string,
   ): Promise<Array<{ name: string; relativePath: string; kind: 'directory' | 'repository' }>>
-  preview(rootId: string, relativePath: string, defaultBranch?: string): Promise<ProjectPreview>
-  chooseRepositoryFolder(): Promise<ProjectPreview | null>
-  create(params: {
-    name: string
-    description?: string
-    repositories: Array<
-      | {
-          kind: 'local'
-          rootId: string
-          relativePath: string
-          defaultBranch: string
-          fingerprint: string
-        }
-      | { kind: 'remote'; rootId: string; url: string }
-    >
-  }): Promise<Project>
-  retry(projectId: string): Promise<unknown>
-  devices(): Promise<TrustedDevice[]>
-  revoke(deviceId: string): Promise<unknown>
-  selectProject(projectId: string): Promise<ProductSnapshot>
-  sendMessage(projectId: string, text: string): Promise<ConversationMessage>
+  preview(
+    factoryId: string,
+    rootId: string,
+    relativePath: string,
+    defaultBranch?: string,
+  ): Promise<ProjectPreview>
+  chooseRepositoryFolder(factoryId: string): Promise<ProjectPreview | null>
+  create(
+    factoryId: string,
+    params: {
+      name: string
+      description?: string
+      repositories: Array<
+        | {
+            kind: 'local'
+            rootId: string
+            relativePath: string
+            defaultBranch: string
+            fingerprint: string
+          }
+        | { kind: 'remote'; rootId: string; url: string }
+      >
+    },
+  ): Promise<ProductSnapshot>
+  retry(project: ProjectRef): Promise<unknown>
+  devices(factoryId: string): Promise<TrustedDevice[]>
+  revoke(factoryId: string, deviceId: string): Promise<unknown>
+  selectProject(project: ProjectRef): Promise<ProductSnapshot>
+  sendMessage(project: ProjectRef, text: string): Promise<ConversationMessage>
   updateModel(input: {
-    projectId: string
+    project: ProjectRef
     workerTypeKind: WorkerType['kind']
     slot: WorkerType['modelBindings'][number]['slot']
     provider: string | null
     model: string | null
   }): Promise<WorkerType>
   addMemory(input: {
-    projectId: string
+    project: ProjectRef
     scope: MemoryEntry['scope']
     workerTypeKind?: WorkerType['kind']
     content: string
     provenanceRef: string
     supersedesId?: string
   }): Promise<MemoryEntry>
-  startPlanner(projectId: string): Promise<PlannerProbe>
-  cancelPlanner(projectId: string, plannerProbeId: string): Promise<PlannerProbe>
+  startPlanner(project: ProjectRef): Promise<PlannerProbe>
+  cancelPlanner(project: ProjectRef, plannerProbeId: string): Promise<PlannerProbe>
   createTask(input: {
-    projectId: string
+    project: ProjectRef
     title: string
     description?: string
     status: 'backlog' | 'queue'
   }): Promise<Task>
   updateTask(input: {
-    projectId: string
+    project: ProjectRef
     taskId: string
     title?: string
     description?: string
     priority?: number
   }): Promise<Task>
   moveTask(input: {
-    projectId: string
+    project: ProjectRef
     taskId: string
     status: Task['status']
     needsYouAction?: NonNullable<Task['needsYouAction']>
     needsYouMessage?: string
   }): Promise<Task>
   resolveTask(input: {
-    projectId: string
+    project: ProjectRef
     taskId: string
     resolution: Exclude<NonNullable<Task['resolution']>, 'superseded'>
     summary: string
   }): Promise<Task>
   decideTaskMerge(input: {
-    projectId: string
+    project: ProjectRef
     proposalId: string
     decision: 'accept' | 'reject'
   }): Promise<TaskMergeProposal>
-  cancelRun(projectId: string, runId: string): Promise<ExecutionRun>
-  retryRun(projectId: string, runId: string): Promise<Task>
-  requestRunChanges(projectId: string, runId: string, feedback: string): Promise<Task>
-  approveRun(projectId: string, runId: string, summary: string): Promise<Task>
-  archiveRun(projectId: string, runId: string): Promise<ExecutionRun>
+  cancelRun(project: ProjectRef, runId: string): Promise<ExecutionRun>
+  retryRun(project: ProjectRef, runId: string): Promise<Task>
+  requestRunChanges(project: ProjectRef, runId: string, feedback: string): Promise<Task>
+  approveRun(project: ProjectRef, runId: string, summary: string): Promise<Task>
+  archiveRun(project: ProjectRef, runId: string): Promise<ExecutionRun>
   subscribe(listener: (snapshot: ProductSnapshot) => void): () => void
 }

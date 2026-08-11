@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { ProjectPreview, Task, TrustedDevice, WorkerType } from '@factoru/protocol'
-import type { ProductSnapshot } from '../../shared/product'
-import { FACTORY_NAME_MAX_LENGTH, factoryStatusLabel } from '../../shared/factory'
+import type { ProductSnapshot, ServerProfileSummary } from '../../shared/product'
+import {
+  FACTORY_NAME_MAX_LENGTH,
+  factoryAggregateStatus,
+  factoryStatusLabel,
+} from '../../shared/factory'
 
 type Root = { id: string; label: string }
 type Entry = { name: string; relativePath: string; kind: 'directory' | 'repository' }
@@ -29,7 +33,10 @@ export function App() {
   const [factorySwitcherOpen, setFactorySwitcherOpen] = useState(false)
   const [renamingFactoryId, setRenamingFactoryId] = useState<string | null>(null)
   const [factoryName, setFactoryName] = useState('')
+  const [factoryFilterId, setFactoryFilterId] = useState<string | null>(null)
+  const [managedFactoryId, setManagedFactoryId] = useState<string | null>(null)
   const [showProjectSetup, setShowProjectSetup] = useState(false)
+  const [projectFactoryId, setProjectFactoryId] = useState('')
   const [connectionType, setConnectionType] = useState<'local' | 'remote'>('local')
   const [serverUrl, setServerUrl] = useState('https://')
   const [roots, setRoots] = useState<Root[]>([])
@@ -44,6 +51,7 @@ export function App() {
   const [showServerBrowser, setShowServerBrowser] = useState(false)
   const [devices, setDevices] = useState<TrustedDevice[]>([])
   const [showDevices, setShowDevices] = useState(false)
+  const [deviceFactoryId, setDeviceFactoryId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -55,17 +63,40 @@ export function App() {
     }
   }, [])
 
-  const activeProject = useMemo(
-    () => snapshot?.projects.find((project) => project.id === snapshot.activeProjectId) ?? null,
-    [snapshot],
-  )
-  const activeProfile = useMemo(
+  const activeLocatedProject = useMemo(
     () =>
-      snapshot?.profiles.find((profile) => profile.serverId === snapshot.activeServerId) ?? null,
+      snapshot?.projects.find(
+        ({ ref }) =>
+          ref.factoryId === snapshot.activeProjectRef?.factoryId &&
+          ref.projectId === snapshot.activeProjectRef?.projectId,
+      ) ?? null,
     [snapshot],
   )
-  const addingAnotherFactory = (snapshot?.profiles.length ?? 0) > 0 && showPairing
+  const activeProject = activeLocatedProject?.project ?? null
+  const activeProjectRef = snapshot?.activeProjectRef ?? null
+  const managedFactory = useMemo(
+    () => snapshot?.profiles.find((profile) => profile.serverId === managedFactoryId) ?? null,
+    [managedFactoryId, snapshot],
+  )
+  const deviceFactory = useMemo(
+    () => snapshot?.profiles.find((profile) => profile.serverId === deviceFactoryId) ?? null,
+    [deviceFactoryId, snapshot],
+  )
+  const projectFactory = useMemo(
+    () => snapshot?.profiles.find((profile) => profile.serverId === projectFactoryId) ?? null,
+    [projectFactoryId, snapshot],
+  )
+  const filteredProjects = useMemo(
+    () =>
+      snapshot?.projects.filter(
+        ({ ref }) => factoryFilterId === null || ref.factoryId === factoryFilterId,
+      ) ?? [],
+    [factoryFilterId, snapshot],
+  )
   const hasLocalFactory = snapshot?.profiles.some((profile) => profile.kind === 'local') ?? false
+  const onlineFactoryCount =
+    snapshot?.profiles.filter((profile) => profile.connectionState === 'connected').length ?? 0
+  const factorySummary = factoryAggregateStatus(snapshot?.profiles ?? [])
 
   useEffect(() => {
     if (!factorySwitcherOpen) return
@@ -121,14 +152,21 @@ export function App() {
     )
   }
 
-  const selectFactory = (serverId: string) => {
-    void run(() => window.factoru.product.activate(serverId)).then((value) => {
+  const completeRemoteFactoryIntro = (addRemote: boolean) => {
+    void run(() => window.factoru.product.completeRemoteFactoryIntro()).then((value) => {
       if (!value) return
       setSnapshot(value)
-      setFactorySwitcherOpen(false)
-      setShowDevices(false)
-      setDevices([])
+      if (addRemote) {
+        setConnectionType('remote')
+        setShowPairing(true)
+      }
     })
+  }
+
+  const selectFactory = (serverId: string | null) => {
+    setFactoryFilterId(serverId)
+    setManagedFactoryId(serverId)
+    setFactorySwitcherOpen(false)
   }
 
   const renameFactory = (event: FormEvent<HTMLFormElement>) => {
@@ -142,46 +180,74 @@ export function App() {
     })
   }
 
-  const reconnectFactory = () => {
-    if (!activeProfile) return
-    void run(() => window.factoru.product.reconnect(activeProfile.serverId)).then(
+  const reconnectFactory = (factoryId: string) => {
+    void run(() => window.factoru.product.reconnect(factoryId)).then(
       (value) => value && setSnapshot(value),
     )
   }
 
-  const openTrustedDevices = () => {
+  const openTrustedDevices = (factoryId: string) => {
+    setDeviceFactoryId(factoryId)
     setShowDevices(true)
     setFactorySwitcherOpen(false)
-    void run(() => window.factoru.product.devices()).then((value) => value && setDevices(value))
+    void run(() => window.factoru.product.devices(factoryId)).then(
+      (value) => value && setDevices(value),
+    )
   }
 
-  const forgetFactory = () => {
-    if (!activeProfile) return
+  const forgetFactory = (factory: ServerProfileSummary) => {
     if (
       !window.confirm(
-        `Forget “${activeProfile.name}” on this Desktop? Its local profile and credential will be removed. Projects and server data will not be changed.`,
+        `Forget “${factory.name}” on this Desktop? Its local profile and credential will be removed. Projects and server data will not be changed.`,
       )
     ) {
       return
     }
-    void run(() => window.factoru.product.remove(activeProfile.serverId)).then((value) => {
+    void run(() => window.factoru.product.remove(factory.serverId)).then((value) => {
       if (!value) return
       setSnapshot(value)
+      if (factoryFilterId === factory.serverId) setFactoryFilterId(null)
       setFactorySwitcherOpen(value.profiles.length > 0)
       setRenamingFactoryId(null)
+      setManagedFactoryId(null)
       setShowDevices(false)
+      setDeviceFactoryId(null)
       setDevices([])
     })
   }
 
-  const loadRoots = async () => {
-    const loaded = await run(() => window.factoru.product.roots())
+  const defaultProjectFactory = (): ServerProfileSummary | null => {
+    const connected = snapshot?.profiles.filter(
+      (profile) => profile.connectionState === 'connected',
+    )
+    return (
+      connected?.find((profile) => profile.serverId === factoryFilterId) ??
+      connected?.find((profile) => profile.kind === 'local') ??
+      connected?.[0] ??
+      null
+    )
+  }
+
+  const loadFactoryRoots = async (factoryId: string) => {
+    const loaded = await run(() => window.factoru.product.roots(factoryId))
     if (!loaded) return
     setRoots(loaded)
     const first = loaded[0]?.id ?? ''
     setRootId(first)
     setDirectory('')
-    setEntries(first ? ((await run(() => window.factoru.product.browse(first, ''))) ?? []) : [])
+    setEntries(
+      first ? ((await run(() => window.factoru.product.browse(factoryId, first, ''))) ?? []) : [],
+    )
+  }
+
+  const loadRoots = async () => {
+    const factory = defaultProjectFactory()
+    if (!factory) {
+      setError('Connect a factory before creating a project.')
+      return
+    }
+    setProjectFactoryId(factory.serverId)
+    await loadFactoryRoots(factory.serverId)
     setProjectName('')
     setProjectDescription('')
     setRepositoryUrl('')
@@ -192,10 +258,14 @@ export function App() {
   }
 
   const browse = async (nextRoot: string, nextDirectory: string) => {
+    if (!projectFactoryId) return
     setRootId(nextRoot)
     setDirectory(nextDirectory)
     setPreview(null)
-    setEntries((await run(() => window.factoru.product.browse(nextRoot, nextDirectory))) ?? [])
+    setEntries(
+      (await run(() => window.factoru.product.browse(projectFactoryId, nextRoot, nextDirectory))) ??
+        [],
+    )
   }
 
   const addPreview = (value: ProjectPreview) => {
@@ -224,9 +294,30 @@ export function App() {
   }
 
   const chooseRepositoryFolder = () => {
-    void run(() => window.factoru.product.chooseRepositoryFolder()).then((value) => {
-      if (value) addPreview(value)
-    })
+    if (!projectFactoryId) return
+    void run(() => window.factoru.product.chooseRepositoryFolder(projectFactoryId)).then(
+      (value) => {
+        if (value) addPreview(value)
+      },
+    )
+  }
+
+  const changeProjectFactory = async (factoryId: string) => {
+    if (factoryId === projectFactoryId) return
+    if (
+      repositoryDrafts.length > 0 &&
+      !window.confirm(
+        'Changing factories clears the repositories selected for this project. Continue?',
+      )
+    ) {
+      return
+    }
+    setProjectFactoryId(factoryId)
+    setRepositoryDrafts([])
+    setRepositoryUrl('')
+    setPreview(null)
+    setShowServerBrowser(false)
+    await loadFactoryRoots(factoryId)
   }
 
   const addRepositoryUrl = () => {
@@ -250,9 +341,9 @@ export function App() {
 
   const createProject = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (repositoryDrafts.length === 0) return
+    if (repositoryDrafts.length === 0 || projectFactory?.connectionState !== 'connected') return
     void run(() =>
-      window.factoru.product.create({
+      window.factoru.product.create(projectFactoryId, {
         name: projectName.trim(),
         description: projectDescription.trim() || undefined,
         repositories: repositoryDrafts.map((draft) =>
@@ -271,8 +362,10 @@ export function App() {
               },
         ),
       }),
-    ).then((created) => {
-      if (created) {
+    ).then((value) => {
+      if (value) {
+        setSnapshot(value)
+        setFactoryFilterId(projectFactoryId)
         setShowProjectSetup(false)
         setPreview(null)
         setRepositoryDrafts([])
@@ -282,12 +375,12 @@ export function App() {
 
   const sendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!snapshot?.activeProjectId) return
+    if (!activeProjectRef) return
     const form = event.currentTarget
     const data = new FormData(form)
     const text = String(data.get('message')).trim()
     if (!text) return
-    void run(() => window.factoru.product.sendMessage(snapshot.activeProjectId!, text)).then(
+    void run(() => window.factoru.product.sendMessage(activeProjectRef, text)).then(
       (sent) => sent && form.reset(),
     )
   }
@@ -298,13 +391,13 @@ export function App() {
     slot: WorkerType['modelBindings'][number]['slot'],
   ) => {
     event.preventDefault()
-    if (!snapshot?.activeProjectId) return
+    if (!activeProjectRef) return
     const data = new FormData(event.currentTarget)
     const provider = String(data.get('provider')).trim()
     const model = String(data.get('model')).trim()
     void run(() =>
       window.factoru.product.updateModel({
-        projectId: snapshot.activeProjectId!,
+        project: activeProjectRef,
         workerTypeKind: worker.kind,
         slot,
         provider: provider || null,
@@ -315,12 +408,12 @@ export function App() {
 
   const addMemory = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!snapshot?.activeProjectId) return
+    if (!activeProjectRef) return
     const form = event.currentTarget
     const data = new FormData(form)
     void run(() =>
       window.factoru.product.addMemory({
-        projectId: snapshot.activeProjectId!,
+        project: activeProjectRef,
         scope: String(data.get('scope')) as 'project' | 'worker_type',
         workerTypeKind:
           data.get('scope') === 'worker_type'
@@ -334,12 +427,12 @@ export function App() {
 
   const createTask = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!snapshot?.activeProjectId) return
+    if (!activeProjectRef) return
     const form = event.currentTarget
     const data = new FormData(form)
     void run(() =>
       window.factoru.product.createTask({
-        projectId: snapshot.activeProjectId!,
+        project: activeProjectRef,
         title: String(data.get('title')),
         description: String(data.get('description') || '') || undefined,
         status: String(data.get('status')) as 'backlog' | 'queue',
@@ -352,7 +445,7 @@ export function App() {
     const data = new FormData(event.currentTarget)
     void run(() =>
       window.factoru.product.updateTask({
-        projectId: task.projectId,
+        project: activeProjectRef!,
         taskId: task.id,
         title: String(data.get('title')),
         description: String(data.get('description')),
@@ -367,7 +460,7 @@ export function App() {
     const status = String(data.get('status')) as Task['status']
     void run(() =>
       window.factoru.product.moveTask({
-        projectId: task.projectId,
+        project: activeProjectRef!,
         taskId: task.id,
         status,
         needsYouAction:
@@ -382,7 +475,7 @@ export function App() {
   const queueTask = (task: Task) =>
     run(() =>
       window.factoru.product.moveTask({
-        projectId: task.projectId,
+        project: activeProjectRef!,
         taskId: task.id,
         status: 'queue',
       }),
@@ -401,7 +494,7 @@ export function App() {
     }
     void run(() =>
       window.factoru.product.resolveTask({
-        projectId: task.projectId,
+        project: activeProjectRef!,
         taskId: task.id,
         resolution,
         summary,
@@ -409,9 +502,10 @@ export function App() {
     )
   }
 
-  if (!snapshot) return <main className="startup muted">Starting Factoru Desktop…</main>
+  if (!snapshot?.initialized)
+    return <main className="startup muted">Starting Factoru Desktop…</main>
 
-  if (snapshot.profiles.length === 0 || showPairing) {
+  if (showPairing) {
     return (
       <main className="onboarding">
         <section className="onboarding-card" aria-labelledby="connect-heading">
@@ -420,45 +514,13 @@ export function App() {
           </div>
           <p className="eyebrow">Factoru Desktop</p>
           <h1 id="connect-heading">
-            {addingAnotherFactory
-              ? connectionType === 'local'
-                ? 'Connect Local Factory'
-                : 'Connect another factory'
-              : 'Connect to your development team'}
+            {connectionType === 'local' ? 'Connect Local Factory' : 'Connect another factory'}
           </h1>
           <p className="muted">
-            {addingAnotherFactory
-              ? connectionType === 'local'
-                ? 'Connect the built-in factory on this device. It stays available in the factory switcher.'
-                : 'Add a remote Factoru Server. Local Factory stays available separately in the factory switcher.'
-              : 'Pair with the Factoru Server that owns your repositories, workers, and project history.'}
+            {connectionType === 'local'
+              ? 'Connect the built-in factory on this device. It stays available in the factory list.'
+              : 'Add a remote Factoru Server. Local Factory stays available separately.'}
           </p>
-          {!addingAnotherFactory && (
-            <div className="segmented" role="group" aria-label="Connection type">
-              <button
-                type="button"
-                className={connectionType === 'local' ? 'active' : ''}
-                aria-pressed={connectionType === 'local'}
-                onClick={() => {
-                  setConnectionType('local')
-                  setError(null)
-                }}
-              >
-                This device
-              </button>
-              <button
-                type="button"
-                className={connectionType === 'remote' ? 'active' : ''}
-                aria-pressed={connectionType === 'remote'}
-                onClick={() => {
-                  setConnectionType('remote')
-                  setError(null)
-                }}
-              >
-                Remote server
-              </button>
-            </div>
-          )}
           {connectionType === 'local' ? (
             <>
               <div className="local-intro">
@@ -536,11 +598,9 @@ factoru-server providers configure --provider codex`}</code>
               </details>
             </>
           )}
-          {snapshot.profiles.length > 0 && (
-            <button type="button" onClick={() => setShowPairing(false)}>
-              Cancel
-            </button>
-          )}
+          <button type="button" onClick={() => setShowPairing(false)}>
+            Cancel
+          </button>
           {(error || snapshot.error) && <p className="error">{error ?? snapshot.error}</p>}
         </section>
       </main>
@@ -560,63 +620,73 @@ factoru-server providers configure --provider codex`}</code>
           </div>
         </header>
 
-        {activeProfile && (
-          <div className={`factory-switcher ${factorySwitcherOpen ? 'open' : ''}`}>
-            <button
-              type="button"
-              className="factory-switcher-trigger"
-              aria-expanded={factorySwitcherOpen}
-              aria-controls="factory-switcher-panel"
-              onClick={() => {
-                setFactorySwitcherOpen((open) => !open)
-                setRenamingFactoryId(null)
-              }}
-            >
-              <span className={`status-dot ${activeProfile.connectionState}`} aria-hidden="true" />
-              <span className="factory-switcher-title">
-                <strong>{activeProfile.name}</strong>
-                <small>{factoryStatusLabel(activeProfile.connectionState)}</small>
-              </span>
-              <span className="factory-switcher-chevron" aria-hidden="true">
-                ▾
-              </span>
-            </button>
+        <div className={`factory-switcher ${factorySwitcherOpen ? 'open' : ''}`}>
+          <button
+            type="button"
+            className="factory-switcher-trigger"
+            aria-expanded={factorySwitcherOpen}
+            aria-controls="factory-switcher-panel"
+            onClick={() => {
+              setFactorySwitcherOpen((open) => !open)
+              setRenamingFactoryId(null)
+            }}
+          >
+            <span className={`status-dot ${factorySummary.state}`} aria-hidden="true" />
+            <span className="factory-switcher-title">
+              <strong>Factories</strong>
+              <small>{factorySummary.label}</small>
+            </span>
+            <span className="factory-switcher-chevron" aria-hidden="true">
+              ▾
+            </span>
+          </button>
 
-            {factorySwitcherOpen && (
-              <section
-                id="factory-switcher-panel"
-                className="factory-switcher-panel"
-                aria-label="Factories"
-              >
-                <p className="factory-switcher-heading">Factories</p>
-                <div className="factory-list">
-                  {!hasLocalFactory && (
+          {factorySwitcherOpen && (
+            <section
+              id="factory-switcher-panel"
+              className="factory-switcher-panel"
+              aria-label="Factories"
+            >
+              <p className="factory-switcher-heading">Factories</p>
+              <div className="factory-list">
+                <button
+                  type="button"
+                  className={factoryFilterId === null ? 'active' : ''}
+                  aria-current={factoryFilterId === null ? 'true' : undefined}
+                  onClick={() => selectFactory(null)}
+                >
+                  <span className={`status-dot ${factorySummary.state}`} aria-hidden="true" />
+                  <span>
+                    <strong>All factories</strong>
+                    <small>{factorySummary.label}</small>
+                  </span>
+                  <small>All projects</small>
+                </button>
+                {!hasLocalFactory && (
+                  <button
+                    type="button"
+                    title="Connect Factoru Server on this device"
+                    onClick={() => {
+                      setFactorySwitcherOpen(false)
+                      setConnectionType('local')
+                      setError(null)
+                      setShowPairing(true)
+                    }}
+                  >
+                    <span className="status-dot pairing_required" aria-hidden="true" />
+                    <span>
+                      <strong>Local Factory</strong>
+                      <small>This device</small>
+                    </span>
+                    <small>Not connected</small>
+                  </button>
+                )}
+                {snapshot.profiles.map((profile) => (
+                  <div className="factory-list-item" key={profile.serverId}>
                     <button
                       type="button"
-                      title="Connect Factoru Server on this device"
-                      onClick={() => {
-                        setFactorySwitcherOpen(false)
-                        setConnectionType('local')
-                        setError(null)
-                        setShowPairing(true)
-                      }}
-                    >
-                      <span className="status-dot pairing_required" aria-hidden="true" />
-                      <span>
-                        <strong>Local Factory</strong>
-                        <small>This device</small>
-                      </span>
-                      <small>Not connected</small>
-                    </button>
-                  )}
-                  {snapshot.profiles.map((profile) => (
-                    <button
-                      type="button"
-                      key={profile.serverId}
-                      className={profile.serverId === snapshot.activeServerId ? 'active' : ''}
-                      aria-current={
-                        profile.serverId === snapshot.activeServerId ? 'true' : undefined
-                      }
+                      className={profile.serverId === factoryFilterId ? 'active' : ''}
+                      aria-current={profile.serverId === factoryFilterId ? 'true' : undefined}
                       title={profile.error ?? profile.url}
                       onClick={() => selectFactory(profile.serverId)}
                     >
@@ -630,118 +700,157 @@ factoru-server providers configure --provider codex`}</code>
                       </span>
                       <small>{factoryStatusLabel(profile.connectionState)}</small>
                     </button>
-                  ))}
-                </div>
+                    <button
+                      type="button"
+                      className="factory-manage-button"
+                      aria-label={`Manage ${profile.name}`}
+                      aria-expanded={managedFactoryId === profile.serverId}
+                      onClick={() =>
+                        setManagedFactoryId((current) =>
+                          current === profile.serverId ? null : profile.serverId,
+                        )
+                      }
+                    >
+                      •••
+                    </button>
+                  </div>
+                ))}
+              </div>
 
-                {renamingFactoryId === activeProfile.serverId ? (
-                  <form className="factory-rename" onSubmit={renameFactory}>
-                    <label htmlFor="factory-name">Factory name</label>
-                    <input
-                      id="factory-name"
-                      autoFocus
-                      required
-                      maxLength={FACTORY_NAME_MAX_LENGTH}
-                      value={factoryName}
-                      onChange={(event) => setFactoryName(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'Escape') return
-                        event.stopPropagation()
-                        setRenamingFactoryId(null)
-                        setFactoryName('')
-                      }}
-                    />
-                    <div>
-                      <button disabled={busy}>Save</button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRenamingFactoryId(null)
-                          setFactoryName('')
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <div className="factory-actions" aria-label={`${activeProfile.name} actions`}>
+              {managedFactory && renamingFactoryId === managedFactory.serverId ? (
+                <form className="factory-rename" onSubmit={renameFactory}>
+                  <label htmlFor="factory-name">Factory name</label>
+                  <input
+                    id="factory-name"
+                    autoFocus
+                    required
+                    maxLength={FACTORY_NAME_MAX_LENGTH}
+                    value={factoryName}
+                    onChange={(event) => setFactoryName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Escape') return
+                      event.stopPropagation()
+                      setRenamingFactoryId(null)
+                      setFactoryName('')
+                    }}
+                  />
+                  <div>
+                    <button disabled={busy}>Save</button>
                     <button
                       type="button"
                       onClick={() => {
-                        setRenamingFactoryId(activeProfile.serverId)
-                        setFactoryName(activeProfile.name)
+                        setRenamingFactoryId(null)
+                        setFactoryName('')
                       }}
                     >
-                      Rename
+                      Cancel
                     </button>
-                    <button type="button" onClick={reconnectFactory} disabled={busy}>
-                      Reconnect
-                    </button>
+                  </div>
+                </form>
+              ) : managedFactory ? (
+                <div className="factory-actions" aria-label={`${managedFactory.name} actions`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenamingFactoryId(managedFactory.serverId)
+                      setFactoryName(managedFactory.name)
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => reconnectFactory(managedFactory.serverId)}
+                    disabled={busy}
+                  >
+                    Reconnect
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openTrustedDevices(managedFactory.serverId)}
+                    disabled={managedFactory.connectionState !== 'connected' || busy}
+                  >
+                    Trusted devices
+                  </button>
+                  {managedFactory.kind === 'local' ? (
+                    <span className="factory-built-in-note">Built in on this device</span>
+                  ) : (
                     <button
                       type="button"
-                      onClick={openTrustedDevices}
-                      disabled={!snapshot.connected || busy}
+                      className="danger"
+                      onClick={() => forgetFactory(managedFactory)}
                     >
-                      Trusted devices
+                      Forget factory
                     </button>
-                    {activeProfile.kind === 'local' ? (
-                      <span className="factory-built-in-note">Built in on this device</span>
-                    ) : (
-                      <button type="button" className="danger" onClick={forgetFactory}>
-                        Forget factory
-                      </button>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
+              ) : null}
 
-                <button
-                  type="button"
-                  className="add-factory"
-                  onClick={() => {
-                    setFactorySwitcherOpen(false)
-                    setConnectionType('remote')
-                    setShowPairing(true)
-                  }}
-                >
-                  + Connect another factory
-                </button>
-              </section>
-            )}
-          </div>
-        )}
+              <button
+                type="button"
+                className="add-factory"
+                onClick={() => {
+                  setFactorySwitcherOpen(false)
+                  setConnectionType('remote')
+                  setShowPairing(true)
+                }}
+              >
+                + Connect another factory
+              </button>
+            </section>
+          )}
+        </div>
 
         <div className="sidebar-section-head">
-          <span>Projects</span>
+          <span>
+            Projects ·{' '}
+            {factoryFilterId
+              ? (snapshot.profiles.find((profile) => profile.serverId === factoryFilterId)?.name ??
+                'Factory')
+              : 'All factories'}
+          </span>
           <button
             className="icon-button"
             aria-label="Add project"
             title="Add project"
             onClick={() => void loadRoots()}
-            disabled={!snapshot.connected || busy}
+            disabled={onlineFactoryCount === 0 || busy}
           >
             +
           </button>
         </div>
         <nav className="project-nav" aria-label="Projects">
-          {snapshot.projects.length === 0 ? (
-            <p className="empty-sidebar">Create a project and add its repositories to begin.</p>
+          {filteredProjects.length === 0 ? (
+            <p className="empty-sidebar">
+              {snapshot.projects.length === 0
+                ? 'Create a project and add its repositories to begin.'
+                : 'No projects match this factory filter.'}
+            </p>
           ) : (
-            snapshot.projects.map((project) => (
+            filteredProjects.map((located) => (
               <button
-                key={project.id}
-                className={project.id === snapshot.activeProjectId ? 'active' : ''}
+                key={`${located.ref.factoryId}:${located.ref.projectId}`}
+                className={
+                  located.ref.factoryId === snapshot.activeProjectRef?.factoryId &&
+                  located.ref.projectId === snapshot.activeProjectRef?.projectId
+                    ? 'active'
+                    : ''
+                }
                 onClick={() =>
-                  void run(() => window.factoru.product.selectProject(project.id)).then(
+                  void run(() => window.factoru.product.selectProject(located.ref)).then(
                     (value) => value && setSnapshot(value),
                   )
                 }
               >
-                <span className="project-glyph">{project.name.slice(0, 1).toUpperCase()}</span>
+                <span className="project-glyph">
+                  {located.project.name.slice(0, 1).toUpperCase()}
+                </span>
                 <span>
-                  <strong>{project.name}</strong>
+                  <strong>{located.project.name}</strong>
                   <small>
-                    {statusLabel(project.setupState)} · {project.repositories.length}{' '}
-                    {project.repositories.length === 1 ? 'rig' : 'rigs'}
+                    {located.factoryName} · {statusLabel(located.project.setupState)} ·{' '}
+                    {located.project.repositories.length}{' '}
+                    {located.project.repositories.length === 1 ? 'rig' : 'rigs'}
                   </small>
                 </span>
               </button>
@@ -753,7 +862,10 @@ factoru-server providers configure --provider codex`}</code>
       <section className="conversation-pane">
         <header className="pane-header">
           <div>
-            <p className="eyebrow">Project Manager</p>
+            <p className="eyebrow">
+              Project Manager
+              {activeLocatedProject ? ` · ${activeLocatedProject.factoryName}` : ''}
+            </p>
             <h1>{activeProject?.name ?? 'Choose a project'}</h1>
           </div>
           {snapshot.workspace && (
@@ -774,13 +886,47 @@ factoru-server providers configure --provider codex`}</code>
                 <p className="eyebrow">New project</p>
                 <h2>Create a project</h2>
                 <p className="setup-intro">
-                  Name the work, then add one or more Git repositories. The first repository is the
-                  primary execution rig.
+                  Choose the home factory, name the work, then add one or more Git repositories. The
+                  first repository is the primary execution rig.
                 </p>
               </div>
               <button onClick={() => setShowProjectSetup(false)}>Close</button>
             </header>
             <form className="project-create-form" onSubmit={createProject}>
+              <fieldset className="factory-choice">
+                <legend>Factories</legend>
+                <p>
+                  Choose one authoritative home factory for now. Additional execution factories are
+                  planned for later.
+                </p>
+                {!hasLocalFactory && (
+                  <label>
+                    <input type="radio" name="projectFactory" disabled />
+                    <span className="status-dot offline" aria-hidden="true" />
+                    <span>
+                      <strong>Local Factory</strong>
+                      <small>Not available on this device</small>
+                    </span>
+                  </label>
+                )}
+                {snapshot.profiles.map((profile) => (
+                  <label key={profile.serverId}>
+                    <input
+                      type="radio"
+                      name="projectFactory"
+                      value={profile.serverId}
+                      checked={projectFactoryId === profile.serverId}
+                      disabled={profile.connectionState !== 'connected' || busy}
+                      onChange={() => void changeProjectFactory(profile.serverId)}
+                    />
+                    <span className={`status-dot ${profile.connectionState}`} aria-hidden="true" />
+                    <span>
+                      <strong>{profile.name}</strong>
+                      <small>{factoryStatusLabel(profile.connectionState)}</small>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
               <div className="project-basics">
                 <label>
                   Project name
@@ -806,7 +952,7 @@ factoru-server providers configure --provider codex`}</code>
                 <div className="repository-picker-heading">
                   <div>
                     <strong>Repositories</strong>
-                    <p>Add a Git URL or choose a repository already on this Mac.</p>
+                    <p>Add a Git URL or choose a repository available to {projectFactory?.name}.</p>
                   </div>
                   <span className="repository-count">{repositoryDrafts.length}</span>
                 </div>
@@ -845,24 +991,28 @@ factoru-server providers configure --provider codex`}</code>
                   </button>
                 </div>
 
-                <div className="picker-divider">
-                  <span>or</span>
-                </div>
+                {projectFactory?.kind === 'local' && (
+                  <>
+                    <div className="picker-divider">
+                      <span>or</span>
+                    </div>
 
-                <button
-                  className="native-picker-button"
-                  type="button"
-                  onClick={chooseRepositoryFolder}
-                  disabled={busy}
-                >
-                  <span className="folder-icon" aria-hidden="true">
-                    ⌘
-                  </span>
-                  <span>
-                    <strong>Choose repository folder…</strong>
-                    <small>Opens the native folder picker</small>
-                  </span>
-                </button>
+                    <button
+                      className="native-picker-button"
+                      type="button"
+                      onClick={chooseRepositoryFolder}
+                      disabled={busy}
+                    >
+                      <span className="folder-icon" aria-hidden="true">
+                        ⌘
+                      </span>
+                      <span>
+                        <strong>Choose repository folder…</strong>
+                        <small>Opens the native folder picker</small>
+                      </span>
+                    </button>
+                  </>
+                )}
 
                 <button
                   className="server-browser-toggle"
@@ -906,7 +1056,11 @@ factoru-server providers configure --provider codex`}</code>
                               entry.kind === 'directory'
                                 ? void browse(rootId, entry.relativePath)
                                 : void run(() =>
-                                    window.factoru.product.preview(rootId, entry.relativePath),
+                                    window.factoru.product.preview(
+                                      projectFactoryId,
+                                      rootId,
+                                      entry.relativePath,
+                                    ),
                                   ).then((value) => value && addPreview(value))
                             }
                           >
@@ -973,7 +1127,12 @@ factoru-server providers configure --provider codex`}</code>
                 </p>
                 <button
                   className="primary"
-                  disabled={!projectName.trim() || repositoryDrafts.length === 0 || busy}
+                  disabled={
+                    !projectName.trim() ||
+                    repositoryDrafts.length === 0 ||
+                    projectFactory?.connectionState !== 'connected' ||
+                    busy
+                  }
                 >
                   {busy ? 'Creating…' : 'Create project'}
                 </button>
@@ -1100,7 +1259,7 @@ factoru-server providers configure --provider codex`}</code>
                             onClick={() =>
                               void run(() =>
                                 window.factoru.product.decideTaskMerge({
-                                  projectId: proposal.projectId,
+                                  project: activeProjectRef!,
                                   proposalId: proposal.id,
                                   decision: 'accept',
                                 }),
@@ -1114,7 +1273,7 @@ factoru-server providers configure --provider codex`}</code>
                             onClick={() =>
                               void run(() =>
                                 window.factoru.product.decideTaskMerge({
-                                  projectId: proposal.projectId,
+                                  project: activeProjectRef!,
                                   proposalId: proposal.id,
                                   decision: 'reject',
                                 }),
@@ -1238,7 +1397,7 @@ factoru-server providers configure --provider codex`}</code>
                                             onClick={() =>
                                               void run(() =>
                                                 window.factoru.product.cancelRun(
-                                                  task.projectId,
+                                                  activeProjectRef!,
                                                   taskRun.id,
                                                 ),
                                               )
@@ -1256,7 +1415,7 @@ factoru-server providers configure --provider codex`}</code>
                                                 window.confirm('Approve this implementation?') &&
                                                 void run(() =>
                                                   window.factoru.product.approveRun(
-                                                    task.projectId,
+                                                    activeProjectRef!,
                                                     taskRun.id,
                                                     'Accepted after reviewing the delivery evidence.',
                                                   ),
@@ -1274,7 +1433,7 @@ factoru-server providers configure --provider codex`}</code>
                                                 if (feedback)
                                                   void run(() =>
                                                     window.factoru.product.requestRunChanges(
-                                                      task.projectId,
+                                                      activeProjectRef!,
                                                       taskRun.id,
                                                       feedback,
                                                     ),
@@ -1291,7 +1450,7 @@ factoru-server providers configure --provider codex`}</code>
                                             onClick={() =>
                                               void run(() =>
                                                 window.factoru.product.retryRun(
-                                                  task.projectId,
+                                                  activeProjectRef!,
                                                   taskRun.id,
                                                 ),
                                               )
@@ -1308,7 +1467,7 @@ factoru-server providers configure --provider codex`}</code>
                                             onClick={() =>
                                               void run(() =>
                                                 window.factoru.product.archiveRun(
-                                                  task.projectId,
+                                                  activeProjectRef!,
                                                   taskRun.id,
                                                 ),
                                               )
@@ -1500,7 +1659,7 @@ factoru-server providers configure --provider codex`}</code>
                   onClick={() =>
                     void run(() =>
                       window.factoru.product.cancelPlanner(
-                        snapshot.workspace!.projectId,
+                        activeProjectRef!,
                         snapshot.workspace!.plannerProbe!.id,
                       ),
                     )
@@ -1512,9 +1671,7 @@ factoru-server providers configure --provider codex`}</code>
                 <button
                   disabled={!snapshot.connected || busy}
                   onClick={() =>
-                    void run(() =>
-                      window.factoru.product.startPlanner(snapshot.workspace!.projectId),
-                    )
+                    void run(() => window.factoru.product.startPlanner(activeProjectRef!))
                   }
                 >
                   Run planner probe
@@ -1564,16 +1721,64 @@ factoru-server providers configure --provider codex`}</code>
         )}
       </aside>
 
-      {showDevices && activeProfile && (
+      {!snapshot.remoteFactoryIntroComplete && (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="remote-factory-intro"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remote-factory-intro-heading"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') completeRemoteFactoryIntro(false)
+            }}
+          >
+            <p className="eyebrow">Run work anywhere</p>
+            <h2 id="remote-factory-intro-heading">Add a remote factory</h2>
+            <p>
+              Keep Factoru running on a Raspberry Pi, Mac, or Linux host while this Desktop stays
+              connected to Local Factory too. Each project chooses one home factory.
+            </p>
+            <ol>
+              <li>Install and start Factoru Server on the remote host.</li>
+              <li>Keep it on loopback and create an SSH local-forward for this source preview.</li>
+              <li>Generate a pairing code, then add the forwarded Desktop URL here.</li>
+            </ol>
+            <pre>
+              <code>{`factoru-server status
+factoru-server pair --ssh-host user@server`}</code>
+            </pre>
+            <p className="muted">
+              The complete development instructions are in docs/remote-connection.md. Packaged setup
+              remains Milestone 7 work.
+            </p>
+            <div className="modal-actions">
+              <button type="button" onClick={() => completeRemoteFactoryIntro(false)}>
+                Not now
+              </button>
+              <button
+                type="button"
+                className="primary"
+                autoFocus
+                onClick={() => completeRemoteFactoryIntro(true)}
+              >
+                Add remote factory
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showDevices && deviceFactory && (
         <section className="device-drawer" aria-labelledby="trusted-devices-heading">
           <header>
             <div>
               <h2 id="trusted-devices-heading">Trusted devices</h2>
-              <p className="muted">{activeProfile.name}</p>
+              <p className="muted">{deviceFactory.name}</p>
             </div>
             <button
               onClick={() => {
                 setShowDevices(false)
+                setDeviceFactoryId(null)
                 setDevices([])
               }}
             >
@@ -1590,8 +1795,10 @@ factoru-server providers configure --provider codex`}</code>
                   <button
                     onClick={() =>
                       window.confirm(`Revoke ${device.name}?`) &&
-                      void run(() => window.factoru.product.revoke(device.id)).then(() =>
-                        window.factoru.product.devices().then(setDevices),
+                      void run(() =>
+                        window.factoru.product.revoke(deviceFactory.serverId, device.id),
+                      ).then(() =>
+                        window.factoru.product.devices(deviceFactory.serverId).then(setDevices),
                       )
                     }
                   >

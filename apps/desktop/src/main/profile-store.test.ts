@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { Project } from '@factoru/protocol'
 import { CredentialStore, normalizeProfileUrl, ProfileStore } from './profile-store'
 
 const directories: string[] = []
@@ -36,14 +37,13 @@ describe('connection profiles', () => {
       createdAt: new Date().toISOString(),
       lastConnectedAt: null,
       projects: [],
-      selectedProjectId: null,
       workspaces: {},
       cursor: 0,
     }
     store.save(profile)
     store.save({ ...profile, url: 'https://new.factoru.test', cursor: 4 })
     expect(new ProfileStore(root).list()).toHaveLength(1)
-    expect(new ProfileStore(root).active()?.cursor).toBe(4)
+    expect(new ProfileStore(root).get(profile.serverId)?.cursor).toBe(4)
   })
 
   it('loads profiles written before factory kinds as remote until identity reconciliation', () => {
@@ -70,7 +70,46 @@ describe('connection profiles', () => {
       }),
     )
 
-    expect(new ProfileStore(root).active()?.kind).toBe('remote')
+    expect(new ProfileStore(root).get(serverId)?.kind).toBe('remote')
+  })
+
+  it('migrates the active server project into a compound project reference', () => {
+    const root = directory()
+    const serverId = `srv_${'3'.repeat(32)}`
+    fs.writeFileSync(
+      path.join(root, 'connection-profiles.json'),
+      JSON.stringify({
+        activeServerId: serverId,
+        profiles: [
+          {
+            serverId,
+            deviceId: 'dev_legacy',
+            kind: 'remote',
+            name: 'Pi',
+            url: 'http://127.0.0.1:28788',
+            createdAt: new Date().toISOString(),
+            lastConnectedAt: null,
+            projects: [{ id: 'project_legacy' }],
+            selectedProjectId: 'project_legacy',
+            workspaces: {},
+            cursor: 0,
+          },
+        ],
+      }),
+    )
+
+    expect(new ProfileStore(root).activeProjectRef).toEqual({
+      factoryId: serverId,
+      projectId: 'project_legacy',
+    })
+  })
+
+  it('persists completion of the one-time remote factory introduction', () => {
+    const root = directory()
+    const store = new ProfileStore(root)
+    expect(store.remoteFactoryIntroComplete).toBe(false)
+    store.completeRemoteFactoryIntro()
+    expect(new ProfileStore(root).remoteFactoryIntroComplete).toBe(true)
   })
 
   it('updates an inactive profile without changing the active server', () => {
@@ -85,7 +124,6 @@ describe('connection profiles', () => {
       createdAt: new Date().toISOString(),
       lastConnectedAt: null,
       projects: [],
-      selectedProjectId: null,
       workspaces: {},
       cursor: 0,
     }
@@ -95,7 +133,6 @@ describe('connection profiles', () => {
 
     store.update({ ...first, cursor: 9 })
 
-    expect(store.active()?.serverId).toBe(second.serverId)
     expect(store.get(first.serverId)?.cursor).toBe(9)
   })
 
@@ -111,7 +148,6 @@ describe('connection profiles', () => {
       createdAt: new Date().toISOString(),
       lastConnectedAt: null,
       projects: [],
-      selectedProjectId: null,
       workspaces: {},
       cursor: 7,
     }
@@ -123,7 +159,6 @@ describe('connection profiles', () => {
       ...first,
       name: 'Local Factory',
     })
-    expect(store.active()?.serverId).toBe(second.serverId)
     expect(new ProfileStore(root).get(first.serverId)).toEqual({
       ...first,
       name: 'Local Factory',
@@ -131,7 +166,7 @@ describe('connection profiles', () => {
     expect(() => store.rename(first.serverId, '   ')).toThrow(/required/)
   })
 
-  it('selects a deterministic fallback when an active profile is forgotten', () => {
+  it('clears the active project when its home factory is forgotten', () => {
     const root = directory()
     const store = new ProfileStore(root)
     const first = {
@@ -142,18 +177,18 @@ describe('connection profiles', () => {
       url: 'http://127.0.0.1:18787',
       createdAt: new Date().toISOString(),
       lastConnectedAt: null,
-      projects: [],
-      selectedProjectId: null,
+      projects: [{ id: 'project_first' } as Project],
       workspaces: {},
       cursor: 0,
     }
     const second = { ...first, serverId: `srv_${'2'.repeat(32)}`, name: 'Second' }
     store.save(first)
     store.save(second)
+    store.selectProject({ factoryId: second.serverId, projectId: 'project_first' })
 
     store.remove(second.serverId)
 
-    expect(store.active()?.serverId).toBe(first.serverId)
+    expect(store.activeProjectRef).toBeNull()
   })
 
   it('adopts a legacy endpoint-named profile as the protected Local Factory', () => {
@@ -168,7 +203,6 @@ describe('connection profiles', () => {
       createdAt: new Date().toISOString(),
       lastConnectedAt: null,
       projects: [],
-      selectedProjectId: null,
       workspaces: {},
       cursor: 0,
     }

@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import os from 'node:os'
 import {
   BrowserWindow,
   app,
@@ -21,7 +22,6 @@ import {
   IPC_CONNECTION_REFRESH,
 } from '../shared/connection'
 import {
-  IPC_PRODUCT_ACTIVATE,
   IPC_PRODUCT_ADD_MEMORY,
   IPC_PRODUCT_BROWSE,
   IPC_PRODUCT_CHANGED,
@@ -53,6 +53,8 @@ import {
   IPC_PRODUCT_REQUEST_RUN_CHANGES,
   IPC_PRODUCT_APPROVE_RUN,
   IPC_PRODUCT_ARCHIVE_RUN,
+  IPC_PRODUCT_COMPLETE_REMOTE_FACTORY_INTRO,
+  type ProjectRef,
 } from '../shared/product'
 
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:8787'
@@ -139,22 +141,32 @@ function registerIpc(): void {
   ipcMain.handle(IPC_PRODUCT_PAIR_LOCAL, (_event, deviceName: string) =>
     product.pairLocal(deviceName),
   )
-  ipcMain.handle(IPC_PRODUCT_ACTIVATE, (_event, serverId: string) => product.activate(serverId))
   ipcMain.handle(IPC_PRODUCT_RENAME, (_event, serverId: string, name: string) =>
     product.rename(serverId, name),
   )
   ipcMain.handle(IPC_PRODUCT_REMOVE, (_event, serverId: string) => product.remove(serverId))
   ipcMain.handle(IPC_PRODUCT_RECONNECT, (_event, serverId: string) => product.connect(serverId))
-  ipcMain.handle(IPC_PRODUCT_ROOTS, () => product.request('repositories.roots'))
-  ipcMain.handle(IPC_PRODUCT_BROWSE, (_event, rootId: string, relativePath: string) =>
-    product.request('repositories.browse', { rootId, relativePath }),
+  ipcMain.handle(IPC_PRODUCT_COMPLETE_REMOTE_FACTORY_INTRO, () =>
+    product.completeRemoteFactoryIntro(),
+  )
+  ipcMain.handle(IPC_PRODUCT_ROOTS, (_event, factoryId: string) =>
+    product.request(factoryId, 'repositories.roots'),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_BROWSE,
+    (_event, factoryId: string, rootId: string, relativePath: string) =>
+      product.request(factoryId, 'repositories.browse', { rootId, relativePath }),
   )
   ipcMain.handle(
     IPC_PRODUCT_PREVIEW,
-    (_event, rootId: string, relativePath: string, defaultBranch?: string) =>
-      product.preview(rootId, relativePath, defaultBranch),
+    (_event, factoryId: string, rootId: string, relativePath: string, defaultBranch?: string) =>
+      product.preview(factoryId, rootId, relativePath, defaultBranch),
   )
-  ipcMain.handle(IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER, async (event) => {
+  ipcMain.handle(IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER, async (event, factoryId: string) => {
+    const factory = product.snapshot.profiles.find((profile) => profile.serverId === factoryId)
+    if (factory?.kind !== 'local') {
+      throw new Error('Native folder selection is available only for Local Factory')
+    }
     const owner = BrowserWindow.fromWebContents(event.sender) ?? undefined
     const options: OpenDialogOptions = {
       title: 'Choose a Git repository',
@@ -165,19 +177,28 @@ function registerIpc(): void {
       ? await dialog.showOpenDialog(owner, options)
       : await dialog.showOpenDialog(options)
     const selectedPath = selection.filePaths[0]
-    return selection.canceled || !selectedPath ? null : product.previewPath(selectedPath)
+    return selection.canceled || !selectedPath ? null : product.previewPath(factoryId, selectedPath)
   })
-  ipcMain.handle(IPC_PRODUCT_CREATE, (_event, params: unknown) => product.create(params))
-  ipcMain.handle(IPC_PRODUCT_RETRY, (_event, projectId: string) =>
-    product.request('projects.retrySetup', { projectId }, `cmd_${randomUUID()}`),
+  ipcMain.handle(IPC_PRODUCT_CREATE, (_event, factoryId: string, params: unknown) =>
+    product.create(factoryId, params),
   )
-  ipcMain.handle(IPC_PRODUCT_DEVICES, () => product.devices())
-  ipcMain.handle(IPC_PRODUCT_REVOKE, (_event, deviceId: string) => product.revoke(deviceId))
-  ipcMain.handle(IPC_PRODUCT_SELECT_PROJECT, (_event, projectId: string) =>
-    product.selectProject(projectId),
+  ipcMain.handle(IPC_PRODUCT_RETRY, (_event, project: ProjectRef) =>
+    product.request(
+      project.factoryId,
+      'projects.retrySetup',
+      { projectId: project.projectId },
+      `cmd_${randomUUID()}`,
+    ),
   )
-  ipcMain.handle(IPC_PRODUCT_SEND_MESSAGE, (_event, projectId: string, message: string) =>
-    product.sendMessage(projectId, message),
+  ipcMain.handle(IPC_PRODUCT_DEVICES, (_event, factoryId: string) => product.devices(factoryId))
+  ipcMain.handle(IPC_PRODUCT_REVOKE, (_event, factoryId: string, deviceId: string) =>
+    product.revoke(factoryId, deviceId),
+  )
+  ipcMain.handle(IPC_PRODUCT_SELECT_PROJECT, (_event, project: ProjectRef) =>
+    product.selectProject(project),
+  )
+  ipcMain.handle(IPC_PRODUCT_SEND_MESSAGE, (_event, project: ProjectRef, message: string) =>
+    product.sendMessage(project, message),
   )
   ipcMain.handle(
     IPC_PRODUCT_UPDATE_MODEL,
@@ -187,11 +208,13 @@ function registerIpc(): void {
     IPC_PRODUCT_ADD_MEMORY,
     (_event, input: Parameters<ProductRuntime['addMemory']>[0]) => product.addMemory(input),
   )
-  ipcMain.handle(IPC_PRODUCT_START_PLANNER, (_event, projectId: string) =>
-    product.startPlanner(projectId),
+  ipcMain.handle(IPC_PRODUCT_START_PLANNER, (_event, project: ProjectRef) =>
+    product.startPlanner(project),
   )
-  ipcMain.handle(IPC_PRODUCT_CANCEL_PLANNER, (_event, projectId: string, plannerProbeId: string) =>
-    product.cancelPlanner(projectId, plannerProbeId),
+  ipcMain.handle(
+    IPC_PRODUCT_CANCEL_PLANNER,
+    (_event, project: ProjectRef, plannerProbeId: string) =>
+      product.cancelPlanner(project, plannerProbeId),
   )
   ipcMain.handle(
     IPC_PRODUCT_CREATE_TASK,
@@ -214,24 +237,24 @@ function registerIpc(): void {
     (_event, input: Parameters<ProductRuntime['decideTaskMerge']>[0]) =>
       product.decideTaskMerge(input),
   )
-  ipcMain.handle(IPC_PRODUCT_CANCEL_RUN, (_event, projectId: string, runId: string) =>
-    product.cancelRun(projectId, runId),
+  ipcMain.handle(IPC_PRODUCT_CANCEL_RUN, (_event, project: ProjectRef, runId: string) =>
+    product.cancelRun(project, runId),
   )
-  ipcMain.handle(IPC_PRODUCT_RETRY_RUN, (_event, projectId: string, runId: string) =>
-    product.retryRun(projectId, runId),
+  ipcMain.handle(IPC_PRODUCT_RETRY_RUN, (_event, project: ProjectRef, runId: string) =>
+    product.retryRun(project, runId),
   )
   ipcMain.handle(
     IPC_PRODUCT_REQUEST_RUN_CHANGES,
-    (_event, projectId: string, runId: string, feedback: string) =>
-      product.requestRunChanges(projectId, runId, feedback),
+    (_event, project: ProjectRef, runId: string, feedback: string) =>
+      product.requestRunChanges(project, runId, feedback),
   )
   ipcMain.handle(
     IPC_PRODUCT_APPROVE_RUN,
-    (_event, projectId: string, runId: string, summary: string) =>
-      product.approveRun(projectId, runId, summary),
+    (_event, project: ProjectRef, runId: string, summary: string) =>
+      product.approveRun(project, runId, summary),
   )
-  ipcMain.handle(IPC_PRODUCT_ARCHIVE_RUN, (_event, projectId: string, runId: string) =>
-    product.archiveRun(projectId, runId),
+  ipcMain.handle(IPC_PRODUCT_ARCHIVE_RUN, (_event, project: ProjectRef, runId: string) =>
+    product.archiveRun(project, runId),
   )
   product.subscribe((snapshot) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -248,7 +271,7 @@ void app.whenReady().then(() => {
     { localEnrollmentFile: process.env.FACTORU_LOCAL_ENROLLMENT_FILE?.trim() },
   )
   registerIpc()
-  if (product.snapshot.profiles.length > 0) void product.connectAll()
+  void product.initialize(os.hostname())
   createWindow()
 
   app.on('activate', () => {

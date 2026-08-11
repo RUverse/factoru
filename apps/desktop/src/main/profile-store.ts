@@ -12,14 +12,26 @@ export interface ServerProfile {
   createdAt: string
   lastConnectedAt: string | null
   projects: Project[]
-  selectedProjectId: string | null
   workspaces: Record<string, Workspace>
   cursor: number
 }
 
+export interface StoredProjectRef {
+  factoryId: string
+  projectId: string
+}
+
 interface StoredProfiles {
-  activeServerId: string | null
+  activeProjectRef: StoredProjectRef | null
+  remoteFactoryIntroComplete: boolean
   profiles: ServerProfile[]
+}
+
+interface LegacyStoredProfiles {
+  activeProjectRef?: StoredProjectRef | null
+  activeServerId?: string | null
+  remoteFactoryIntroComplete?: boolean
+  profiles: Array<ServerProfile & { selectedProjectId?: string | null }>
 }
 
 export class ProfileStore {
@@ -31,8 +43,11 @@ export class ProfileStore {
     this.#state = this.#read()
   }
 
-  get activeServerId(): string | null {
-    return this.#state.activeServerId
+  get activeProjectRef(): StoredProjectRef | null {
+    return this.#state.activeProjectRef ? { ...this.#state.activeProjectRef } : null
+  }
+  get remoteFactoryIntroComplete(): boolean {
+    return this.#state.remoteFactoryIntroComplete
   }
   list(): ServerProfile[] {
     return structuredClone(this.#state.profiles)
@@ -41,18 +56,10 @@ export class ProfileStore {
     const profile = this.#state.profiles.find((item) => item.serverId === serverId)
     return profile ? structuredClone(profile) : null
   }
-  active(): ServerProfile | null {
-    return (
-      this.#state.profiles.find((profile) => profile.serverId === this.#state.activeServerId) ??
-      null
-    )
-  }
-
   save(profile: ServerProfile): void {
     const index = this.#state.profiles.findIndex((item) => item.serverId === profile.serverId)
     if (index === -1) this.#state.profiles.push(profile)
     else this.#state.profiles[index] = profile
-    this.#state.activeServerId = profile.serverId
     this.#write()
   }
 
@@ -63,10 +70,21 @@ export class ProfileStore {
     this.#write()
   }
 
-  activate(serverId: string): void {
-    if (!this.#state.profiles.some((profile) => profile.serverId === serverId))
-      throw new Error('profile_not_found')
-    this.#state.activeServerId = serverId
+  selectProject(reference: StoredProjectRef | null): void {
+    if (reference) {
+      const profile = this.#state.profiles.find(
+        (candidate) => candidate.serverId === reference.factoryId,
+      )
+      if (!profile?.projects.some((project) => project.id === reference.projectId)) {
+        throw new Error('project_not_found')
+      }
+    }
+    this.#state.activeProjectRef = reference ? { ...reference } : null
+    this.#write()
+  }
+
+  completeRemoteFactoryIntro(): void {
+    this.#state.remoteFactoryIntroComplete = true
     this.#write()
   }
 
@@ -103,30 +121,54 @@ export class ProfileStore {
     const profile = this.#state.profiles.find((item) => item.serverId === serverId)
     if (profile?.kind === 'local') throw new Error('Local Factory cannot be forgotten')
     this.#state.profiles = this.#state.profiles.filter((profile) => profile.serverId !== serverId)
-    if (this.#state.activeServerId === serverId)
-      this.#state.activeServerId = this.#state.profiles[0]?.serverId ?? null
+    if (this.#state.activeProjectRef?.factoryId === serverId) this.#state.activeProjectRef = null
     this.#write()
   }
 
   #read(): StoredProfiles {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.#file, 'utf8')) as StoredProfiles
+      const parsed = JSON.parse(fs.readFileSync(this.#file, 'utf8')) as LegacyStoredProfiles
       if (!Array.isArray(parsed.profiles)) throw new Error('invalid profiles')
+      const migratedProfile = parsed.activeServerId
+        ? parsed.profiles.find((profile) => profile.serverId === parsed.activeServerId)
+        : undefined
+      const migratedProjectId = migratedProfile?.selectedProjectId
+      const profiles = parsed.profiles.map((profile) => ({
+        serverId: profile.serverId,
+        deviceId: profile.deviceId,
+        kind: profile.kind === 'local' ? ('local' as const) : ('remote' as const),
+        name: profile.name,
+        url: profile.url,
+        createdAt: profile.createdAt,
+        lastConnectedAt: profile.lastConnectedAt,
+        projects: Array.isArray(profile.projects) ? profile.projects : [],
+        workspaces:
+          typeof profile.workspaces === 'object' && profile.workspaces !== null
+            ? profile.workspaces
+            : {},
+        cursor: Number.isInteger(profile.cursor) ? profile.cursor : 0,
+      }))
+      const candidate =
+        parsed.activeProjectRef ??
+        (migratedProfile && typeof migratedProjectId === 'string'
+          ? { factoryId: migratedProfile.serverId, projectId: migratedProjectId }
+          : null)
+      const activeProjectRef = candidate
+        ? profiles.some(
+            (profile) =>
+              profile.serverId === candidate.factoryId &&
+              profile.projects.some((project) => project.id === candidate.projectId),
+          )
+          ? candidate
+          : null
+        : null
       return {
-        activeServerId: parsed.activeServerId,
-        profiles: parsed.profiles.map((profile) => ({
-          ...profile,
-          kind: profile.kind === 'local' ? 'local' : 'remote',
-          selectedProjectId:
-            typeof profile.selectedProjectId === 'string' ? profile.selectedProjectId : null,
-          workspaces:
-            typeof profile.workspaces === 'object' && profile.workspaces !== null
-              ? profile.workspaces
-              : {},
-        })),
+        activeProjectRef,
+        remoteFactoryIntroComplete: parsed.remoteFactoryIntroComplete === true,
+        profiles,
       }
     } catch {
-      return { activeServerId: null, profiles: [] }
+      return { activeProjectRef: null, remoteFactoryIntroComplete: false, profiles: [] }
     }
   }
 

@@ -1,6 +1,6 @@
 # 0016 — Concurrent Desktop server connections
 
-**Status:** Accepted
+**Status:** Accepted; selected-server routing superseded by [ADR 0017](./0017-factory-independent-project-catalog.md)
 **Date:** 2026-08-11
 
 ## Context

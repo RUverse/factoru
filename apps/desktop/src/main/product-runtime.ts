@@ -17,7 +17,6 @@ import {
   type MemoryEntry,
   type PairingExchangeResponse,
   type PlannerProbe,
-  type Project,
   type ProjectPreview,
   type TrustedDevice,
   type WorkerType,
@@ -31,7 +30,7 @@ import { DESKTOP_NAME, DESKTOP_VERSION } from './version'
 import { normalizeProfileUrl } from './profile-store'
 import { type CredentialStore, type ProfileStore, type ServerProfile } from './profile-store'
 import { LiveFactoruClient } from './live-client'
-import type { ProductSnapshot } from '../shared/product'
+import type { ProductSnapshot, ProjectRef } from '../shared/product'
 import { normalizeFactoryName } from '../shared/factory'
 import { readLocalEnrollmentFile } from './local-enrollment'
 
@@ -91,6 +90,7 @@ export class ProductRuntime {
   #snapshot: ProductSnapshot
   readonly #options: ResolvedProductRuntimeOptions
   #disposed = false
+  #initialized = false
 
   constructor(
     profiles: ProfileStore,
@@ -161,7 +161,9 @@ export class ProductRuntime {
     const paired = await client.pair(code, deviceName)
     if (paired.serverId !== handshake.response.server.serverId)
       throw new Error('Server identity changed during pairing')
-    return this.#acceptPairing(url, paired, name, 'remote')
+    await this.#acceptPairing(url, paired, name, 'remote')
+    this.#profiles.completeRemoteFactoryIntro()
+    return this.#updateFromStore()
   }
 
   async pairLocal(deviceName: string): Promise<ProductSnapshot> {
@@ -209,22 +211,11 @@ export class ProductRuntime {
       createdAt: existing?.createdAt ?? this.#options.now().toISOString(),
       lastConnectedAt: null,
       projects: existing?.projects ?? [],
-      selectedProjectId: existing?.selectedProjectId ?? null,
       workspaces: existing?.workspaces ?? {},
       cursor: existing?.cursor ?? 0,
     })
     if (kind === 'local') this.#profiles.adoptLocal(paired.serverId, url)
     await this.#connectProfile(paired.serverId)
-    return this.#snapshot
-  }
-
-  async activate(serverId: string): Promise<ProductSnapshot> {
-    this.#profiles.activate(serverId)
-    const session = this.#ensureSession(serverId)
-    this.#updateFromStore()
-    if (session.state !== 'connected' && session.state !== 'connecting') {
-      await this.#connectProfile(serverId)
-    }
     return this.#snapshot
   }
 
@@ -240,12 +231,29 @@ export class ProductRuntime {
     this.#profiles.remove(serverId)
     this.#closeSession(serverId)
     this.#sessions.delete(serverId)
+    this.#selectFallbackProject()
     return this.#updateFromStore()
   }
 
-  async connect(serverId = this.#profiles.activeServerId): Promise<ProductSnapshot> {
+  completeRemoteFactoryIntro(): ProductSnapshot {
+    this.#profiles.completeRemoteFactoryIntro()
+    return this.#updateFromStore()
+  }
+
+  async connect(serverId: string): Promise<ProductSnapshot> {
     if (!serverId || !this.#profiles.get(serverId)) return this.#updateFromStore()
     return this.#connectProfile(serverId)
+  }
+
+  async initialize(deviceName: string): Promise<ProductSnapshot> {
+    try {
+      await this.#autoEnrollLocal(deviceName)
+      await this.connectAll()
+    } finally {
+      this.#initialized = true
+      this.#updateFromStore()
+    }
+    return this.#snapshot
   }
 
   async connectAll(): Promise<ProductSnapshot> {
@@ -253,6 +261,11 @@ export class ProductRuntime {
     await Promise.all(
       this.#profiles.list().map((profile) => this.#connectProfile(profile.serverId)),
     )
+    if (!this.#profiles.activeProjectRef) {
+      this.#selectFallbackProject()
+      const active = this.#profiles.activeProjectRef
+      if (active) await this.selectProject(active)
+    }
     return this.#snapshot
   }
 
@@ -359,8 +372,7 @@ export class ProductRuntime {
     }
   }
 
-  synchronize(serverId = this.#profiles.activeServerId): Promise<ProductSnapshot> {
-    if (!serverId) return Promise.resolve(this.#snapshot)
+  synchronize(serverId: string): Promise<ProductSnapshot> {
     const session = this.#ensureSession(serverId)
     if (session.synchronizePromise) return session.synchronizePromise
     const tracked = this.#performSynchronize(serverId).finally(() => {
@@ -380,67 +392,84 @@ export class ProductRuntime {
     )
     if (session.live !== live) return this.#snapshot
     profile.projects = snapshot.projects
+    const active = this.#profiles.activeProjectRef
     if (
-      !profile.selectedProjectId ||
-      !profile.projects.some((project) => project.id === profile.selectedProjectId)
+      active?.factoryId === serverId &&
+      profile.projects.some((item) => item.id === active.projectId)
     ) {
-      profile.selectedProjectId = profile.projects[0]?.id ?? null
-    }
-    if (profile.selectedProjectId) {
-      profile.workspaces[profile.selectedProjectId] = workspaceSchema.parse(
-        await live.request('workspaces.get', { projectId: profile.selectedProjectId }),
+      profile.workspaces[active.projectId] = workspaceSchema.parse(
+        await live.request('workspaces.get', { projectId: active.projectId }),
       )
     }
     if (session.live !== live) return this.#snapshot
     profile.cursor = snapshot.cursor
     profile.lastConnectedAt = this.#options.now().toISOString()
     this.#profiles.update(profile)
+    if (
+      active?.factoryId === serverId &&
+      !profile.projects.some((item) => item.id === active.projectId)
+    ) {
+      this.#profiles.selectProject(null)
+      this.#selectFallbackProject()
+    }
     return this.#updateFromStore()
   }
 
-  async request(method: LiveMethod, params: unknown = {}, commandId?: string): Promise<unknown> {
-    const profile = this.#profiles.active()
-    const live = profile ? this.#sessions.get(profile.serverId)?.live : null
+  async request(
+    factoryId: string,
+    method: LiveMethod,
+    params: unknown = {},
+    commandId?: string,
+  ): Promise<unknown> {
+    const profile = this.#profiles.get(factoryId)
+    const live = profile ? this.#sessions.get(factoryId)?.live : null
     if (!profile || !live) throw new Error('Not connected')
     const result = await live.request(method, params, commandId)
-    if (method.startsWith('projects.')) await this.synchronize(profile.serverId)
+    if (method.startsWith('projects.')) await this.synchronize(factoryId)
     return result
   }
 
   async preview(
+    factoryId: string,
     rootId: string,
     relativePath: string,
     defaultBranch?: string,
   ): Promise<ProjectPreview> {
-    return (await this.request('projects.previewCreate', {
+    return (await this.request(factoryId, 'projects.previewCreate', {
       rootId,
       relativePath,
       defaultBranch,
     })) as ProjectPreview
   }
-  async previewPath(absolutePath: string): Promise<ProjectPreview> {
-    return (await this.request('repositories.previewPath', { absolutePath })) as ProjectPreview
+  async previewPath(factoryId: string, absolutePath: string): Promise<ProjectPreview> {
+    const profile = this.#profiles.get(factoryId)
+    if (profile?.kind !== 'local') {
+      throw new Error('Native folder selection is available only for Local Factory')
+    }
+    return (await this.request(factoryId, 'repositories.previewPath', {
+      absolutePath,
+    })) as ProjectPreview
   }
-  async create(params: unknown): Promise<Project> {
+  async create(factoryId: string, params: unknown): Promise<ProductSnapshot> {
     const project = projectSchema.parse(
-      await this.request('projects.create', params, `cmd_${randomUUID()}`),
+      await this.request(factoryId, 'projects.create', params, `cmd_${randomUUID()}`),
     )
-    await this.selectProject(project.id)
-    return project
+    return this.selectProject({ factoryId, projectId: project.id })
   }
-  async devices(): Promise<TrustedDevice[]> {
-    return trustedDeviceSchema.array().parse(await this.request('devices.list'))
+  async devices(factoryId: string): Promise<TrustedDevice[]> {
+    return trustedDeviceSchema.array().parse(await this.request(factoryId, 'devices.list'))
   }
-  async revoke(deviceId: string): Promise<unknown> {
-    const active = this.#profiles.active()
-    const result = await this.request('devices.revoke', {
+  async revoke(factoryId: string, deviceId: string): Promise<unknown> {
+    const profile = this.#profiles.get(factoryId)
+    if (!profile) throw new Error('Factory not found')
+    const result = await this.request(factoryId, 'devices.revoke', {
       deviceId,
-      confirmSelf: active?.deviceId === deviceId,
+      confirmSelf: profile.deviceId === deviceId,
     })
-    if (active?.deviceId === deviceId) {
-      this.#credentials.delete(active.serverId)
-      this.#closeSession(active.serverId)
-      const session = this.#ensureSession(active.serverId)
+    if (profile.deviceId === deviceId) {
+      this.#credentials.delete(profile.serverId)
+      this.#closeSession(profile.serverId)
+      const session = this.#ensureSession(profile.serverId)
       session.state = 'pairing_required'
       session.error = 'This device was revoked. Pair it again to reconnect.'
       this.#updateFromStore()
@@ -448,16 +477,16 @@ export class ProductRuntime {
     return result
   }
 
-  async selectProject(projectId: string): Promise<ProductSnapshot> {
-    const profile = this.#profiles.active()
-    if (!profile?.projects.some((project) => project.id === projectId)) {
-      throw new Error('Project not found in the active server profile')
+  async selectProject(reference: ProjectRef): Promise<ProductSnapshot> {
+    const profile = this.#profiles.get(reference.factoryId)
+    if (!profile?.projects.some((project) => project.id === reference.projectId)) {
+      throw new Error('Project not found in its home factory')
     }
-    profile.selectedProjectId = projectId
+    this.#profiles.selectProject(reference)
     const live = this.#sessions.get(profile.serverId)?.live
     if (live) {
-      profile.workspaces[projectId] = workspaceSchema.parse(
-        await live.request('workspaces.get', { projectId }),
+      profile.workspaces[reference.projectId] = workspaceSchema.parse(
+        await live.request('workspaces.get', { projectId: reference.projectId }),
       )
       profile.lastConnectedAt = this.#options.now().toISOString()
     }
@@ -465,164 +494,244 @@ export class ProductRuntime {
     return this.#updateFromStore()
   }
 
-  async sendMessage(projectId: string, text: string) {
+  async sendMessage(project: ProjectRef, text: string) {
     const result = conversationMessageSchema.parse(
-      await this.request('conversations.send', { projectId, text }, `cmd_${randomUUID()}`),
+      await this.request(
+        project.factoryId,
+        'conversations.send',
+        { projectId: project.projectId, text },
+        `cmd_${randomUUID()}`,
+      ),
     )
-    await this.#refreshWorkspace(projectId)
+    await this.#refreshWorkspace(project)
     return result
   }
 
   async updateModel(input: {
-    projectId: string
+    project: ProjectRef
     workerTypeKind: WorkerType['kind']
     slot: WorkerType['modelBindings'][number]['slot']
     provider: string | null
     model: string | null
   }): Promise<WorkerType> {
+    const { project, ...values } = input
     const result = workerTypeSchema.parse(
-      await this.request('workers.updateModelBinding', input, `cmd_${randomUUID()}`),
+      await this.request(
+        project.factoryId,
+        'workers.updateModelBinding',
+        { ...values, projectId: project.projectId },
+        `cmd_${randomUUID()}`,
+      ),
     )
-    await this.#refreshWorkspace(input.projectId)
+    await this.#refreshWorkspace(project)
     return result
   }
 
   async addMemory(input: {
-    projectId: string
+    project: ProjectRef
     scope: MemoryEntry['scope']
     workerTypeKind?: WorkerType['kind']
     content: string
     provenanceRef: string
     supersedesId?: string
   }): Promise<MemoryEntry> {
+    const { project, ...values } = input
     const result = memoryEntrySchema.parse(
-      await this.request('memory.add', input, `cmd_${randomUUID()}`),
+      await this.request(
+        project.factoryId,
+        'memory.add',
+        { ...values, projectId: project.projectId },
+        `cmd_${randomUUID()}`,
+      ),
     )
-    await this.#refreshWorkspace(input.projectId)
+    await this.#refreshWorkspace(project)
     return result
   }
 
-  async startPlanner(projectId: string): Promise<PlannerProbe> {
+  async startPlanner(project: ProjectRef): Promise<PlannerProbe> {
     const result = plannerProbeSchema.parse(
-      await this.request('planner.start', { projectId }, `cmd_${randomUUID()}`),
+      await this.request(
+        project.factoryId,
+        'planner.start',
+        { projectId: project.projectId },
+        `cmd_${randomUUID()}`,
+      ),
     )
-    await this.#refreshWorkspace(projectId)
+    await this.#refreshWorkspace(project)
     return result
   }
 
-  async cancelPlanner(projectId: string, plannerProbeId: string): Promise<PlannerProbe> {
+  async cancelPlanner(project: ProjectRef, plannerProbeId: string): Promise<PlannerProbe> {
     const result = plannerProbeSchema.parse(
-      await this.request('planner.cancel', { projectId, plannerProbeId }, `cmd_${randomUUID()}`),
+      await this.request(
+        project.factoryId,
+        'planner.cancel',
+        { projectId: project.projectId, plannerProbeId },
+        `cmd_${randomUUID()}`,
+      ),
     )
-    await this.#refreshWorkspace(projectId)
+    await this.#refreshWorkspace(project)
     return result
   }
 
   async createTask(input: {
-    projectId: string
+    project: ProjectRef
     title: string
     description?: string
     status: 'backlog' | 'queue'
   }): Promise<Task> {
+    const { project, ...values } = input
     const result = taskSchema.parse(
-      await this.request('tasks.create', input, `cmd_${randomUUID()}`),
+      await this.request(
+        project.factoryId,
+        'tasks.create',
+        { ...values, projectId: project.projectId },
+        `cmd_${randomUUID()}`,
+      ),
     )
-    await this.#refreshWorkspace(input.projectId)
+    await this.#refreshWorkspace(project)
     return result
   }
 
   async updateTask(input: {
-    projectId: string
+    project: ProjectRef
     taskId: string
     title?: string
     description?: string
     priority?: number
   }): Promise<Task> {
+    const { project, ...values } = input
     const result = taskSchema.parse(
-      await this.request('tasks.update', input, `cmd_${randomUUID()}`),
+      await this.request(
+        project.factoryId,
+        'tasks.update',
+        { ...values, projectId: project.projectId },
+        `cmd_${randomUUID()}`,
+      ),
     )
-    await this.#refreshWorkspace(input.projectId)
+    await this.#refreshWorkspace(project)
     return result
   }
 
   async moveTask(input: {
-    projectId: string
+    project: ProjectRef
     taskId: string
     status: Task['status']
     needsYouAction?: NonNullable<Task['needsYouAction']>
     needsYouMessage?: string
   }): Promise<Task> {
-    const result = taskSchema.parse(await this.request('tasks.move', input, `cmd_${randomUUID()}`))
-    await this.#refreshWorkspace(input.projectId)
+    const { project, ...values } = input
+    const result = taskSchema.parse(
+      await this.request(
+        project.factoryId,
+        'tasks.move',
+        { ...values, projectId: project.projectId },
+        `cmd_${randomUUID()}`,
+      ),
+    )
+    await this.#refreshWorkspace(project)
     return result
   }
 
   async resolveTask(input: {
-    projectId: string
+    project: ProjectRef
     taskId: string
     resolution: Exclude<NonNullable<Task['resolution']>, 'superseded'>
     summary: string
   }): Promise<Task> {
+    const { project, ...values } = input
     const result = taskSchema.parse(
-      await this.request('tasks.resolve', input, `cmd_${randomUUID()}`),
+      await this.request(
+        project.factoryId,
+        'tasks.resolve',
+        { ...values, projectId: project.projectId },
+        `cmd_${randomUUID()}`,
+      ),
     )
-    await this.#refreshWorkspace(input.projectId)
+    await this.#refreshWorkspace(project)
     return result
   }
 
   async decideTaskMerge(input: {
-    projectId: string
+    project: ProjectRef
     proposalId: string
     decision: 'accept' | 'reject'
   }): Promise<TaskMergeProposal> {
+    const { project, ...values } = input
     const result = taskMergeProposalSchema.parse(
-      await this.request('tasks.decideMerge', input, `cmd_${randomUUID()}`),
-    )
-    await this.#refreshWorkspace(input.projectId)
-    return result
-  }
-
-  async cancelRun(projectId: string, runId: string): Promise<ExecutionRun> {
-    const result = executionRunSchema.parse(
-      await this.request('runs.cancel', { projectId, runId }, `cmd_${randomUUID()}`),
-    )
-    await this.#refreshWorkspace(projectId)
-    return result
-  }
-
-  async retryRun(projectId: string, runId: string): Promise<Task> {
-    const result = taskSchema.parse(
-      await this.request('runs.retry', { projectId, runId }, `cmd_${randomUUID()}`),
-    )
-    await this.#refreshWorkspace(projectId)
-    return result
-  }
-
-  async requestRunChanges(projectId: string, runId: string, feedback: string): Promise<Task> {
-    const result = taskSchema.parse(
       await this.request(
-        'runs.requestChanges',
-        { projectId, runId, feedback },
+        project.factoryId,
+        'tasks.decideMerge',
+        { ...values, projectId: project.projectId },
         `cmd_${randomUUID()}`,
       ),
     )
-    await this.#refreshWorkspace(projectId)
+    await this.#refreshWorkspace(project)
     return result
   }
 
-  async approveRun(projectId: string, runId: string, summary: string): Promise<Task> {
-    const result = taskSchema.parse(
-      await this.request('runs.approve', { projectId, runId, summary }, `cmd_${randomUUID()}`),
-    )
-    await this.#refreshWorkspace(projectId)
-    return result
-  }
-
-  async archiveRun(projectId: string, runId: string): Promise<ExecutionRun> {
+  async cancelRun(project: ProjectRef, runId: string): Promise<ExecutionRun> {
     const result = executionRunSchema.parse(
-      await this.request('runs.archive', { projectId, runId }, `cmd_${randomUUID()}`),
+      await this.request(
+        project.factoryId,
+        'runs.cancel',
+        { projectId: project.projectId, runId },
+        `cmd_${randomUUID()}`,
+      ),
     )
-    await this.#refreshWorkspace(projectId)
+    await this.#refreshWorkspace(project)
+    return result
+  }
+
+  async retryRun(project: ProjectRef, runId: string): Promise<Task> {
+    const result = taskSchema.parse(
+      await this.request(
+        project.factoryId,
+        'runs.retry',
+        { projectId: project.projectId, runId },
+        `cmd_${randomUUID()}`,
+      ),
+    )
+    await this.#refreshWorkspace(project)
+    return result
+  }
+
+  async requestRunChanges(project: ProjectRef, runId: string, feedback: string): Promise<Task> {
+    const result = taskSchema.parse(
+      await this.request(
+        project.factoryId,
+        'runs.requestChanges',
+        { projectId: project.projectId, runId, feedback },
+        `cmd_${randomUUID()}`,
+      ),
+    )
+    await this.#refreshWorkspace(project)
+    return result
+  }
+
+  async approveRun(project: ProjectRef, runId: string, summary: string): Promise<Task> {
+    const result = taskSchema.parse(
+      await this.request(
+        project.factoryId,
+        'runs.approve',
+        { projectId: project.projectId, runId, summary },
+        `cmd_${randomUUID()}`,
+      ),
+    )
+    await this.#refreshWorkspace(project)
+    return result
+  }
+
+  async archiveRun(project: ProjectRef, runId: string): Promise<ExecutionRun> {
+    const result = executionRunSchema.parse(
+      await this.request(
+        project.factoryId,
+        'runs.archive',
+        { projectId: project.projectId, runId },
+        `cmd_${randomUUID()}`,
+      ),
+    )
+    await this.#refreshWorkspace(project)
     return result
   }
 
@@ -630,22 +739,14 @@ export class ProductRuntime {
     return this.#profiles
       .list()
       .sort((left, right) => Number(right.kind === 'local') - Number(left.kind === 'local'))
-      .map(
-        ({
-          projects: _projects,
-          selectedProjectId: _selectedProjectId,
-          workspaces: _workspaces,
-          cursor: _cursor,
-          ...profile
-        }) => {
-          const session = this.#ensureSession(profile.serverId)
-          return {
-            ...profile,
-            connectionState: session.state,
-            error: session.error,
-          }
-        },
-      )
+      .map(({ projects: _projects, workspaces: _workspaces, cursor: _cursor, ...profile }) => {
+        const session = this.#ensureSession(profile.serverId)
+        return {
+          ...profile,
+          connectionState: session.state,
+          error: session.error,
+        }
+      })
   }
 
   async #reconcileLocalProfile(): Promise<void> {
@@ -661,21 +762,47 @@ export class ProductRuntime {
     }
   }
 
+  async #autoEnrollLocal(deviceName: string): Promise<void> {
+    try {
+      const enrollment = await readLocalEnrollmentFile(this.#options.localEnrollmentFile)
+      const known = this.#profiles.get(enrollment.serverId)
+      if (known) {
+        this.#profiles.adoptLocal(enrollment.serverId, normalizeProfileUrl(enrollment.serverUrl))
+        return
+      }
+      if (this.#profiles.list().some((profile) => profile.kind === 'local')) return
+      await this.pairLocal(deviceName)
+    } catch {
+      // Local availability is optional; the renderer keeps a recoverable built-in entry.
+    }
+  }
+
   #snapshotFromStore(): ProductSnapshot {
-    const active = this.#profiles.active()
+    const profiles = this.#publicProfiles()
+    const activeRef = this.#profiles.activeProjectRef
+    const active = activeRef ? this.#profiles.get(activeRef.factoryId) : null
     const activeSession = active ? this.#ensureSession(active.serverId) : null
     const connected = activeSession?.state === 'connected'
     return {
-      profiles: this.#publicProfiles(),
-      activeServerId: active?.serverId ?? null,
-      projects: active?.projects ?? [],
-      activeProjectId: active?.selectedProjectId ?? null,
-      workspace: active?.selectedProjectId
-        ? (active.workspaces[active.selectedProjectId] ?? null)
-        : null,
+      initialized: this.#initialized,
+      profiles,
+      projects: this.#profiles.list().flatMap((profile) => {
+        const summary = profiles.find((candidate) => candidate.serverId === profile.serverId)
+        if (!summary) return []
+        return profile.projects.map((project) => ({
+          ref: { factoryId: profile.serverId, projectId: project.id },
+          project,
+          factoryName: summary.name,
+          factoryKind: summary.kind,
+          factoryConnectionState: summary.connectionState,
+        }))
+      }),
+      activeProjectRef: activeRef,
+      workspace: activeRef && active ? (active.workspaces[activeRef.projectId] ?? null) : null,
       connected,
       cached: !connected && active !== null,
       error: activeSession?.error ?? null,
+      remoteFactoryIntroComplete: this.#profiles.remoteFactoryIntroComplete,
     }
   }
 
@@ -689,16 +816,29 @@ export class ProductRuntime {
     return this.#snapshot
   }
 
-  async #refreshWorkspace(projectId: string): Promise<void> {
-    const profile = this.#profiles.active()
-    const live = profile ? this.#sessions.get(profile.serverId)?.live : null
+  async #refreshWorkspace(project: ProjectRef): Promise<void> {
+    const profile = this.#profiles.get(project.factoryId)
+    const live = profile ? this.#sessions.get(project.factoryId)?.live : null
     if (!profile || !live) return
-    profile.workspaces[projectId] = workspaceSchema.parse(
-      await live.request('workspaces.get', { projectId }),
+    profile.workspaces[project.projectId] = workspaceSchema.parse(
+      await live.request('workspaces.get', { projectId: project.projectId }),
     )
     profile.lastConnectedAt = this.#options.now().toISOString()
     this.#profiles.update(profile)
     this.#updateFromStore()
+  }
+
+  #selectFallbackProject(): void {
+    if (this.#profiles.activeProjectRef) return
+    const profiles = this.#profiles
+      .list()
+      .sort((left, right) => Number(right.kind === 'local') - Number(left.kind === 'local'))
+    for (const profile of profiles) {
+      const project = profile.projects[0]
+      if (!project) continue
+      this.#profiles.selectProject({ factoryId: profile.serverId, projectId: project.id })
+      return
+    }
   }
 
   #ensureSession(serverId: string): ServerSession {

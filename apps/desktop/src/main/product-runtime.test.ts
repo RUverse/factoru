@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { LiveMethod, PairingExchangeResponse } from '@factoru/protocol'
+import type { LiveMethod, PairingExchangeResponse, Project } from '@factoru/protocol'
 import { CredentialStore, ProfileStore, type ServerProfile } from './profile-store'
 import {
   ProductRuntime,
@@ -28,9 +28,46 @@ function profile(serverId: string, url: string, name: string): ServerProfile {
     createdAt: '2026-08-11T12:00:00.000Z',
     lastConnectedAt: null,
     projects: [],
-    selectedProjectId: null,
     workspaces: {},
     cursor: 0,
+  }
+}
+
+function cachedProject(id: string, name: string): Project {
+  return {
+    id,
+    name,
+    description: null,
+    repository: { rootId: 'root_main', relativePath: name, label: name },
+    defaultBranch: 'dev',
+    setupState: 'ready',
+    setupError: null,
+    version: 1,
+    createdAt: '2026-08-11T12:00:00.000Z',
+    updatedAt: '2026-08-11T12:00:00.000Z',
+    rig: {
+      rigName: `${name}-rig`,
+      beadPrefix: name,
+      registrationState: 'ready',
+      lastReconciledAt: '2026-08-11T12:00:00.000Z',
+      error: null,
+    },
+    repositories: [
+      {
+        id: `repo_${name}`,
+        isPrimary: true,
+        sourceUrl: null,
+        repository: { rootId: 'root_main', relativePath: name, label: name },
+        defaultBranch: 'dev',
+        rig: {
+          rigName: `${name}-rig`,
+          beadPrefix: name,
+          registrationState: 'ready',
+          lastReconciledAt: '2026-08-11T12:00:00.000Z',
+          error: null,
+        },
+      },
+    ],
   }
 }
 
@@ -89,7 +126,54 @@ afterEach(() => {
 })
 
 describe('multi-server product runtime', () => {
-  it('keeps every saved server connected while activation only changes command routing', async () => {
+  it('aggregates cached projects by compound factory identity', () => {
+    const root = directory()
+    const profiles = new ProfileStore(root)
+    const first = profile(`srv_${'1'.repeat(32)}`, 'http://127.0.0.1:18787', 'Local Factory')
+    const second = profile(`srv_${'2'.repeat(32)}`, 'http://127.0.0.1:18788', 'Raspberry Pi')
+    first.kind = 'local'
+    first.projects = [cachedProject('project_shared', 'Local project')]
+    second.projects = [cachedProject('project_shared', 'Remote project')]
+    profiles.save(first)
+    profiles.save(second)
+    profiles.selectProject({ factoryId: second.serverId, projectId: 'project_shared' })
+
+    const runtime = new ProductRuntime(
+      profiles,
+      new CredentialStore(root, {
+        isEncryptionAvailable: () => true,
+        encryptString: (value) => Buffer.from(value),
+        decryptString: (value) => value.toString(),
+      }),
+    )
+
+    expect(runtime.snapshot.projects).toEqual([
+      expect.objectContaining({
+        ref: { factoryId: first.serverId, projectId: 'project_shared' },
+        factoryName: 'Local Factory',
+        project: expect.objectContaining({ name: 'Local project' }),
+      }),
+      expect.objectContaining({
+        ref: { factoryId: second.serverId, projectId: 'project_shared' },
+        factoryName: 'Raspberry Pi',
+        project: expect.objectContaining({ name: 'Remote project' }),
+      }),
+    ])
+    expect(runtime.snapshot.activeProjectRef).toEqual({
+      factoryId: second.serverId,
+      projectId: 'project_shared',
+    })
+    expect(runtime.snapshot.cached).toBe(true)
+
+    runtime.remove(second.serverId)
+    expect(runtime.snapshot.activeProjectRef).toEqual({
+      factoryId: first.serverId,
+      projectId: 'project_shared',
+    })
+    runtime.dispose()
+  })
+
+  it('keeps every saved factory connected while requests route by stable factory ID', async () => {
     const root = directory()
     const profiles = new ProfileStore(root)
     const first = profile(`srv_${'a'.repeat(32)}`, 'http://127.0.0.1:18787', 'Local')
@@ -163,7 +247,7 @@ describe('multi-server product runtime', () => {
       expect.objectContaining({ serverId: first.serverId, name: 'Local Factory' }),
       expect.objectContaining({ serverId: second.serverId, name: 'Pi' }),
     ])
-    expect(runtime.snapshot.activeServerId).toBe(second.serverId)
+    expect(runtime.snapshot.activeProjectRef).toBeNull()
 
     const originalFirstLive = liveClients.get(first.url)!
     const secondLive = liveClients.get(second.url)!
@@ -171,10 +255,7 @@ describe('multi-server product runtime', () => {
     expect(originalFirstLive.closeCount).toBe(1)
     expect(liveClients.get(first.url)).not.toBe(originalFirstLive)
     expect(secondLive.closeCount).toBe(0)
-    expect(runtime.snapshot.activeServerId).toBe(second.serverId)
-
-    await runtime.activate(first.serverId)
-    const result = await runtime.request('devices.list')
+    const result = await runtime.request(first.serverId, 'devices.list')
 
     expect(result).toEqual({ url: first.url })
     expect(liveClients.get(first.url)?.closeCount).toBe(0)
@@ -186,18 +267,15 @@ describe('multi-server product runtime', () => {
       expect.objectContaining({ serverId: first.serverId, connectionState: 'offline' }),
       expect.objectContaining({ serverId: second.serverId, connectionState: 'connected' }),
     ])
-    expect(runtime.snapshot.connected).toBe(false)
-
-    await runtime.activate(second.serverId)
-
-    expect(runtime.snapshot.connected).toBe(true)
+    expect(liveClients.get(second.url)?.closeCount).toBe(0)
 
     runtime.remove(first.serverId)
 
     expect(liveClients.get(first.url)?.closeCount).toBe(0)
     expect(liveClients.get(second.url)?.closeCount).toBe(0)
-    expect(runtime.snapshot.activeServerId).toBe(second.serverId)
-    expect(runtime.snapshot.connected).toBe(true)
+    expect(runtime.snapshot.profiles).toEqual([
+      expect.objectContaining({ serverId: second.serverId, connectionState: 'connected' }),
+    ])
     runtime.dispose()
   })
 
@@ -246,7 +324,9 @@ describe('multi-server product runtime', () => {
     expect(runtime.snapshot.profiles).toEqual([
       expect.objectContaining({ serverId, kind: 'remote', name: 'Raspberry Pi' }),
     ])
-    expect(new ProfileStore(root).active()?.name).toBe('Raspberry Pi')
+    expect(runtime.snapshot.remoteFactoryIntroComplete).toBe(true)
+    expect(new ProfileStore(root).get(serverId)?.name).toBe('Raspberry Pi')
+    expect(new ProfileStore(root).remoteFactoryIntroComplete).toBe(true)
     runtime.dispose()
   })
 
@@ -316,7 +396,7 @@ describe('multi-server product runtime', () => {
         connectionState: 'connected',
       }),
     ])
-    expect(new ProfileStore(root).active()).toEqual(
+    expect(new ProfileStore(root).get(serverId)).toEqual(
       expect.objectContaining({ kind: 'local', name: 'Local Factory' }),
     )
     runtime.dispose()
@@ -374,12 +454,85 @@ describe('multi-server product runtime', () => {
       now: () => new Date('2026-08-11T12:30:00.000Z'),
     })
 
-    await runtime.pairLocal('My Mac')
+    await runtime.initialize('My Mac')
 
     expect(runtime.snapshot.profiles).toEqual([
       expect.objectContaining({ serverId, kind: 'local', name: 'Local Factory' }),
     ])
+    expect(runtime.snapshot.initialized).toBe(true)
     expect(() => runtime.remove(serverId)).toThrow(/cannot be forgotten/)
+    runtime.dispose()
+  })
+
+  it('does not silently re-enroll a known local profile without its credential', async () => {
+    const root = directory()
+    const enrollmentFile = path.join(root, 'local-enrollment.json')
+    const serverId = `srv_${'f'.repeat(32)}`
+    fs.writeFileSync(
+      enrollmentFile,
+      JSON.stringify({
+        version: 1,
+        serverId,
+        serverUrl: 'http://127.0.0.1:32800',
+        proof: 'a'.repeat(43),
+      }),
+      { mode: 0o600 },
+    )
+    const profiles = new ProfileStore(root)
+    const known = profile(serverId, 'http://127.0.0.1:32800', 'Local Factory')
+    known.kind = 'local'
+    profiles.save(known)
+    let localPairCount = 0
+    const runtime = new ProductRuntime(
+      profiles,
+      new CredentialStore(root, {
+        isEncryptionAvailable: () => true,
+        encryptString: (value) => Buffer.from(value),
+        decryptString: (value) => value.toString(),
+      }),
+      {
+        localEnrollmentFile: enrollmentFile,
+        createClient: () => ({
+          baseUrl: 'http://127.0.0.1:32800',
+          handshake: async () => {
+            throw new Error('handshake should not run without a credential')
+          },
+          pair: async () => {
+            throw new Error('remote pair is not used')
+          },
+          pairLocal: async () => {
+            localPairCount += 1
+            return pairingResponse(serverId)
+          },
+        }),
+      },
+    )
+
+    await runtime.initialize('My Mac')
+
+    expect(localPairCount).toBe(0)
+    expect(runtime.snapshot.profiles).toEqual([
+      expect.objectContaining({ serverId, connectionState: 'pairing_required' }),
+    ])
+    runtime.dispose()
+  })
+
+  it('finishes initialization when no valid local enrollment descriptor is available', async () => {
+    const root = directory()
+    const runtime = new ProductRuntime(
+      new ProfileStore(root),
+      new CredentialStore(root, {
+        isEncryptionAvailable: () => true,
+        encryptString: (value) => Buffer.from(value),
+        decryptString: (value) => value.toString(),
+      }),
+      { localEnrollmentFile: path.join(root, 'missing-local-enrollment.json') },
+    )
+
+    await runtime.initialize('My Mac')
+
+    expect(runtime.snapshot.initialized).toBe(true)
+    expect(runtime.snapshot.profiles).toEqual([])
     runtime.dispose()
   })
 })

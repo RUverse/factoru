@@ -7,7 +7,6 @@ import {
   type FactoruBridge,
 } from '../shared/connection'
 import {
-  IPC_PRODUCT_ACTIVATE,
   IPC_PRODUCT_BROWSE,
   IPC_PRODUCT_CHANGED,
   IPC_PRODUCT_CANCEL_PLANNER,
@@ -39,6 +38,7 @@ import {
   IPC_PRODUCT_REQUEST_RUN_CHANGES,
   IPC_PRODUCT_APPROVE_RUN,
   IPC_PRODUCT_ARCHIVE_RUN,
+  IPC_PRODUCT_COMPLETE_REMOTE_FACTORY_INTRO,
   type ProductBridge,
 } from '../shared/product'
 
@@ -47,39 +47,40 @@ const product: ProductBridge = {
   pair: (url, code, deviceName, factoryName) =>
     ipcRenderer.invoke(IPC_PRODUCT_PAIR, url, code, deviceName, factoryName),
   pairLocal: (deviceName) => ipcRenderer.invoke(IPC_PRODUCT_PAIR_LOCAL, deviceName),
-  activate: (serverId) => ipcRenderer.invoke(IPC_PRODUCT_ACTIVATE, serverId),
   rename: (serverId, name) => ipcRenderer.invoke(IPC_PRODUCT_RENAME, serverId, name),
   remove: (serverId) => ipcRenderer.invoke(IPC_PRODUCT_REMOVE, serverId),
   reconnect: (serverId) => ipcRenderer.invoke(IPC_PRODUCT_RECONNECT, serverId),
-  roots: () => ipcRenderer.invoke(IPC_PRODUCT_ROOTS),
-  browse: (rootId, relativePath) => ipcRenderer.invoke(IPC_PRODUCT_BROWSE, rootId, relativePath),
-  preview: (rootId, relativePath, defaultBranch) =>
-    ipcRenderer.invoke(IPC_PRODUCT_PREVIEW, rootId, relativePath, defaultBranch),
-  chooseRepositoryFolder: () => ipcRenderer.invoke(IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER),
-  create: (params) => ipcRenderer.invoke(IPC_PRODUCT_CREATE, params),
-  retry: (projectId) => ipcRenderer.invoke(IPC_PRODUCT_RETRY, projectId),
-  devices: () => ipcRenderer.invoke(IPC_PRODUCT_DEVICES),
-  revoke: (deviceId) => ipcRenderer.invoke(IPC_PRODUCT_REVOKE, deviceId),
-  selectProject: (projectId) => ipcRenderer.invoke(IPC_PRODUCT_SELECT_PROJECT, projectId),
-  sendMessage: (projectId, message) =>
-    ipcRenderer.invoke(IPC_PRODUCT_SEND_MESSAGE, projectId, message),
+  completeRemoteFactoryIntro: () => ipcRenderer.invoke(IPC_PRODUCT_COMPLETE_REMOTE_FACTORY_INTRO),
+  roots: (factoryId) => ipcRenderer.invoke(IPC_PRODUCT_ROOTS, factoryId),
+  browse: (factoryId, rootId, relativePath) =>
+    ipcRenderer.invoke(IPC_PRODUCT_BROWSE, factoryId, rootId, relativePath),
+  preview: (factoryId, rootId, relativePath, defaultBranch) =>
+    ipcRenderer.invoke(IPC_PRODUCT_PREVIEW, factoryId, rootId, relativePath, defaultBranch),
+  chooseRepositoryFolder: (factoryId) =>
+    ipcRenderer.invoke(IPC_PRODUCT_CHOOSE_REPOSITORY_FOLDER, factoryId),
+  create: (factoryId, params) => ipcRenderer.invoke(IPC_PRODUCT_CREATE, factoryId, params),
+  retry: (project) => ipcRenderer.invoke(IPC_PRODUCT_RETRY, project),
+  devices: (factoryId) => ipcRenderer.invoke(IPC_PRODUCT_DEVICES, factoryId),
+  revoke: (factoryId, deviceId) => ipcRenderer.invoke(IPC_PRODUCT_REVOKE, factoryId, deviceId),
+  selectProject: (project) => ipcRenderer.invoke(IPC_PRODUCT_SELECT_PROJECT, project),
+  sendMessage: (project, message) => ipcRenderer.invoke(IPC_PRODUCT_SEND_MESSAGE, project, message),
   updateModel: (input) => ipcRenderer.invoke(IPC_PRODUCT_UPDATE_MODEL, input),
   addMemory: (input) => ipcRenderer.invoke(IPC_PRODUCT_ADD_MEMORY, input),
-  startPlanner: (projectId) => ipcRenderer.invoke(IPC_PRODUCT_START_PLANNER, projectId),
-  cancelPlanner: (projectId, plannerProbeId) =>
-    ipcRenderer.invoke(IPC_PRODUCT_CANCEL_PLANNER, projectId, plannerProbeId),
+  startPlanner: (project) => ipcRenderer.invoke(IPC_PRODUCT_START_PLANNER, project),
+  cancelPlanner: (project, plannerProbeId) =>
+    ipcRenderer.invoke(IPC_PRODUCT_CANCEL_PLANNER, project, plannerProbeId),
   createTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_CREATE_TASK, input),
   updateTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_UPDATE_TASK, input),
   moveTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_MOVE_TASK, input),
   resolveTask: (input) => ipcRenderer.invoke(IPC_PRODUCT_RESOLVE_TASK, input),
   decideTaskMerge: (input) => ipcRenderer.invoke(IPC_PRODUCT_DECIDE_TASK_MERGE, input),
-  cancelRun: (projectId, runId) => ipcRenderer.invoke(IPC_PRODUCT_CANCEL_RUN, projectId, runId),
-  retryRun: (projectId, runId) => ipcRenderer.invoke(IPC_PRODUCT_RETRY_RUN, projectId, runId),
-  requestRunChanges: (projectId, runId, feedback) =>
-    ipcRenderer.invoke(IPC_PRODUCT_REQUEST_RUN_CHANGES, projectId, runId, feedback),
-  approveRun: (projectId, runId, summary) =>
-    ipcRenderer.invoke(IPC_PRODUCT_APPROVE_RUN, projectId, runId, summary),
-  archiveRun: (projectId, runId) => ipcRenderer.invoke(IPC_PRODUCT_ARCHIVE_RUN, projectId, runId),
+  cancelRun: (project, runId) => ipcRenderer.invoke(IPC_PRODUCT_CANCEL_RUN, project, runId),
+  retryRun: (project, runId) => ipcRenderer.invoke(IPC_PRODUCT_RETRY_RUN, project, runId),
+  requestRunChanges: (project, runId, feedback) =>
+    ipcRenderer.invoke(IPC_PRODUCT_REQUEST_RUN_CHANGES, project, runId, feedback),
+  approveRun: (project, runId, summary) =>
+    ipcRenderer.invoke(IPC_PRODUCT_APPROVE_RUN, project, runId, summary),
+  archiveRun: (project, runId) => ipcRenderer.invoke(IPC_PRODUCT_ARCHIVE_RUN, project, runId),
   subscribe: (listener) => {
     const handler = (_event: unknown, snapshot: Parameters<typeof listener>[0]) =>
       listener(snapshot)

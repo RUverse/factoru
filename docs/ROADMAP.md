@@ -1,7 +1,7 @@
 # Factoru Roadmap
 
 > Status: Milestones 0–6 complete; Milestone 7 is next
-> Last updated: 2026-08-09
+> Last updated: 2026-08-11
 
 This is the single delivery roadmap for Factoru. It intentionally starts with a
 small, coherent product and keeps the broader graph-orchestration vision as a
@@ -95,8 +95,9 @@ is not presented as a built-in Gas City primitive.
    Engineer**. A Worker Type may bind multiple Gas City agents/models: the
    Software Engineer initially exposes separate implementation and review model
    slots.
-7. Projects and tasks are Factoru entities stored by Factoru Server. Gas City
-   execution records are linked to tasks but do not replace the product model.
+7. Projects and tasks are Factoru entities stored by their authoritative home
+   Factoru Server. Gas City execution records are linked to tasks but do not
+   replace the product model.
 8. The board has exactly four active statuses: **Backlog**, **Queue**,
    **In progress**, and **Needs you**.
 9. The first execution path is serial with a work-in-progress limit of one.
@@ -130,36 +131,37 @@ is not presented as a built-in Gas City primitive.
     single-operator runtime domain for the MVP. Rig prefixes are logical scopes,
     not adversarial isolation; Gas City and Dolt listeners are never exposed to
     the desktop or proxied through Factoru's remote API.
+19. Desktop presents one factory-independent project catalog. A compound
+    factory/project reference routes each command to the project's one home
+    factory; factory selection filters the catalog and never becomes a second
+    owner of project state ([ADR 0017](./adr/0017-factory-independent-project-catalog.md)).
 
 ## Product experience
 
 ### First launch
 
-The desktop opens to a connection screen with two paths:
+Desktop automatically enrolls **Local Factory** when its private loopback
+descriptor is available and otherwise keeps the built-in local entry visible as
+offline. On first launch, a skippable introduction explains how to add a remote
+factory; local and remote deployments use the same Factoru Server artifact and
+secure pairing model.
 
-- **Connect to a Factoru Server** using a server address and a secure pairing
-  flow.
-- **Run on this device** by installing or starting the same Factoru Server
-  distribution locally and connecting over localhost.
-
-The desktop remembers trusted servers, maintains independent connections to the
-local server and every added remote server, and clearly shows which server is
-active. Changing the active server changes the visible projects and command
-destination without disconnecting the other servers, because projects belong to
-one server rather than the laptop. In the main workspace, a named factory
-switcher at the top of the sidebar combines active-server status, switching,
-pairing, reconnect, trusted-device management, and profile removal. Friendly
-factory names are Desktop-local preferences; local enrollment defaults to
-**Local Factory**. Local Factory remains a built-in switcher entry and cannot be
-forgotten; the add-another-factory action is reserved for remote servers.
+Desktop remembers trusted servers and maintains independent connections to the
+local server and every added remote server. The collapsed factory control reports
+aggregate health; its expanded list filters projects and manages pairing,
+reconnect, trusted devices, rename, and remote-profile removal. The project list
+defaults to all factories, and choosing a filter does not replace the open
+workspace. Friendly factory names are Desktop-local preferences, while the
+factory filter resets to **All factories** on launch. Local Factory cannot be
+forgotten.
 
 ### Main workspace
 
 The initial layout follows the supplied mockup while remaining Factoru's own
 design:
 
-- **Left sidebar:** named factory switcher and status, project list, project
-  activity summary, add project, and settings.
+- **Left sidebar:** aggregate factory status and filtering, project list with
+  home-factory labels, project activity summary, add project, and settings.
 - **Center:** the selected project's Project Manager conversation and message
   composer.
 - **Right pane:** switchable **Tasks** and **Workers** tabs.
@@ -185,6 +187,7 @@ where it helps explain or control the current work.
 A Factoru project initially contains:
 
 - a name and optional description;
+- one authoritative home factory selected from the connected Desktop profiles;
 - one or more Git repositories, each with a server-local path, default branch,
   and Gas City rig binding;
 - a primary repository/rig used by the serial task-execution path;
@@ -196,13 +199,15 @@ A Factoru project initially contains:
 - Gas City city plus repository/rig bindings, formula selection, and run references;
 - commands for setup, verification, and tests.
 
-Project creation asks for the project name first and lets the user add multiple
-repositories before confirming. A local desktop can choose a repository with
-the native macOS folder picker; the selected path is validated by Factoru
-Server against approved repository roots and is never exposed as a general
-renderer filesystem capability. HTTPS and SSH repository URLs are cloned by
-the server into an approved root. URLs containing credentials are rejected;
-repository access is configured on the server.
+Project creation selects one connected home factory, asks for the project name,
+and lets the user add multiple repositories before confirming. Repository roots,
+previews, cloning, and creation route to that factory. Local Factory can use the
+native macOS folder picker; the selected path is validated by Factoru Server
+against approved repository roots and is never exposed as a general renderer
+filesystem capability. Remote factories use their approved-root browser or
+HTTPS/SSH repository URLs, which the server clones into an approved root. URLs
+containing credentials are rejected; repository access is configured on the
+server.
 
 ### Task lifecycle
 
@@ -673,9 +678,9 @@ Build durable Factoru ownership only after the Gas City feasibility gate passes.
 - Implement stable server identity, pairing, device tokens, authorization, and
   revocation.
 - Add local and remote server profiles to first launch; maintain independent
-  connections for all saved profiles while one active profile owns the visible
-  workspace and command routing; require TLS outside localhost and expose only
-  the authenticated Factoru API.
+  connections for all saved profiles, aggregate their cached projects in
+  Desktop, and route commands by compound home-factory/project identity;
+  require TLS outside localhost and expose only the authenticated Factoru API.
   **Resolved for Milestone 2:** terminate HTTPS through an operator-controlled
   private overlay or loopback reverse proxy; native certificate management is
   deferred ([ADR 0011](./adr/0011-milestone-2-remote-access-and-project-onboarding.md)).
@@ -896,6 +901,9 @@ After the core loop proves useful:
 - Linux Electron desktop distribution;
 - terminal, file, and source-control conveniences inspired by T3 Code;
 - trust policies for automatic low-risk integration;
+- additional execution factories attached to one home-owned project, after
+  server-to-server trust, per-factory repository mappings, task placement,
+  cancellation, health, and recovery are proven without database replication;
 - multi-user collaboration only if the personal-server model demonstrates a
   real need for it.
 

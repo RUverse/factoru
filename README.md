@@ -2,9 +2,11 @@
 
 A personal development team that runs on infrastructure you control.
 
-**Factoru Server** runs on an always-on machine and owns projects, agents, and
-durable state. **Factoru Desktop** is an unprivileged Electron client that
-connects to it. See [docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
+Each **Factoru Server** runs on an always-on machine and acts as the authoritative
+home factory for its projects, agents, and durable state. **Factoru Desktop** is
+an unprivileged Electron client that can keep local and remote factories
+connected together and present one project catalog. See
+[docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the living system map.
 
 > **Status: Milestones 0–6 complete; Milestone 7 is next.** The development app
