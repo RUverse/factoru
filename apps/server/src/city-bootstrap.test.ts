@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { cityBootstrapCommands } from './city-bootstrap.js'
+import {
+  cityBootstrapCommands,
+  hasFactoruImport,
+  isExistingFactoruImportFailure,
+} from './city-bootstrap.js'
 
 describe('Factoru city bootstrap', () => {
   const input = {
@@ -47,5 +51,28 @@ describe('Factoru city bootstrap', () => {
       ['import', 'install', '--city', '/tmp/factoru/city'],
       ['start', '/tmp/factoru/city', '--no-auto-restart'],
     ])
+  })
+
+  it('recognizes normalized Gas City import layouts', () => {
+    expect(hasFactoruImport('[imports.factoru]\nsource = "/pack"\n')).toBe(true)
+    expect(hasFactoruImport('[imports."factoru"]\nsource = "/pack"\n')).toBe(true)
+    expect(hasFactoruImport('[imports]\nfactoru = { source = "/pack" }\n')).toBe(true)
+    expect(hasFactoruImport('[[imports]]\nname = "factoru"\nsource = "/pack"\n')).toBe(true)
+    expect(hasFactoruImport('[imports.other]\nsource = "/pack"\n')).toBe(false)
+  })
+
+  it('treats only the exact already-added Factoru import retry as idempotent', () => {
+    const args = ['import', 'add', '/pack', '--name', 'factoru', '--city', '/city']
+    expect(
+      isExistingFactoruImportFailure(args, {
+        stderr: 'gc import add: import already exists: import "factoru" already exists',
+      }),
+    ).toBe(true)
+    expect(isExistingFactoruImportFailure(args, { stderr: 'permission denied' })).toBe(false)
+    expect(
+      isExistingFactoruImportFailure(['import', 'add', '/pack', '--name', 'other'], {
+        stderr: 'import "factoru" already exists',
+      }),
+    ).toBe(false)
   })
 })
