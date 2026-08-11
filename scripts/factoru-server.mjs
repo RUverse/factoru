@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { currentDevEnv, processEnvForDevelopment } from './worktree-env.mjs'
 
 export function sourcePreviewEnvironment(repositoryRoot, parentEnvironment = process.env) {
@@ -35,7 +35,16 @@ export function main(argv = process.argv.slice(2)) {
   return result.status ?? 1
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+export function isDirectRun(argvPath, moduleUrl = import.meta.url) {
+  if (!argvPath) return false
+  try {
+    return fs.realpathSync(argvPath) === fs.realpathSync(fileURLToPath(moduleUrl))
+  } catch {
+    return false
+  }
+}
+
+if (isDirectRun(process.argv[1])) {
   try {
     process.exitCode = main()
   } catch (error) {

@@ -4,7 +4,8 @@ import { constants } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { isDirectRun } from './factoru-server.mjs'
 import { installCliLauncher } from './remote-bootstrap.mjs'
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url))
@@ -18,6 +19,7 @@ test('source-preview CLI launcher is executable and bootstrap installs its symli
     const installed = await installCliLauncher(path.dirname(scriptsDirectory), binDirectory)
     assert.equal(installed, path.join(binDirectory, 'factoru-server'))
     assert.equal(await readFile(installed, 'utf8'), await readFile(launcher, 'utf8'))
+    assert.equal(isDirectRun(installed, pathToFileURL(launcher).href), true)
     assert.equal(await installCliLauncher(path.dirname(scriptsDirectory), binDirectory), installed)
   } finally {
     await rm(installRoot, { recursive: true, force: true })
