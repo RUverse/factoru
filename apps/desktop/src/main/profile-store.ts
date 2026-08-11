@@ -35,6 +35,10 @@ export class ProfileStore {
   list(): ServerProfile[] {
     return structuredClone(this.#state.profiles)
   }
+  get(serverId: string): ServerProfile | null {
+    const profile = this.#state.profiles.find((item) => item.serverId === serverId)
+    return profile ? structuredClone(profile) : null
+  }
   active(): ServerProfile | null {
     return (
       this.#state.profiles.find((profile) => profile.serverId === this.#state.activeServerId) ??
@@ -47,6 +51,13 @@ export class ProfileStore {
     if (index === -1) this.#state.profiles.push(profile)
     else this.#state.profiles[index] = profile
     this.#state.activeServerId = profile.serverId
+    this.#write()
+  }
+
+  update(profile: ServerProfile): void {
+    const index = this.#state.profiles.findIndex((item) => item.serverId === profile.serverId)
+    if (index === -1) throw new Error('profile_not_found')
+    this.#state.profiles[index] = profile
     this.#write()
   }
 

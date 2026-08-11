@@ -520,7 +520,8 @@ factoru-server providers configure --provider codex`}</code>
             >
               {snapshot.profiles.map((profile) => (
                 <option key={profile.serverId} value={profile.serverId}>
-                  {profile.name}
+                  {profile.connectionState === 'connected' ? '●' : '○'} {profile.name} ·{' '}
+                  {statusLabel(profile.connectionState)}
                 </option>
               ))}
             </select>

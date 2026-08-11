@@ -142,9 +142,11 @@ The desktop opens to a connection screen with two paths:
 - **Run on this device** by installing or starting the same Factoru Server
   distribution locally and connecting over localhost.
 
-The desktop remembers trusted servers and clearly shows which server is active.
-Changing servers changes the visible projects because projects belong to the
-server, not the laptop.
+The desktop remembers trusted servers, maintains independent connections to the
+local server and every added remote server, and clearly shows which server is
+active. Changing the active server changes the visible projects and command
+destination without disconnecting the other servers, because projects belong to
+one server rather than the laptop.
 
 ### Main workspace
 
@@ -665,8 +667,10 @@ Build durable Factoru ownership only after the Gas City feasibility gate passes.
   receipts, domain events, and the transactional outbox foundation.
 - Implement stable server identity, pairing, device tokens, authorization, and
   revocation.
-- Add local and remote server profiles to first launch; require TLS outside
-  localhost and expose only the authenticated Factoru API.
+- Add local and remote server profiles to first launch; maintain independent
+  connections for all saved profiles while one active profile owns the visible
+  workspace and command routing; require TLS outside localhost and expose only
+  the authenticated Factoru API.
   **Resolved for Milestone 2:** terminate HTTPS through an operator-controlled
   private overlay or loopback reverse proxy; native certificate management is
   deferred ([ADR 0011](./adr/0011-milestone-2-remote-access-and-project-onboarding.md)).

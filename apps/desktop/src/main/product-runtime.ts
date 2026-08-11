@@ -24,27 +24,72 @@ import {
   type Task,
   type TaskMergeProposal,
   type ExecutionRun,
+  type FactoruClient,
+  type LiveMethod,
 } from '@factoru/protocol'
 import { DESKTOP_NAME, DESKTOP_VERSION } from './version'
 import { normalizeProfileUrl } from './profile-store'
-import type { CredentialStore, ProfileStore } from './profile-store'
+import type { CredentialStore, ProfileStore, ServerProfile } from './profile-store'
 import { LiveFactoruClient } from './live-client'
 import type { ProductSnapshot } from '../shared/product'
 import { readLocalEnrollmentFile } from './local-enrollment'
 
 export interface ProductRuntimeOptions {
   readonly localEnrollmentFile?: string
+  readonly createClient?: (
+    options: Parameters<typeof createFactoruClient>[0],
+  ) => ProductProtocolClient
+  readonly createLiveClient?: (
+    options: ConstructorParameters<typeof LiveFactoruClient>[0],
+  ) => ProductLiveClient
+  readonly setTimer?: (handler: () => void, milliseconds: number) => unknown
+  readonly clearTimer?: (timer: unknown) => void
+  readonly now?: () => Date
+}
+
+export interface ProductLiveClient {
+  connect(): Promise<void>
+  close(): void
+  onEvent(listener: (event: unknown) => void): void
+  onClose(listener: () => void): void
+  request(method: LiveMethod, params?: unknown, commandId?: string): Promise<unknown>
+}
+
+type ProductProtocolClient = Pick<FactoruClient, 'handshake' | 'pair' | 'pairLocal'>
+
+type ServerConnectionState = 'connected' | 'connecting' | 'offline' | 'blocked' | 'pairing_required'
+
+interface ServerSession {
+  live: ProductLiveClient | null
+  connectPromise: Promise<ProductSnapshot> | null
+  reconnectTimer: unknown | null
+  synchronizePromise: Promise<ProductSnapshot> | null
+  state: ServerConnectionState
+  error: string | null
+  generation: number
+}
+
+class BlockedServerConnectionError extends Error {}
+
+interface ResolvedProductRuntimeOptions {
+  localEnrollmentFile?: string
+  createClient: (options: Parameters<typeof createFactoruClient>[0]) => ProductProtocolClient
+  createLiveClient: (
+    options: ConstructorParameters<typeof LiveFactoruClient>[0],
+  ) => ProductLiveClient
+  setTimer: (handler: () => void, milliseconds: number) => unknown
+  clearTimer: (timer: unknown) => void
+  now: () => Date
 }
 
 export class ProductRuntime {
   readonly #profiles: ProfileStore
   readonly #credentials: CredentialStore
-  #live: LiveFactoruClient | null = null
+  readonly #sessions = new Map<string, ServerSession>()
   #listeners = new Set<(snapshot: ProductSnapshot) => void>()
   #snapshot: ProductSnapshot
-  #reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  #synchronizePromise: Promise<ProductSnapshot> | null = null
-  readonly #localEnrollmentFile: string | undefined
+  readonly #options: ResolvedProductRuntimeOptions
+  #disposed = false
 
   constructor(
     profiles: ProfileStore,
@@ -53,20 +98,17 @@ export class ProductRuntime {
   ) {
     this.#profiles = profiles
     this.#credentials = credentials
-    this.#localEnrollmentFile = options.localEnrollmentFile
-    const active = profiles.active()
-    this.#snapshot = {
-      profiles: this.#publicProfiles(),
-      activeServerId: active?.serverId ?? null,
-      projects: active?.projects ?? [],
-      activeProjectId: active?.selectedProjectId ?? null,
-      workspace: active?.selectedProjectId
-        ? (active.workspaces[active.selectedProjectId] ?? null)
-        : null,
-      connected: false,
-      cached: active !== null,
-      error: null,
+    this.#options = {
+      localEnrollmentFile: options.localEnrollmentFile,
+      createClient: options.createClient ?? createFactoruClient,
+      createLiveClient: options.createLiveClient ?? ((input) => new LiveFactoruClient(input)),
+      setTimer: options.setTimer ?? ((handler, milliseconds) => setTimeout(handler, milliseconds)),
+      clearTimer:
+        options.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)),
+      now: options.now ?? (() => new Date()),
     }
+    for (const profile of profiles.list()) this.#ensureSession(profile.serverId)
+    this.#snapshot = this.#snapshotFromStore()
   }
 
   get snapshot(): ProductSnapshot {
@@ -75,13 +117,18 @@ export class ProductRuntime {
 
   /** Release live sockets and timers during an application or acceptance restart. */
   dispose(): void {
-    if (this.#reconnectTimer) {
-      clearTimeout(this.#reconnectTimer)
-      this.#reconnectTimer = null
+    this.#disposed = true
+    for (const session of this.#sessions.values()) {
+      session.generation += 1
+      if (session.reconnectTimer !== null) {
+        this.#options.clearTimer(session.reconnectTimer)
+        session.reconnectTimer = null
+      }
+      const live = session.live
+      session.live = null
+      live?.close()
     }
-    const live = this.#live
-    this.#live = null
-    live?.close()
+    this.#sessions.clear()
     this.#listeners.clear()
   }
 
@@ -92,7 +139,7 @@ export class ProductRuntime {
 
   async pair(urlValue: string, code: string, deviceName: string): Promise<ProductSnapshot> {
     const url = normalizeProfileUrl(urlValue)
-    const client = createFactoruClient({
+    const client = this.#options.createClient({
       baseUrl: url,
       clientName: DESKTOP_NAME,
       clientVersion: DESKTOP_VERSION,
@@ -111,9 +158,9 @@ export class ProductRuntime {
   }
 
   async pairLocal(deviceName: string): Promise<ProductSnapshot> {
-    const enrollment = await readLocalEnrollmentFile(this.#localEnrollmentFile)
+    const enrollment = await readLocalEnrollmentFile(this.#options.localEnrollmentFile)
     const url = normalizeProfileUrl(enrollment.serverUrl)
-    const client = createFactoruClient({
+    const client = this.#options.createClient({
       baseUrl: url,
       clientName: DESKTOP_NAME,
       clientVersion: DESKTOP_VERSION,
@@ -135,119 +182,178 @@ export class ProductRuntime {
   }
 
   async #acceptPairing(url: string, paired: PairingExchangeResponse): Promise<ProductSnapshot> {
-    const existing = this.#profiles.list().find((profile) => profile.serverId === paired.serverId)
+    const existing = this.#profiles.get(paired.serverId)
     this.#credentials.set(paired.serverId, paired.token)
     this.#profiles.save({
       serverId: paired.serverId,
       deviceId: paired.device.id,
-      name: existing?.name ?? new URL(url).hostname,
+      name: existing?.name ?? new URL(url).host,
       url,
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      createdAt: existing?.createdAt ?? this.#options.now().toISOString(),
       lastConnectedAt: null,
       projects: existing?.projects ?? [],
       selectedProjectId: existing?.selectedProjectId ?? null,
       workspaces: existing?.workspaces ?? {},
       cursor: existing?.cursor ?? 0,
     })
-    await this.connect()
+    await this.#connectProfile(paired.serverId)
     return this.#snapshot
   }
 
   async activate(serverId: string): Promise<ProductSnapshot> {
     this.#profiles.activate(serverId)
-    await this.connect()
+    const session = this.#ensureSession(serverId)
+    this.#updateFromStore()
+    if (session.state !== 'connected' && session.state !== 'connecting') {
+      await this.#connectProfile(serverId)
+    }
     return this.#snapshot
   }
+
   remove(serverId: string): ProductSnapshot {
-    if (this.#reconnectTimer) {
-      clearTimeout(this.#reconnectTimer)
-      this.#reconnectTimer = null
-    }
     this.#credentials.delete(serverId)
     this.#profiles.remove(serverId)
-    const live = this.#live
-    this.#live = null
-    live?.close()
-    return this.#updateFromStore(false)
+    this.#closeSession(serverId)
+    this.#sessions.delete(serverId)
+    return this.#updateFromStore()
   }
 
   async connect(): Promise<ProductSnapshot> {
-    if (this.#reconnectTimer) {
-      clearTimeout(this.#reconnectTimer)
-      this.#reconnectTimer = null
-    }
-    const previous = this.#live
-    this.#live = null
-    previous?.close()
     const profile = this.#profiles.active()
-    if (!profile) return this.#updateFromStore(false)
+    if (!profile) return this.#updateFromStore()
+    return this.#connectProfile(profile.serverId)
+  }
+
+  async connectAll(): Promise<ProductSnapshot> {
+    await Promise.all(
+      this.#profiles.list().map((profile) => this.#connectProfile(profile.serverId)),
+    )
+    return this.#snapshot
+  }
+
+  #connectProfile(serverId: string): Promise<ProductSnapshot> {
+    if (this.#disposed) return Promise.resolve(this.#snapshot)
+    const profile = this.#profiles.get(serverId)
+    if (!profile) return Promise.resolve(this.#snapshot)
+    const session = this.#ensureSession(serverId)
+    if (session.connectPromise) return session.connectPromise
+    const tracked = this.#performConnectProfile(profile, session).finally(() => {
+      if (session.connectPromise === tracked) session.connectPromise = null
+    })
+    session.connectPromise = tracked
+    return tracked
+  }
+
+  async #performConnectProfile(
+    profile: ServerProfile,
+    session: ServerSession,
+  ): Promise<ProductSnapshot> {
+    const serverId = profile.serverId
+    this.#closeSession(serverId)
+    const generation = session.generation
     const token = this.#credentials.get(profile.serverId)
-    if (!token) return this.#set({ connected: false, cached: true, error: 'Pairing required' })
+    if (!token) {
+      session.state = 'pairing_required'
+      session.error = 'Pairing required'
+      return this.#updateFromStore()
+    }
+    session.state = 'connecting'
+    session.error = null
+    this.#updateFromStore()
     try {
-      const client = createFactoruClient({
+      const client = this.#options.createClient({
         baseUrl: profile.url,
         clientName: DESKTOP_NAME,
         clientVersion: DESKTOP_VERSION,
       })
       const handshake = await client.handshake()
+      if (this.#disposed || session.generation !== generation || !this.#profiles.get(serverId))
+        return this.#snapshot
+      if (!handshake.compatibility.compatible) {
+        session.state = 'blocked'
+        session.error = handshake.compatibility.incompatibility.message
+        return this.#updateFromStore()
+      }
       if (handshake.response.server.serverId !== profile.serverId)
-        throw new Error('This endpoint now identifies as another Factoru Server')
-      const live = new LiveFactoruClient({
+        throw new BlockedServerConnectionError(
+          'This endpoint now identifies as another Factoru Server',
+        )
+      const live = this.#options.createLiveClient({
         baseUrl: profile.url,
         token,
         clientName: DESKTOP_NAME,
         clientVersion: DESKTOP_VERSION,
       })
-      this.#live = live
+      session.live = live
       await live.connect()
-      live.onEvent(() => void this.synchronize())
+      if (this.#disposed || session.generation !== generation || !this.#profiles.get(serverId)) {
+        if (session.live === live) session.live = null
+        live.close()
+        return this.#snapshot
+      }
+      live.onEvent(() => void this.synchronize(serverId))
       live.onClose(() => {
-        if (this.#live !== live) return
-        this.#set({ connected: false, cached: true, error: 'Connection lost; retrying…' })
-        if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer)
-        this.#reconnectTimer = setTimeout(() => {
-          this.#reconnectTimer = null
-          void this.connect()
-        }, 2_000)
+        if (session.live !== live) return
+        session.live = null
+        session.state = 'offline'
+        session.error = 'Connection lost; retrying…'
+        this.#updateFromStore()
+        this.#scheduleReconnect(serverId)
       })
-      await this.synchronize()
+      await this.synchronize(serverId)
+      if (session.live === live) {
+        session.state = 'connected'
+        session.error = null
+        this.#updateFromStore()
+      }
       return this.#snapshot
     } catch (error) {
+      if (this.#disposed || session.generation !== generation || !this.#profiles.get(serverId))
+        return this.#snapshot
+      if (session.live === null && session.reconnectTimer !== null) return this.#snapshot
+      const live = session.live
+      session.live = null
+      live?.close()
       if (error instanceof FactoruProtocolError && error.code === 'unauthorized') {
         this.#credentials.delete(profile.serverId)
-        return this.#set({
-          connected: false,
-          cached: true,
-          error: 'This device was revoked. Pair it again to reconnect.',
-        })
+        session.state = 'pairing_required'
+        session.error = 'This device was revoked. Pair it again to reconnect.'
+        return this.#updateFromStore()
       }
-      return this.#set({
-        connected: false,
-        cached: true,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      session.state =
+        error instanceof BlockedServerConnectionError || error instanceof FactoruProtocolError
+          ? error instanceof FactoruProtocolError &&
+            ['transport_error', 'timeout', 'unavailable'].includes(error.code)
+            ? 'offline'
+            : 'blocked'
+          : 'offline'
+      session.error = error instanceof Error ? error.message : String(error)
+      const snapshot = this.#updateFromStore()
+      if (session.state === 'offline') this.#scheduleReconnect(serverId)
+      return snapshot
     }
   }
 
-  synchronize(): Promise<ProductSnapshot> {
-    if (this.#synchronizePromise) return this.#synchronizePromise
-    const tracked = this.#performSynchronize().finally(() => {
-      if (this.#synchronizePromise === tracked) this.#synchronizePromise = null
+  synchronize(serverId = this.#profiles.activeServerId): Promise<ProductSnapshot> {
+    if (!serverId) return Promise.resolve(this.#snapshot)
+    const session = this.#ensureSession(serverId)
+    if (session.synchronizePromise) return session.synchronizePromise
+    const tracked = this.#performSynchronize(serverId).finally(() => {
+      if (session.synchronizePromise === tracked) session.synchronizePromise = null
     })
-    this.#synchronizePromise = tracked
+    session.synchronizePromise = tracked
     return tracked
   }
 
-  async #performSynchronize(): Promise<ProductSnapshot> {
-    const profile = this.#profiles.active()
-    const live = this.#live
+  async #performSynchronize(serverId: string): Promise<ProductSnapshot> {
+    const profile = this.#profiles.get(serverId)
+    const session = this.#sessions.get(serverId)
+    const live = session?.live
     if (!profile || !live) return this.#snapshot
     const snapshot = projectSnapshotSchema.parse(
       await live.request('projects.subscribe', { afterCursor: profile.cursor }),
     )
-    if (this.#live !== live || this.#profiles.active()?.serverId !== profile.serverId) {
-      return this.#snapshot
-    }
+    if (session.live !== live) return this.#snapshot
     profile.projects = snapshot.projects
     if (
       !profile.selectedProjectId ||
@@ -260,23 +366,19 @@ export class ProductRuntime {
         await live.request('workspaces.get', { projectId: profile.selectedProjectId }),
       )
     }
-    if (this.#live !== live || this.#profiles.active()?.serverId !== profile.serverId) {
-      return this.#snapshot
-    }
+    if (session.live !== live) return this.#snapshot
     profile.cursor = snapshot.cursor
-    profile.lastConnectedAt = new Date().toISOString()
-    this.#profiles.save(profile)
-    return this.#updateFromStore(true)
+    profile.lastConnectedAt = this.#options.now().toISOString()
+    this.#profiles.update(profile)
+    return this.#updateFromStore()
   }
 
-  async request(
-    method: Parameters<LiveFactoruClient['request']>[0],
-    params: unknown = {},
-    commandId?: string,
-  ): Promise<unknown> {
-    if (!this.#live) throw new Error('Not connected')
-    const result = await this.#live.request(method, params, commandId)
-    if (method.startsWith('projects.')) await this.synchronize()
+  async request(method: LiveMethod, params: unknown = {}, commandId?: string): Promise<unknown> {
+    const profile = this.#profiles.active()
+    const live = profile ? this.#sessions.get(profile.serverId)?.live : null
+    if (!profile || !live) throw new Error('Not connected')
+    const result = await live.request(method, params, commandId)
+    if (method.startsWith('projects.')) await this.synchronize(profile.serverId)
     return result
   }
 
@@ -311,19 +413,12 @@ export class ProductRuntime {
       confirmSelf: active?.deviceId === deviceId,
     })
     if (active?.deviceId === deviceId) {
-      if (this.#reconnectTimer) {
-        clearTimeout(this.#reconnectTimer)
-        this.#reconnectTimer = null
-      }
       this.#credentials.delete(active.serverId)
-      const live = this.#live
-      this.#live = null
-      live?.close()
-      this.#set({
-        connected: false,
-        cached: true,
-        error: 'This device was revoked. Pair it again to reconnect.',
-      })
+      this.#closeSession(active.serverId)
+      const session = this.#ensureSession(active.serverId)
+      session.state = 'pairing_required'
+      session.error = 'This device was revoked. Pair it again to reconnect.'
+      this.#updateFromStore()
     }
     return result
   }
@@ -334,14 +429,15 @@ export class ProductRuntime {
       throw new Error('Project not found in the active server profile')
     }
     profile.selectedProjectId = projectId
-    if (this.#live) {
+    const live = this.#sessions.get(profile.serverId)?.live
+    if (live) {
       profile.workspaces[projectId] = workspaceSchema.parse(
-        await this.#live.request('workspaces.get', { projectId }),
+        await live.request('workspaces.get', { projectId }),
       )
-      profile.lastConnectedAt = new Date().toISOString()
+      profile.lastConnectedAt = this.#options.now().toISOString()
     }
-    this.#profiles.save(profile)
-    return this.#updateFromStore(this.#live !== null)
+    this.#profiles.update(profile)
+    return this.#updateFromStore()
   }
 
   async sendMessage(projectId: string, text: string) {
@@ -515,12 +611,22 @@ export class ProductRuntime {
           workspaces: _workspaces,
           cursor: _cursor,
           ...profile
-        }) => profile,
+        }) => {
+          const session = this.#ensureSession(profile.serverId)
+          return {
+            ...profile,
+            connectionState: session.state,
+            error: session.error,
+          }
+        },
       )
   }
-  #updateFromStore(connected: boolean): ProductSnapshot {
+
+  #snapshotFromStore(): ProductSnapshot {
     const active = this.#profiles.active()
-    return this.#set({
+    const activeSession = active ? this.#ensureSession(active.serverId) : null
+    const connected = activeSession?.state === 'connected'
+    return {
       profiles: this.#publicProfiles(),
       activeServerId: active?.serverId ?? null,
       projects: active?.projects ?? [],
@@ -530,9 +636,14 @@ export class ProductRuntime {
         : null,
       connected,
       cached: !connected && active !== null,
-      error: null,
-    })
+      error: activeSession?.error ?? null,
+    }
   }
+
+  #updateFromStore(): ProductSnapshot {
+    return this.#set(this.#snapshotFromStore())
+  }
+
   #set(patch: Partial<ProductSnapshot>): ProductSnapshot {
     this.#snapshot = { ...this.#snapshot, ...patch }
     for (const listener of this.#listeners) listener(this.#snapshot)
@@ -541,12 +652,51 @@ export class ProductRuntime {
 
   async #refreshWorkspace(projectId: string): Promise<void> {
     const profile = this.#profiles.active()
-    if (!profile || !this.#live) return
+    const live = profile ? this.#sessions.get(profile.serverId)?.live : null
+    if (!profile || !live) return
     profile.workspaces[projectId] = workspaceSchema.parse(
-      await this.#live.request('workspaces.get', { projectId }),
+      await live.request('workspaces.get', { projectId }),
     )
-    profile.lastConnectedAt = new Date().toISOString()
-    this.#profiles.save(profile)
-    this.#updateFromStore(true)
+    profile.lastConnectedAt = this.#options.now().toISOString()
+    this.#profiles.update(profile)
+    this.#updateFromStore()
+  }
+
+  #ensureSession(serverId: string): ServerSession {
+    const existing = this.#sessions.get(serverId)
+    if (existing) return existing
+    const session: ServerSession = {
+      live: null,
+      connectPromise: null,
+      reconnectTimer: null,
+      synchronizePromise: null,
+      state: this.#credentials.get(serverId) ? 'offline' : 'pairing_required',
+      error: this.#credentials.get(serverId) ? null : 'Pairing required',
+      generation: 0,
+    }
+    this.#sessions.set(serverId, session)
+    return session
+  }
+
+  #closeSession(serverId: string): void {
+    const session = this.#sessions.get(serverId)
+    if (!session) return
+    session.generation += 1
+    if (session.reconnectTimer !== null) {
+      this.#options.clearTimer(session.reconnectTimer)
+      session.reconnectTimer = null
+    }
+    const live = session.live
+    session.live = null
+    live?.close()
+  }
+
+  #scheduleReconnect(serverId: string): void {
+    const session = this.#sessions.get(serverId)
+    if (!session || session.reconnectTimer !== null || !this.#profiles.get(serverId)) return
+    session.reconnectTimer = this.#options.setTimer(() => {
+      session.reconnectTimer = null
+      void this.#connectProfile(serverId)
+    }, 2_000)
   }
 }

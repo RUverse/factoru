@@ -242,7 +242,7 @@ void app.whenReady().then(() => {
     { localEnrollmentFile: process.env.FACTORU_LOCAL_ENROLLMENT_FILE?.trim() },
   )
   registerIpc()
-  if (product.snapshot.activeServerId) void product.connect()
+  if (product.snapshot.profiles.length > 0) void product.connectAll()
   createWindow()
 
   app.on('activate', () => {

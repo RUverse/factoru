@@ -45,6 +45,31 @@ describe('connection profiles', () => {
     expect(new ProfileStore(root).active()?.cursor).toBe(4)
   })
 
+  it('updates an inactive profile without changing the active server', () => {
+    const root = directory()
+    const store = new ProfileStore(root)
+    const first = {
+      serverId: `srv_${'1'.repeat(32)}`,
+      deviceId: 'dev_first',
+      name: 'First',
+      url: 'http://127.0.0.1:18787',
+      createdAt: new Date().toISOString(),
+      lastConnectedAt: null,
+      projects: [],
+      selectedProjectId: null,
+      workspaces: {},
+      cursor: 0,
+    }
+    const second = { ...first, serverId: `srv_${'2'.repeat(32)}`, name: 'Second' }
+    store.save(first)
+    store.save(second)
+
+    store.update({ ...first, cursor: 9 })
+
+    expect(store.active()?.serverId).toBe(second.serverId)
+    expect(store.get(first.serverId)?.cursor).toBe(9)
+  })
+
   it('never persists a credential in plaintext', () => {
     const root = directory()
     const encryption = {

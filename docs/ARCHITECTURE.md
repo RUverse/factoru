@@ -33,7 +33,7 @@ inventory below is authoritative.
 | Monorepo | **Implemented** | pnpm workspace with a pnpm-managed Node 22.13.0 development runtime, both applications, protocol/domain/config/database/Gas City/UI packages, versioned templates and pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, isolated per-worktree state/ports/pairing, a source-preview `factoru-server` operator launcher, an explicit provider-selected city bootstrap, a read-only 64-bit Linux remote-host preflight, an idempotent checksum-pinned Debian-family source bootstrap, plus a disposable-repository-root override for safe project acceptance. | Add only milestone-owned boundaries as their real paths connect. |
 | Factoru Server | **Implemented** | Fastify connects SQLite-backed remote pairing and private loopback enrollment, trusted devices, authenticated one-time WebSocket tickets, scoped live methods, durable projects/workspaces/tasks, idempotent product commands, event/outbox reactors, Project Manager conversation delivery, Queue reconciliation, and restart observation while remaining loopback-bound. The serial delivery reactor admits one ready task, prepares/adopts its capsule, dispatches and observes `software-delivery`, collects evidence and usage, performs integration checks, and exposes idempotent run decisions. Its operator CLI covers foreground start/version, status, provider/city setup and readiness, Factoru-correlated activity, pairing/SSH-forward details, doctor, and verified SQLite backup. The real provider path completed ten benchmark runs plus one conversation-originated run across service restart. | Milestone 7 adds packaged lifecycle, restore/recovery, logs, service management, and operational hardening. |
 | Shared protocol | **Implemented** | `packages/protocol` owns runtime-validated health/handshake, pairing/enrollment, ticket, named multi-repository project/repository/device/workspace/conversation/Worker-Type/task/Queue/run-evidence, live request/response/event, cursor snapshot, compatibility, and typed HTTP client schemas. Projects-v2 carries an ordered repository/rig collection plus the primary execution binding. Run decisions are explicit named methods; older cached workspaces receive safe empty collection defaults. | Extend only when a later milestone owns a new wire capability. |
-| Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles, encrypted credentials, projects, selected workspace, conversations, Workers, tasks, task runs, and cursors; it owns the authenticated live connection, has an explicit socket/timer shutdown path, and exposes named IPC. Project creation is a focused named-project flow with multiple URL/folder sources, selected-rig ordering, a native macOS directory chooser behind preload, and progressive approved-root browsing. The renderer also adds a four-state board with run stage, raw steps, logs, checks, pricing state, failures, review evidence, and cancel/retry/request-changes/approve/archive controls. | Managed launch and packaged Mac acceptance remain in Milestone 7. |
+| Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles, encrypted credentials, projects, selected workspace, conversations, Workers, tasks, task runs, and cursors; it owns one authenticated live session per saved server while one active profile controls the visible workspace and command routing, has explicit per-session socket/timer shutdown, and exposes named IPC ([ADR 0016](./adr/0016-concurrent-desktop-server-connections.md)). Project creation is a focused named-project flow with multiple URL/folder sources, selected-rig ordering, a native macOS directory chooser behind preload, and progressive approved-root browsing. The renderer also adds a four-state board with run stage, raw steps, logs, checks, pricing state, failures, review evidence, and cancel/retry/request-changes/approve/archive controls. | Managed launch and packaged Mac acceptance remain in Milestone 7. |
 | Gas City adapter | **Implemented** | `packages/gas-city` is verified against Gas City 1.4.0: compatibility/readiness, loopback supervisor client, durable cursors, guarded rig registration, run dispatch/observation/cancellation, per-run usage folding, and project-runtime configuration. It consumes token-bearing operation facts when available and otherwise the provider-neutral structured transcript; unavailable provider pricing is explicit rather than rendered as zero cost. Dispatch reads and strictly validates the Factoru Formula source before any durable Gas City mutation. Raw DTOs and provider options stay inside the package. | Revalidate the pinned compatibility range during Milestone 7 packaging. |
 | Agent-tool bridge | **Implemented** | Factoru installs both harness MCP configs from `session_setup_script`. The server projects its current loopback origin into private, schema-versioned city runtime state so isolated ports reach the correct bootstrap. Setup requests a short-lived credential bound by the server to the exact rig, project, role, and Gas City session; the model never supplies it as an argument. The bridge exposes structured task tools, while server policy enforces role/project scope, request replay, and a redacted audit record ([ADR 0010](./adr/0010-agent-tool-transport.md)). The live PM path completed audited search/create/update/queue calls. | Revalidate tool bootstrap from packaged installations in Milestone 7. |
 | Factoru Gas City pack | **Implemented** | `packs/factoru-default` 0.3.0 defines four provider-neutral roles, prior probes, Queue reconciliation, the bounded production `software-delivery` Formula v2, and the role-scoped MCP bridge. Delivery routes implementation and independent review to separate bindings, uses real `needs` edges, a trusted deterministic check with two total attempts, and a final evidence step. It completed 10/10 benchmark tasks plus the conversation-originated production-loop task. | Tune only from measured production failures. |
@@ -319,7 +319,7 @@ flowchart LR
     R["Renderer<br/>untrusted web context"] -->|"Narrow typed IPC"| P["Preload bridge"]
     P --> M["Electron main"]
     M --> C["Connection runtime"]
-    C -->|"Authenticated API"| S["Factoru Server"]
+    C -->|"Authenticated APIs"| S["Factoru Servers"]
 ```
 
 - **Renderer:** React UI and local presentation state only. Node integration is
@@ -328,8 +328,9 @@ flowchart LR
   shell, or arbitrary request construction.
 - **Main:** windows, updates, OS credential storage, local server lifecycle, and
   connection-profile persistence.
-- **Connection runtime:** one owner for authentication, retry/backoff, active
-  session, snapshots, subscriptions, compatibility state, and offline caches.
+- **Connection runtime:** one owner for authentication, retry/backoff, snapshots,
+  subscriptions, compatibility state, and offline caches across independent
+  per-profile sessions. One selected profile owns renderer command routing.
 
 React components do not create sockets, retries, or RPC clients. They consume
 domain-specific query, command, and subscription interfaces.
@@ -339,9 +340,11 @@ renderer is sandboxed, and navigation and window-open requests are denied by the
 policy described under [security boundaries](#security-boundaries). The preload
 bridge exposes named connection, profile, repository, native folder selection,
 project, conversation, Worker/model, memory, planner, and device operations—never raw IPC or transport
-handles. Electron main owns profiles, encrypted tokens, tickets, the live
-socket, retry/coalesced synchronization, cursors, and per-project workspace
-cache writes.
+handles. Electron main owns profiles, encrypted tokens, tickets, per-profile
+live sockets, retry/coalesced synchronization, cursors, and per-project
+workspace cache writes. All profiles connect at startup; selection changes the
+visible projection without disconnecting healthy inactive sessions
+([ADR 0016](./adr/0016-concurrent-desktop-server-connections.md)).
 
 Retry policy follows the state machine rather than a single timer: `offline` and
 `reconnecting` poll, while `blocked` stops polling entirely because an
@@ -1213,7 +1216,7 @@ by this decision.
 | --- | --- | --- |
 | Server owns providers, Git, terminals, filesystem, and durable sessions; clients use one authenticated RPC boundary. | A remote-capable agent product needs one clear execution boundary. | **Adopt.** Factoru Desktop remains an unprivileged client. |
 | Shared runtime-validated contracts and typed unary/streaming RPC. | Schema drift and ad-hoc push messages become expensive quickly. | **Adopt the principle.** Select the smallest suitable TypeScript library in an ADR. |
-| One connection supervisor owns retries, offline state, credentials, and session replacement. | Multiple retry owners create lying UI and duplicate work. | **Adopt.** Keep transport attempts single-shot underneath it. |
+| One connection supervisor owns retries, offline state, credentials, and session replacement. | Multiple retry owners create lying UI and duplicate work. | **Adopt.** The supervisor owns a keyed session per saved server; transport attempts remain single-shot per profile. |
 | Stable environment identity is separate from changing endpoints. | Hostnames and LAN addresses are not durable identities. | **Adopt** as `server_id` plus client connection profiles. |
 | Access method is separate from server launch method. | SSH, Tailscale, localhost, and tunnels should not fork product semantics. | **Adopt.** Start with localhost and user-secured remote HTTPS. |
 | Method-level scopes plus one-time pairing and revocable sessions. | Possessing a socket must not authorize every privileged action. | **Adopt**, initially with a smaller Factoru scope set. |

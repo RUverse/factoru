@@ -164,7 +164,15 @@ in a Mac terminal. Its shape is:
 ssh -N -L 18787:127.0.0.1:SERVER_PORT user@server
 ```
 
+If the host requires a specific SSH identity, add the same option used for a
+normal login, for example `ssh -i ~/.ssh/rez-pi -N -L ... user@server`. Prefer a
+named `~/.ssh/config` host when the identity and address are used repeatedly.
+
 Port 18787 is only the Mac-side endpoint and may be changed if already in use.
+Give every concurrently connected remote server its own Mac-side loopback port
+(for example 18788, 18789, and 18790). Factoru Desktop keeps independent live
+connections and credentials keyed by stable server ID while the selected server
+controls the visible projects and command destination.
 The remote target must remain the exact loopback Factoru port. Do not forward
 Gas City port 8372, any Gas City dashboard/controller, agent-tool endpoint, or
 Dolt listener.
@@ -250,8 +258,10 @@ Common failures:
   that runs Factoru and Gas City.
 - **Provider configuration refuses initialization:** resolve every reported Gas City,
   Dolt, Beads, or provider-readiness finding, then rerun it.
-- **Mac port 18787 is occupied:** choose another unused Mac-side port and enter
-  that port in Desktop.
+- **Mac port 18787 is occupied:** rerun `factoru-server pair` with
+  `--local-port <unused-port>`, use that port in `ssh -L`, and enter its
+  `http://127.0.0.1:<port>` URL in Desktop. Do not reuse one local port for two
+  simultaneous tunnels.
 - **Pairing code expired:** run `factoru-server pair --ssh-host <host>` again;
   codes are one-time and valid for ten minutes.
 - **`factoru-server` is not found after reconnecting:** log out and back in so

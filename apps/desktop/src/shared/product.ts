@@ -19,6 +19,8 @@ export interface ServerProfileSummary {
   url: string
   createdAt: string
   lastConnectedAt: string | null
+  connectionState: 'connected' | 'connecting' | 'offline' | 'blocked' | 'pairing_required'
+  error: string | null
 }
 
 export interface ProductSnapshot {

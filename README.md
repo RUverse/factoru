@@ -109,7 +109,8 @@ the exact prerequisites plus pairing, full-loop test, update, and recovery
 limitations. The bootstrap installs the pinned Node/pnpm, Gas City runtime
 chain, and CLI launcher; it does not claim packaged Raspberry Pi support or
 automate provider account login. `factoru-server help` documents the complete
-operator surface.
+operator surface. Desktop maintains independent connections to every saved
+server; give each SSH-forwarded server a distinct Mac loopback port.
 
 Run the applications individually when needed:
 
