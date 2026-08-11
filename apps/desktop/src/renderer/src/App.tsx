@@ -64,6 +64,8 @@ export function App() {
       snapshot?.profiles.find((profile) => profile.serverId === snapshot.activeServerId) ?? null,
     [snapshot],
   )
+  const addingAnotherFactory = (snapshot?.profiles.length ?? 0) > 0 && showPairing
+  const hasLocalFactory = snapshot?.profiles.some((profile) => profile.kind === 'local') ?? false
 
   useEffect(() => {
     if (!factorySwitcherOpen) return
@@ -417,34 +419,46 @@ export function App() {
             F
           </div>
           <p className="eyebrow">Factoru Desktop</p>
-          <h1 id="connect-heading">Connect to your development team</h1>
+          <h1 id="connect-heading">
+            {addingAnotherFactory
+              ? connectionType === 'local'
+                ? 'Connect Local Factory'
+                : 'Connect another factory'
+              : 'Connect to your development team'}
+          </h1>
           <p className="muted">
-            Pair with the Factoru Server that owns your repositories, workers, and project history.
+            {addingAnotherFactory
+              ? connectionType === 'local'
+                ? 'Connect the built-in factory on this device. It stays available in the factory switcher.'
+                : 'Add a remote Factoru Server. Local Factory stays available separately in the factory switcher.'
+              : 'Pair with the Factoru Server that owns your repositories, workers, and project history.'}
           </p>
-          <div className="segmented" role="group" aria-label="Connection type">
-            <button
-              type="button"
-              className={connectionType === 'local' ? 'active' : ''}
-              aria-pressed={connectionType === 'local'}
-              onClick={() => {
-                setConnectionType('local')
-                setError(null)
-              }}
-            >
-              This device
-            </button>
-            <button
-              type="button"
-              className={connectionType === 'remote' ? 'active' : ''}
-              aria-pressed={connectionType === 'remote'}
-              onClick={() => {
-                setConnectionType('remote')
-                setError(null)
-              }}
-            >
-              Remote server
-            </button>
-          </div>
+          {!addingAnotherFactory && (
+            <div className="segmented" role="group" aria-label="Connection type">
+              <button
+                type="button"
+                className={connectionType === 'local' ? 'active' : ''}
+                aria-pressed={connectionType === 'local'}
+                onClick={() => {
+                  setConnectionType('local')
+                  setError(null)
+                }}
+              >
+                This device
+              </button>
+              <button
+                type="button"
+                className={connectionType === 'remote' ? 'active' : ''}
+                aria-pressed={connectionType === 'remote'}
+                onClick={() => {
+                  setConnectionType('remote')
+                  setError(null)
+                }}
+              >
+                Remote server
+              </button>
+            </div>
+          )}
           {connectionType === 'local' ? (
             <>
               <div className="local-intro">
@@ -576,6 +590,25 @@ factoru-server providers configure --provider codex`}</code>
               >
                 <p className="factory-switcher-heading">Factories</p>
                 <div className="factory-list">
+                  {!hasLocalFactory && (
+                    <button
+                      type="button"
+                      title="Connect Factoru Server on this device"
+                      onClick={() => {
+                        setFactorySwitcherOpen(false)
+                        setConnectionType('local')
+                        setError(null)
+                        setShowPairing(true)
+                      }}
+                    >
+                      <span className="status-dot pairing_required" aria-hidden="true" />
+                      <span>
+                        <strong>Local Factory</strong>
+                        <small>This device</small>
+                      </span>
+                      <small>Not connected</small>
+                    </button>
+                  )}
                   {snapshot.profiles.map((profile) => (
                     <button
                       type="button"
@@ -593,7 +626,7 @@ factoru-server providers configure --provider codex`}</code>
                       />
                       <span>
                         <strong>{profile.name}</strong>
-                        <small>{profile.url}</small>
+                        <small>{profile.kind === 'local' ? 'This device' : profile.url}</small>
                       </span>
                       <small>{factoryStatusLabel(profile.connectionState)}</small>
                     </button>
@@ -651,9 +684,13 @@ factoru-server providers configure --provider codex`}</code>
                     >
                       Trusted devices
                     </button>
-                    <button type="button" className="danger" onClick={forgetFactory}>
-                      Forget factory
-                    </button>
+                    {activeProfile.kind === 'local' ? (
+                      <span className="factory-built-in-note">Built in on this device</span>
+                    ) : (
+                      <button type="button" className="danger" onClick={forgetFactory}>
+                        Forget factory
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -662,10 +699,11 @@ factoru-server providers configure --provider codex`}</code>
                   className="add-factory"
                   onClick={() => {
                     setFactorySwitcherOpen(false)
+                    setConnectionType('remote')
                     setShowPairing(true)
                   }}
                 >
-                  + Add factory
+                  + Connect another factory
                 </button>
               </section>
             )}

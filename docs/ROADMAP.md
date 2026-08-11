@@ -150,7 +150,8 @@ one server rather than the laptop. In the main workspace, a named factory
 switcher at the top of the sidebar combines active-server status, switching,
 pairing, reconnect, trusted-device management, and profile removal. Friendly
 factory names are Desktop-local preferences; local enrollment defaults to
-**Local Factory**.
+**Local Factory**. Local Factory remains a built-in switcher entry and cannot be
+forgotten; the add-another-factory action is reserved for remote servers.
 
 ### Main workspace
 

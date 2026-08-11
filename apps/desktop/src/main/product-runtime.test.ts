@@ -22,6 +22,7 @@ function profile(serverId: string, url: string, name: string): ServerProfile {
   return {
     serverId,
     deviceId: `dev_${name.toLowerCase()}`,
+    kind: 'remote',
     name,
     url,
     createdAt: '2026-08-11T12:00:00.000Z',
@@ -243,9 +244,81 @@ describe('multi-server product runtime', () => {
     await runtime.pair('http://127.0.0.1:28788', 'ABCD-EFGH-JKMN', 'My Mac', '  Raspberry Pi  ')
 
     expect(runtime.snapshot.profiles).toEqual([
-      expect.objectContaining({ serverId, name: 'Raspberry Pi' }),
+      expect.objectContaining({ serverId, kind: 'remote', name: 'Raspberry Pi' }),
     ])
     expect(new ProfileStore(root).active()?.name).toBe('Raspberry Pi')
+    runtime.dispose()
+  })
+
+  it('reconciles a legacy local profile by enrollment identity before connecting', async () => {
+    const root = directory()
+    const enrollmentFile = path.join(root, 'local-enrollment.json')
+    const serverId = `srv_${'e'.repeat(32)}`
+    fs.writeFileSync(
+      enrollmentFile,
+      JSON.stringify({
+        version: 1,
+        serverId,
+        serverUrl: 'http://127.0.0.1:38304',
+        proof: 'a'.repeat(43),
+      }),
+      { mode: 0o600 },
+    )
+    const profiles = new ProfileStore(root)
+    profiles.save(profile(serverId, 'http://127.0.0.1:38300', '127.0.0.1'))
+    const credentials = new CredentialStore(root, {
+      isEncryptionAvailable: () => true,
+      encryptString: (value) => Buffer.from(value),
+      decryptString: (value) => value.toString(),
+    })
+    credentials.set(serverId, 'local-token')
+    const runtime = new ProductRuntime(profiles, credentials, {
+      localEnrollmentFile: enrollmentFile,
+      createClient: (options) => ({
+        baseUrl: options.baseUrl,
+        handshake: async () => ({
+          response: {
+            server: {
+              serverId,
+              serverVersion: '0.0.0',
+              protocolVersion: 1,
+              minProtocolVersion: 1,
+              capabilities: [],
+            },
+            compatible: true,
+            negotiatedProtocolVersion: 1,
+            incompatibility: null,
+          },
+          compatibility: {
+            compatible: true,
+            negotiatedProtocolVersion: 1,
+            incompatibility: null,
+          },
+        }),
+        pair: async () => {
+          throw new Error('pair is not used by this test')
+        },
+        pairLocal: async () => {
+          throw new Error('pairLocal is not used by this test')
+        },
+      }),
+      createLiveClient: (options) => new FakeLiveClient(options.baseUrl),
+    })
+
+    await runtime.connectAll()
+
+    expect(runtime.snapshot.profiles).toEqual([
+      expect.objectContaining({
+        serverId,
+        kind: 'local',
+        name: 'Local Factory',
+        url: 'http://127.0.0.1:38304',
+        connectionState: 'connected',
+      }),
+    ])
+    expect(new ProfileStore(root).active()).toEqual(
+      expect.objectContaining({ kind: 'local', name: 'Local Factory' }),
+    )
     runtime.dispose()
   })
 
@@ -304,8 +377,9 @@ describe('multi-server product runtime', () => {
     await runtime.pairLocal('My Mac')
 
     expect(runtime.snapshot.profiles).toEqual([
-      expect.objectContaining({ serverId, name: 'Local Factory' }),
+      expect.objectContaining({ serverId, kind: 'local', name: 'Local Factory' }),
     ])
+    expect(() => runtime.remove(serverId)).toThrow(/cannot be forgotten/)
     runtime.dispose()
   })
 })

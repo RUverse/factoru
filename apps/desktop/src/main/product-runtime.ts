@@ -161,7 +161,7 @@ export class ProductRuntime {
     const paired = await client.pair(code, deviceName)
     if (paired.serverId !== handshake.response.server.serverId)
       throw new Error('Server identity changed during pairing')
-    return this.#acceptPairing(url, paired, name)
+    return this.#acceptPairing(url, paired, name, 'remote')
   }
 
   async pairLocal(deviceName: string): Promise<ProductSnapshot> {
@@ -185,19 +185,25 @@ export class ProductRuntime {
     if (paired.serverId !== enrollment.serverId) {
       throw new Error('Server identity changed during local enrollment')
     }
-    return this.#acceptPairing(url, paired, 'Local Factory')
+    return this.#acceptPairing(url, paired, 'Local Factory', 'local')
   }
 
   async #acceptPairing(
     url: string,
     paired: PairingExchangeResponse,
     factoryName: string,
+    kind: ServerProfile['kind'],
   ): Promise<ProductSnapshot> {
     const existing = this.#profiles.get(paired.serverId)
+    const existingLocal = this.#profiles.list().find((profile) => profile.kind === 'local')
+    if (kind === 'local' && existingLocal && existingLocal.serverId !== paired.serverId) {
+      throw new Error('Local Factory identifies as a different server; recovery is required')
+    }
     this.#credentials.set(paired.serverId, paired.token)
     this.#profiles.save({
       serverId: paired.serverId,
       deviceId: paired.device.id,
+      kind: kind === 'local' ? 'local' : (existing?.kind ?? 'remote'),
       name: existing?.name ?? factoryName,
       url,
       createdAt: existing?.createdAt ?? this.#options.now().toISOString(),
@@ -207,6 +213,7 @@ export class ProductRuntime {
       workspaces: existing?.workspaces ?? {},
       cursor: existing?.cursor ?? 0,
     })
+    if (kind === 'local') this.#profiles.adoptLocal(paired.serverId, url)
     await this.#connectProfile(paired.serverId)
     return this.#snapshot
   }
@@ -227,6 +234,8 @@ export class ProductRuntime {
   }
 
   remove(serverId: string): ProductSnapshot {
+    const profile = this.#profiles.get(serverId)
+    if (profile?.kind === 'local') throw new Error('Local Factory cannot be forgotten')
     this.#credentials.delete(serverId)
     this.#profiles.remove(serverId)
     this.#closeSession(serverId)
@@ -240,6 +249,7 @@ export class ProductRuntime {
   }
 
   async connectAll(): Promise<ProductSnapshot> {
+    await this.#reconcileLocalProfile()
     await Promise.all(
       this.#profiles.list().map((profile) => this.#connectProfile(profile.serverId)),
     )
@@ -619,6 +629,7 @@ export class ProductRuntime {
   #publicProfiles() {
     return this.#profiles
       .list()
+      .sort((left, right) => Number(right.kind === 'local') - Number(left.kind === 'local'))
       .map(
         ({
           projects: _projects,
@@ -635,6 +646,19 @@ export class ProductRuntime {
           }
         },
       )
+  }
+
+  async #reconcileLocalProfile(): Promise<void> {
+    try {
+      const enrollment = await readLocalEnrollmentFile(this.#options.localEnrollmentFile)
+      const profile = this.#profiles.adoptLocal(
+        enrollment.serverId,
+        normalizeProfileUrl(enrollment.serverUrl),
+      )
+      if (profile) this.#updateFromStore()
+    } catch {
+      // A missing or invalid enrollment descriptor must not hide saved remote factories.
+    }
   }
 
   #snapshotFromStore(): ProductSnapshot {

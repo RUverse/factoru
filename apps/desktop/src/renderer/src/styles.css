@@ -430,6 +430,16 @@ code {
   font-size: 10px;
 }
 
+.factory-built-in-note {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  color: var(--factoru-text-faint);
+  font-size: 9px;
+  text-align: center;
+}
+
 .factory-rename {
   display: grid;
   gap: 6px;

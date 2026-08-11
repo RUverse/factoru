@@ -15,6 +15,7 @@ import type {
 export interface ServerProfileSummary {
   serverId: string
   deviceId: string
+  kind: 'local' | 'remote'
   name: string
   url: string
   createdAt: string

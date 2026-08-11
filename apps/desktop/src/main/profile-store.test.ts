@@ -30,6 +30,7 @@ describe('connection profiles', () => {
     const profile = {
       serverId: 'srv_11111111111111111111111111111111',
       deviceId: 'dev_1111',
+      kind: 'remote' as const,
       name: 'Server',
       url: 'https://factoru.test',
       createdAt: new Date().toISOString(),
@@ -45,12 +46,40 @@ describe('connection profiles', () => {
     expect(new ProfileStore(root).active()?.cursor).toBe(4)
   })
 
+  it('loads profiles written before factory kinds as remote until identity reconciliation', () => {
+    const root = directory()
+    const serverId = `srv_${'1'.repeat(32)}`
+    fs.writeFileSync(
+      path.join(root, 'connection-profiles.json'),
+      JSON.stringify({
+        activeServerId: serverId,
+        profiles: [
+          {
+            serverId,
+            deviceId: 'dev_legacy',
+            name: '127.0.0.1',
+            url: 'http://127.0.0.1:38300',
+            createdAt: new Date().toISOString(),
+            lastConnectedAt: null,
+            projects: [],
+            selectedProjectId: null,
+            workspaces: {},
+            cursor: 0,
+          },
+        ],
+      }),
+    )
+
+    expect(new ProfileStore(root).active()?.kind).toBe('remote')
+  })
+
   it('updates an inactive profile without changing the active server', () => {
     const root = directory()
     const store = new ProfileStore(root)
     const first = {
       serverId: `srv_${'1'.repeat(32)}`,
       deviceId: 'dev_first',
+      kind: 'remote' as const,
       name: 'First',
       url: 'http://127.0.0.1:18787',
       createdAt: new Date().toISOString(),
@@ -76,6 +105,7 @@ describe('connection profiles', () => {
     const first = {
       serverId: `srv_${'1'.repeat(32)}`,
       deviceId: 'dev_first',
+      kind: 'remote' as const,
       name: 'First',
       url: 'http://127.0.0.1:18787',
       createdAt: new Date().toISOString(),
@@ -107,6 +137,7 @@ describe('connection profiles', () => {
     const first = {
       serverId: `srv_${'1'.repeat(32)}`,
       deviceId: 'dev_first',
+      kind: 'remote' as const,
       name: 'First',
       url: 'http://127.0.0.1:18787',
       createdAt: new Date().toISOString(),
@@ -123,6 +154,34 @@ describe('connection profiles', () => {
     store.remove(second.serverId)
 
     expect(store.active()?.serverId).toBe(first.serverId)
+  })
+
+  it('adopts a legacy endpoint-named profile as the protected Local Factory', () => {
+    const root = directory()
+    const store = new ProfileStore(root)
+    const local = {
+      serverId: `srv_${'1'.repeat(32)}`,
+      deviceId: 'dev_local',
+      kind: 'remote' as const,
+      name: '127.0.0.1',
+      url: 'http://127.0.0.1:38300',
+      createdAt: new Date().toISOString(),
+      lastConnectedAt: null,
+      projects: [],
+      selectedProjectId: null,
+      workspaces: {},
+      cursor: 0,
+    }
+    store.save(local)
+
+    expect(store.adoptLocal(local.serverId, 'http://127.0.0.1:38304')).toEqual({
+      ...local,
+      kind: 'local',
+      name: 'Local Factory',
+      url: 'http://127.0.0.1:38304',
+    })
+    expect(() => store.remove(local.serverId)).toThrow(/cannot be forgotten/)
+    expect(store.get(local.serverId)?.kind).toBe('local')
   })
 
   it('never persists a credential in plaintext', () => {

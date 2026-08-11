@@ -6,6 +6,7 @@ import { normalizeFactoryName } from '../shared/factory'
 export interface ServerProfile {
   serverId: string
   deviceId: string
+  kind: 'local' | 'remote'
   name: string
   url: string
   createdAt: string
@@ -80,7 +81,27 @@ export class ProfileStore {
     return structuredClone(profile)
   }
 
+  adoptLocal(serverId: string, url: string): ServerProfile | null {
+    const index = this.#state.profiles.findIndex((profile) => profile.serverId === serverId)
+    if (index === -1) return null
+    const current = this.#state.profiles[index]
+    if (!current) return null
+    const parsedUrl = new URL(current.url)
+    const legacyNames = new Set([parsedUrl.host, parsedUrl.hostname, 'Local'])
+    const profile: ServerProfile = {
+      ...current,
+      kind: 'local',
+      name: legacyNames.has(current.name) ? 'Local Factory' : current.name,
+      url,
+    }
+    this.#state.profiles[index] = profile
+    this.#write()
+    return structuredClone(profile)
+  }
+
   remove(serverId: string): void {
+    const profile = this.#state.profiles.find((item) => item.serverId === serverId)
+    if (profile?.kind === 'local') throw new Error('Local Factory cannot be forgotten')
     this.#state.profiles = this.#state.profiles.filter((profile) => profile.serverId !== serverId)
     if (this.#state.activeServerId === serverId)
       this.#state.activeServerId = this.#state.profiles[0]?.serverId ?? null
@@ -95,6 +116,7 @@ export class ProfileStore {
         activeServerId: parsed.activeServerId,
         profiles: parsed.profiles.map((profile) => ({
           ...profile,
+          kind: profile.kind === 'local' ? 'local' : 'remote',
           selectedProjectId:
             typeof profile.selectedProjectId === 'string' ? profile.selectedProjectId : null,
           workspaces:
