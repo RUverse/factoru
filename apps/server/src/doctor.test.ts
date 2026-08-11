@@ -18,6 +18,7 @@ const REQUIRED_OUTPUTS: Record<string, string> = {
 function environment(
   overrides: Partial<Omit<DoctorEnvironment, 'run'>> & {
     outputs?: Record<string, ExecutableResult>
+    onRun?: (command: string, args: readonly string[]) => void
   } = {},
 ): DoctorEnvironment {
   const outputs = overrides.outputs ?? {}
@@ -32,7 +33,8 @@ function environment(
       devEngines: { runtime: { name: 'node', version: '22.13.0' } },
       packageManager: 'pnpm@11.20.0',
     },
-    async run(command) {
+    async run(command, args) {
+      overrides.onRun?.(command, args)
       const override = outputs[command]
       if (override) return override
       const output = REQUIRED_OUTPUTS[command]
@@ -89,6 +91,20 @@ describe('remote preview doctor', () => {
     )
     expect(report.ok).toBe(false)
     expect(report.findings).toContainEqual(expect.objectContaining({ name: 'jq', status: 'error' }))
+  })
+
+  it('probes dependency versions with their supported CLI syntax', async () => {
+    const calls: Array<[string, readonly string[]]> = []
+    const report = await runRemoteDoctor(
+      'codex',
+      environment({ onRun: (command, args) => calls.push([command, args]) }),
+    )
+
+    expect(report.ok).toBe(true)
+    expect(calls).toContainEqual(['gc', ['version']])
+    expect(calls).toContainEqual(['dolt', ['version']])
+    expect(calls).toContainEqual(['bd', ['version']])
+    expect(calls).toContainEqual(['tmux', ['-V']])
   })
 
   it('requires the repository-pinned pnpm version', async () => {

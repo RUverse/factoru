@@ -91,9 +91,9 @@ async function main(): Promise<void> {
   const gasCity = new GasCityAdapter({
     client: new SupervisorClient({ baseUrl: config.gasCitySupervisorUrl }),
     cityName,
-    probe: async (command) => {
+    probe: async (command, versionArgs) => {
       try {
-        const result = await execFileAsync(command, ['--version'], {
+        const result = await execFileAsync(command, [...versionArgs], {
           timeout: 10_000,
           encoding: 'utf8',
         })

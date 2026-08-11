@@ -423,19 +423,16 @@ export function App() {
               <details className="server-install" open>
                 <summary>Install Factoru Server on the remote machine</summary>
                 <p className="muted">
-                  Experimental source preview for 64-bit Linux. Install the pinned host
-                  dependencies, then validate the checkout before starting Server:
+                  Experimental source preview for 64-bit Linux. After cloning dev and logging into
+                  Codex, install and validate the pinned host runtime in one command:
                 </p>
                 <pre aria-label="Remote server setup commands">
-                  <code>
-                    pnpm install --frozen-lockfile{`\n`}
-                    pnpm remote:preflight -- --provider codex
-                  </code>
+                  <code>./scripts/remote-bootstrap.sh --provider codex</code>
                 </pre>
                 <p className="install-note">
-                  Keep Server on loopback and connect through SSH or trusted HTTPS. The complete
-                  source runbook is docs/remote-connection.md; packaged installation remains
-                  Milestone 7 work.
+                  Use --provider claude when appropriate. Keep Server on loopback and connect
+                  through SSH or trusted HTTPS. The complete source runbook is
+                  docs/remote-connection.md; packaged installation remains Milestone 7 work.
                 </p>
               </details>
             </>

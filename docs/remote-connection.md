@@ -17,7 +17,9 @@ The preview targets:
 - one unprivileged Linux account for Factoru, Gas City, and the provider CLI;
 - a stable Factoru checkout and a separate directory for repositories; and
 - either the Codex or Claude harness, installed and authenticated as that same
-  account.
+  account; and
+- a Debian-family account with `sudo` permission when base OS packages are
+  missing.
 
 It does not support 32-bit Raspberry Pi OS, automatic startup after reboot,
 schema-aware rollback, or a production restore workflow.
@@ -32,20 +34,13 @@ uname -m
 ```
 
 Continue only when the output is Linux plus `aarch64`, `arm64`, or `x86_64`.
-On Debian-family systems, install the base operating-system tools:
+Install and authenticate either Codex or Claude as this account, using
+`codex login` or `claude auth login`. Provider authentication is deliberately
+not automated because it grants access to the operator's account.
 
-```sh
-sudo apt update
-sudo apt install --yes ca-certificates curl git iproute2 jq lsof procps tmux util-linux xz-utils
-```
-
-Install the versions pinned by this repository:
-
-- [Node.js 22.13.0](https://nodejs.org/download/release/v22.13.0/) and pnpm
-  11.20.0;
-- [Gas City 1.4.x and its prerequisites](https://github.com/gastownhall/gascity/blob/main/docs/getting-started/installation.md),
-  including Dolt 2.1.0 or newer and Beads 1.1.2 or newer; and
-- either Codex or Claude, followed by `codex login` or `claude auth login`.
+The Factoru bootstrap installs the remaining OS and runtime prerequisites. The
+only unavoidable pre-bootstrap tools are Git plus SSH access for the private
+checkout and the authenticated provider CLI.
 
 Gas City publishes both Linux arm64 and amd64 archives. A published binary is
 not proof that the full Factoru chain is dependable on a Raspberry Pi; this
@@ -59,16 +54,31 @@ uses another authenticated remote:
 ```sh
 git clone --branch dev git@github.com:RUverse/factoru.git "$HOME/factoru"
 cd "$HOME/factoru"
-pnpm install --frozen-lockfile
-pnpm remote:preflight -- --provider codex
-mkdir -p "$HOME/factoru-repositories"
+./scripts/remote-bootstrap.sh --provider codex
 ```
 
-Use `--provider claude` instead when Claude is the selected harness. The
-preflight is read-only with respect to Factoru state. It builds the Server
-dependency graph, then checks Linux architecture, the repository's Node/pnpm
-pins, Gas City and its dependency versions, provider login, and reports memory
-and free storage. Every failure includes a remedy.
+Use `--provider claude` instead when Claude is the selected harness. This is the
+one initial setup command after cloning. It is safe to rerun: compatible tools
+are kept, while missing or incompatible managed tools are replaced by the
+pinned releases. It:
+
+- installs missing Debian-family packages through `sudo apt-get`;
+- installs the repository-pinned Node and pnpm under
+  `$HOME/.local/share/factoru` without replacing a system toolchain;
+- downloads checksum-pinned Linux arm64/x64 releases of Gas City, Dolt, and
+  Beads into that same user-owned tool directory;
+- installs the frozen workspace and creates `$HOME/factoru-repositories`; and
+- runs the complete provider-selected preflight.
+
+The bootstrap refuses root, 32-bit/unsupported hosts, non-`dev` branches, dirty
+deployment checkouts, and failed artifact checksums. It may prompt for `sudo`
+only when base operating-system packages are missing. It does not start Server
+or Gas City and does not create Factoru identity, database, or city state.
+
+The final preflight is read-only with respect to Factoru state. It builds the
+Server dependency graph, then checks Linux architecture, the repository's
+Node/pnpm pins, Gas City and its dependency versions, provider login, and
+reports memory and free storage. Every failure includes a remedy.
 
 Keep project repositories outside the Factoru checkout. Gas City rig
 registration creates Beads metadata and may commit it, so start with a clean,
@@ -204,11 +214,19 @@ tmux attach -t factoru-server
 pnpm dev:env
 pnpm remote:preflight -- --provider codex
 gc version
+dolt version
+bd version
 ```
 
 Common failures:
 
 - **Preflight rejects `arm` or `ia32`:** install a 64-bit Linux image.
+- **Bootstrap refuses a dirty checkout:** preserve or remove the reported local
+  changes; the deployment checkout is not a working repository.
+- **Bootstrap cannot use `sudo`:** install the listed Debian base packages as
+  an administrator, then rerun it as the Factoru user.
+- **A download or checksum fails:** do not bypass verification; confirm network
+  access and rerun the same bootstrap command.
 - **Provider authentication fails:** log in as the same unprivileged account
   that runs Factoru and Gas City.
 - **`pnpm dev:city` refuses initialization:** resolve every reported Gas City,
@@ -254,11 +272,15 @@ changes:
 ```sh
 git fetch origin dev
 git merge --ff-only origin/dev
-pnpm install --frozen-lockfile
+./scripts/remote-bootstrap.sh --provider codex
 pnpm check
-pnpm remote:preflight -- --provider codex
 git rev-parse HEAD
 ```
+
+The bootstrap is idempotent and performs the frozen install plus preflight, so
+the update path does not repeat manual host dependency steps. Keep `pnpm check`
+as the separate source-verification gate. Use `--provider claude` consistently
+when that is the deployed harness.
 
 Return to the existing `factoru-server` tmux shell and start the same Server
 command from section 3. Rerun `pnpm dev:city --provider codex`, then check the

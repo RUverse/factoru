@@ -1,7 +1,7 @@
 # Factoru Architecture
 
 > Document type: living implementation map
-> Last reviewed: 2026-08-10
+> Last reviewed: 2026-08-11
 > Runtime implementation status: Milestones 0–6 complete; provider-backed
 > Milestones 5 and 6 acceptance passed; Milestone 7 packaging and dependable
 > operation are next
@@ -30,7 +30,7 @@ inventory below is authoritative.
 
 | Area | Status | Current reality | Next proof |
 | --- | --- | --- | --- |
-| Monorepo | **Implemented** | pnpm workspace with a pnpm-managed Node 22.13.0 development runtime, both applications, protocol/domain/config/database/Gas City/UI packages, versioned templates and pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, isolated per-worktree state/ports/pairing, an explicit provider-selected development-city bootstrap, a read-only 64-bit Linux remote-host preflight, plus a disposable-repository-root override for safe project acceptance. | Add only milestone-owned boundaries as their real paths connect. |
+| Monorepo | **Implemented** | pnpm workspace with a pnpm-managed Node 22.13.0 development runtime, both applications, protocol/domain/config/database/Gas City/UI packages, versioned templates and pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, isolated per-worktree state/ports/pairing, an explicit provider-selected development-city bootstrap, a read-only 64-bit Linux remote-host preflight, an idempotent checksum-pinned Debian-family source bootstrap, plus a disposable-repository-root override for safe project acceptance. | Add only milestone-owned boundaries as their real paths connect. |
 | Factoru Server | **Implemented** | Fastify connects SQLite-backed remote pairing and private loopback enrollment, trusted devices, authenticated one-time WebSocket tickets, scoped live methods, durable projects/workspaces/tasks, idempotent product commands, event/outbox reactors, Project Manager conversation delivery, Queue reconciliation, and restart observation while remaining loopback-bound. The serial delivery reactor admits one ready task, prepares/adopts its capsule, dispatches and observes `software-delivery`, collects evidence and usage, performs integration checks, and exposes idempotent run decisions. The real provider path completed ten benchmark runs plus one conversation-originated run across service restart. | Milestone 7 adds packaged lifecycle, backup/recovery, and operational hardening. |
 | Shared protocol | **Implemented** | `packages/protocol` owns runtime-validated health/handshake, pairing/enrollment, ticket, named multi-repository project/repository/device/workspace/conversation/Worker-Type/task/Queue/run-evidence, live request/response/event, cursor snapshot, compatibility, and typed HTTP client schemas. Projects-v2 carries an ordered repository/rig collection plus the primary execution binding. Run decisions are explicit named methods; older cached workspaces receive safe empty collection defaults. | Extend only when a later milestone owns a new wire capability. |
 | Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles, encrypted credentials, projects, selected workspace, conversations, Workers, tasks, task runs, and cursors; it owns the authenticated live connection, has an explicit socket/timer shutdown path, and exposes named IPC. Project creation is a focused named-project flow with multiple URL/folder sources, selected-rig ordering, a native macOS directory chooser behind preload, and progressive approved-root browsing. The renderer also adds a four-state board with run stage, raw steps, logs, checks, pricing state, failures, review evidence, and cancel/retry/request-changes/approve/archive controls. | Managed launch and packaged Mac acceptance remain in Milestone 7. |
@@ -190,9 +190,12 @@ Packaged install and managed launch remain Milestone 7 work.
 to a loopback port on the Desktop machine. HTTP exists only at those loopback
 ends; SSH encrypts the network leg. This is not a Factoru SSH adapter or managed
 service, does not enable trusted-proxy mode, and never forwards Gas City,
-agent-tool, or Dolt listeners. The read-only `factoru-server doctor` command and
-`pnpm remote:preflight` alias check the pinned host/runtime dependencies before
-the preview starts. Linux arm64 and Raspberry Pi remain unvalidated
+agent-tool, or Dolt listeners. After cloning, the repository-owned
+`scripts/remote-bootstrap.sh` installs missing base packages, user-local pinned
+Node/pnpm and checksum-pinned Gas City/Dolt/Beads artifacts, then invokes the
+read-only `factoru-server doctor` command through `pnpm remote:preflight`.
+Provider login and process launch remain operator-owned. Linux arm64 and
+Raspberry Pi remain unvalidated
 ([ADR 0015](./adr/0015-manual-ssh-preview-transport.md)).
 
 ### Stable server identity
@@ -235,8 +238,10 @@ dedicated city ready, bead store ready, required pack resolved, each rig healthy
 and each configured harness/model ready. A failed orchestration dependency must
 not make project/task history unavailable.
 
-The source-deployment preflight reuses the adapter's pinned dependency manifest
-to report Linux architecture, Node/pnpm pins, Gas City/Dolt/Beads/tool versions,
+The source-deployment bootstrap and preflight reuse the adapter's pinned
+dependency manifest, including each tool's actual version-command syntax. The
+bootstrap owns exact install releases for Gas City, Dolt, and Beads while the
+preflight reports Linux architecture, Node/pnpm pins, runtime/tool versions,
 provider authentication, memory, and disk headroom without creating Factoru
 identity or database state. Passing it is necessary but not sufficient for a
 Raspberry Pi support claim.
@@ -1240,7 +1245,7 @@ the manual SSH source-preview transport.
 | SQLite driver and migration tool | **Accepted, partially proven** — [ADR 0004](./adr/0004-database-and-migrations.md) | `better-sqlite3` with hand-written forward-only migrations now passes WAL, foreign-key, busy handling, rollback, identity binding, checkpoint, online-backup, integrity-restore, and restart tests. Native packaging and recovery benchmarks on every early target remain. |
 | Desktop and server packaging | **Accepted, unproven** — [ADR 0005](./adr/0005-packaging.md) | electron-builder plus a bundled Node service and container image; signing, notarization, and per-platform builds are Milestone 7 evidence. |
 | Worker Type binding compiler | **Implemented for initial bindings** — [ADR 0012](./adr/0012-project-manager-runtime-identities.md) | Provider and `option_defaults.model` bindings project to the correct city/rig agents without leaking raw config into the domain; the configured roles completed live delivery. A broader provider-catalog UI remains later work. |
-| Gas City supervision/install strategy | **Validate** | macOS and Linux installs, version pinning, upgrades, health, and recovery. |
+| Gas City supervision/install strategy | **Validate** | The source preview now has an idempotent checksum-pinned Linux arm64/x64 dependency bootstrap and correct per-tool version probes. Packaged macOS/Linux installs, upgrades, health, and recovery remain. |
 | Dedicated city and project-rig lifecycle | **Accepted, partially proven** | Stable naming, guarded rig registration, `.beads/` disclosure, unrelated-city coexistence, and service recovery passed development acceptance. Packaged creation/removal, backup recovery, and multi-host operation remain. |
 | Multi-repository project ownership | **Accepted, partially proven** — [ADR 0014](./adr/0014-multi-repository-projects.md) | Forward migration, multi-rig persistence/provisioning, projects-v2 schemas, URL cloning guards, focused creation UI, and native macOS folder selection are implemented and locally verified. Packaged clone credentials, multi-host native-picker messaging, removal, and task-to-rig routing remain. |
 | Supervisor trust-domain deployment | **Validate** | Loopback-only listeners, warning for unrelated cities, and whether confidential coexistence requires a dedicated OS user/supervisor. |
@@ -1260,7 +1265,7 @@ the manual SSH source-preview transport.
 | Dolt growth and compaction | **Validate** | Per-run store/backup growth, early disk warning, compactor order behavior, quarantine, and a full-GC recovery drill with sufficient headroom. |
 | Local server lifecycle | **Validate** | Login service versus managed process versus container UX and failure recovery. |
 | Remote TLS onboarding | **Accepted, awaiting remote acceptance** — [ADR 0011](./adr/0011-milestone-2-remote-access-and-project-onboarding.md) | Operator-controlled HTTPS overlay/reverse proxy forwards only Factoru from loopback; native TLS lifecycle is deferred. |
-| Manual SSH source-preview transport | **Accepted, awaiting Linux acceptance** — [ADR 0015](./adr/0015-manual-ssh-preview-transport.md) | The runbook and read-only preflight exist; a Linux arm64 host must still complete pairing, restart, update, and full provider-backed delivery without exposing host-local control planes. |
+| Manual SSH source-preview transport | **Accepted, awaiting Linux acceptance** — [ADR 0015](./adr/0015-manual-ssh-preview-transport.md) | The runbook, one-command dependency bootstrap, and read-only preflight exist; a Linux arm64 host must still complete pairing, restart, update, and full provider-backed delivery without exposing host-local control planes. |
 
 Record accepted choices as ADRs under `docs/adr/` and update this document's
 status and diagrams in the same change.

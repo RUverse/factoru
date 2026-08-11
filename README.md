@@ -86,15 +86,18 @@ and x64 hosts, including Raspberry Pi OS 64-bit as an explicitly unvalidated
 target. It keeps Factoru, Gas City, and Dolt on loopback and connects Desktop
 through a manual SSH local forward.
 
-After installing the host prerequisites and cloning `dev`, validate the host:
+After cloning `dev` and authenticating Codex or Claude, bootstrap the host in
+one idempotent command:
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm remote:preflight -- --provider codex
+./scripts/remote-bootstrap.sh --provider codex
 ```
 
 See [Remote Linux source deployment over SSH](./docs/remote-connection.md) for
-the complete install, pairing, full-loop test, update, and recovery limitations.
+the exact prerequisites plus pairing, full-loop test, update, and recovery
+limitations. The bootstrap installs the pinned Node/pnpm and Gas City runtime
+chain; it does not claim packaged Raspberry Pi support or automate provider
+account login.
 
 Run the applications individually when needed:
 

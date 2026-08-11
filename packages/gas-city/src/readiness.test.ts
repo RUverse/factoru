@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { REQUIRED_DEPENDENCIES } from './compatibility.js'
+import { REQUIRED_DEPENDENCIES, SOURCE_BOOTSTRAP_ARTIFACTS } from './compatibility.js'
 import {
   checkDependencies,
   evaluateDependency,
@@ -10,6 +10,21 @@ import {
 } from './readiness.js'
 
 const specFor = (command: string) => REQUIRED_DEPENDENCIES.find((s) => s.command === command)!
+
+describe('source bootstrap manifest', () => {
+  it('keeps exact install releases aligned with verified Linux artifacts', () => {
+    for (const command of ['gc', 'dolt', 'bd'] as const) {
+      const spec = specFor(command)
+      const artifact = SOURCE_BOOTSTRAP_ARTIFACTS[command]
+      expect(artifact.version).toBe(spec.installVersion)
+      expect(artifact.command).toBe(command)
+      expect(artifact.fileNames.arm64).toContain('arm64')
+      expect(artifact.fileNames.amd64).toContain('amd64')
+      expect(artifact.sha256.arm64).toMatch(/^[a-f0-9]{64}$/)
+      expect(artifact.sha256.amd64).toMatch(/^[a-f0-9]{64}$/)
+    }
+  })
+})
 
 describe('evaluateDependency', () => {
   it('accepts a dependency at or above its floor', () => {
@@ -36,7 +51,7 @@ describe('evaluateDependency', () => {
     const finding = evaluateDependency(specFor('flock'), { found: false, output: '' })
 
     expect(finding.status).toBe('missing')
-    expect(finding.remedy).toContain('brew install gascity')
+    expect(finding.remedy).toContain('remote bootstrap')
   })
 
   it('accepts a tool with no floor as long as it exists', () => {
@@ -60,6 +75,21 @@ describe('evaluateDependency', () => {
 })
 
 describe('checkDependencies', () => {
+  it("uses each dependency CLI's real version command", async () => {
+    const calls: Array<[string, readonly string[]]> = []
+    await checkDependencies(async (command, versionArgs) => {
+      calls.push([command, versionArgs])
+      if (command === 'gc') return { found: true, output: '1.4.0' }
+      return { found: true, output: '99.0.0' }
+    })
+
+    expect(calls).toContainEqual(['gc', ['version']])
+    expect(calls).toContainEqual(['dolt', ['version']])
+    expect(calls).toContainEqual(['bd', ['version']])
+    expect(calls).toContainEqual(['tmux', ['-V']])
+    expect(calls).toContainEqual(['git', ['--version']])
+  })
+
   it('reports every dependency independently rather than stopping at the first failure', async () => {
     const findings = await checkDependencies(async (command) => {
       if (command === 'dolt') return { found: false, output: '' }

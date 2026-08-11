@@ -350,9 +350,9 @@ async function main() {
     const adapter = new GasCityAdapter({
       client: new SupervisorClient({ baseUrl: supervisorUrl, timeoutMs: 45_000 }),
       cityName,
-      probe: async (executable) => {
+      probe: async (executable, versionArgs) => {
         try {
-          const result = await command(executable, ['--version'], workspaceRoot)
+          const result = await command(executable, versionArgs, workspaceRoot)
           return { found: true, output: `${result.stdout}${result.stderr}` }
         } catch (error) {
           return { found: false, output: error instanceof Error ? error.message : String(error) }

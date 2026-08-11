@@ -262,8 +262,8 @@ export async function runRemoteDoctor(
         },
   )
 
-  const dependencyFindings = await checkDependencies(async (command) => {
-    const result = await environment.run(command, ['--version'])
+  const dependencyFindings = await checkDependencies(async (command, versionArgs) => {
+    const result = await environment.run(command, versionArgs)
     return { found: result.found, output: result.output }
   })
   for (const finding of dependencyFindings) {

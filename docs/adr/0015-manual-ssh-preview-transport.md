@@ -32,12 +32,24 @@ encrypting and authenticating the network leg.
 - The canonical runbook is `docs/remote-connection.md`. It targets unprivileged
   single operators on 64-bit Linux arm64/x64 and labels Raspberry Pi and Linux
   arm64 end-to-end behavior unvalidated until real acceptance completes.
+- After an authenticated `dev` checkout exists, one idempotent repository-owned
+  bootstrap command installs missing Debian-family packages, a user-local
+  pinned Node/pnpm toolchain, checksum-pinned Gas City/Dolt/Beads release
+  artifacts, the frozen workspace, and then runs the read-only preflight. The
+  bootstrap refuses root, dirty/non-`dev` checkouts, unsupported architectures,
+  and checksum failures.
+- Provider installation/login and process startup remain explicit operator
+  actions: credentials cannot be granted safely by a repository installer, and
+  starting Server or Gas City would create state beyond dependency setup.
 
 ## Consequences
 
 - A remote source preview can use the existing authenticated pairing and live
   protocol without weakening the non-loopback HTTPS rule or adding another
   server transport.
+- Initial source setup after cloning is one command and can be rerun after a
+  safe update; compatible external tools are reused and Factoru-managed tools
+  live under the unprivileged account rather than overwriting system binaries.
 - The tunnel must remain alive, its Mac-side port must be free, and the operator
   must rediscover the development server port after restarts that resolve a port
   collision differently.

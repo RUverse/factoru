@@ -46,7 +46,7 @@ git --version
 tmux -V
 jq --version
 dolt version
-bd --version
+bd version
 flock --version
 ```
 

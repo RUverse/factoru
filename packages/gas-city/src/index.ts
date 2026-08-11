@@ -22,12 +22,17 @@
 export {
   GAS_CITY_REQUEST_HEADER,
   GAS_CITY_SUPPORTED_RANGE,
+  PINNED_BEADS_INSTALL_VERSION,
+  PINNED_DOLT_INSTALL_VERSION,
   PINNED_GAS_CITY_VERSION,
   REQUIRED_DEPENDENCIES,
+  SOURCE_BOOTSTRAP_ARTIFACTS,
   SUPERVISOR_API_PREFIX,
   SUPERVISOR_OPENAPI_PATH,
   SUPPORTED_HARNESSES,
   type DependencySpec,
+  type LinuxArtifactArchitecture,
+  type SourceBootstrapArtifact,
   type SupportedHarness,
 } from './compatibility.js'
 
