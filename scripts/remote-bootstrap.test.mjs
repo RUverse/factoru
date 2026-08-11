@@ -26,6 +26,8 @@ test('remote bootstrap shell entry point is executable, syntactically valid, and
   const source = await readFile(scriptPath, 'utf8')
   assert.match(source, /devEngines/)
   assert.match(source, /packageManager/)
+  assert.match(source, /\.profile/)
+  assert.match(source, /\.bashrc/)
   assert.doesNotMatch(source, /22\.13\.0|11\.20\.0/)
 })
 

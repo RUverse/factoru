@@ -166,11 +166,12 @@ fi
 
 if [ -z "${FACTORU_BOOTSTRAP_ROOT:-}" ]; then
   profile_line='export PATH="$HOME/.local/share/factoru/bin:$PATH"'
-  profile_path="$HOME/.profile"
-  touch "$profile_path"
-  if ! grep -Fqx "$profile_line" "$profile_path"; then
-    printf '\n# Factoru remote source-preview tools\n%s\n' "$profile_line" >> "$profile_path"
-  fi
+  for profile_path in "$HOME/.profile" "$HOME/.bashrc"; do
+    touch "$profile_path"
+    if ! grep -Fqx "$profile_line" "$profile_path"; then
+      printf '\n# Factoru remote source-preview tools\n%s\n' "$profile_line" >> "$profile_path"
+    fi
+  done
 fi
 
 cd "$repository_root"
