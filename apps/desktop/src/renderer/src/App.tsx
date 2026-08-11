@@ -626,6 +626,7 @@ factoru-server providers configure --provider codex`}</code>
             className="factory-switcher-trigger"
             aria-expanded={factorySwitcherOpen}
             aria-controls="factory-switcher-panel"
+            aria-label={`Factories, ${factorySummary.label}`}
             onClick={() => {
               setFactorySwitcherOpen((open) => !open)
               setRenamingFactoryId(null)
@@ -633,8 +634,7 @@ factoru-server providers configure --provider codex`}</code>
           >
             <span className={`status-dot ${factorySummary.state}`} aria-hidden="true" />
             <span className="factory-switcher-title">
-              <strong>Factories</strong>
-              <small>{factorySummary.label}</small>
+              <strong>{factorySummary.label}</strong>
             </span>
             <span className="factory-switcher-chevron" aria-hidden="true">
               ▾

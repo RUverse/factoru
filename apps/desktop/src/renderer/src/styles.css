@@ -339,7 +339,6 @@ code {
 }
 
 .factory-switcher-title strong,
-.factory-switcher-title small,
 .factory-list strong,
 .factory-list span > small {
   overflow: hidden;
@@ -351,7 +350,6 @@ code {
   font-size: 11px;
 }
 
-.factory-switcher-title small,
 .factory-list small {
   color: var(--factoru-text-faint);
   font-size: 9px;
