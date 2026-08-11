@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Project, Workspace } from '@factoru/protocol'
+import { normalizeFactoryName } from '../shared/factory'
 
 export interface ServerProfile {
   serverId: string
@@ -66,6 +67,17 @@ export class ProfileStore {
       throw new Error('profile_not_found')
     this.#state.activeServerId = serverId
     this.#write()
+  }
+
+  rename(serverId: string, name: string): ServerProfile {
+    const index = this.#state.profiles.findIndex((profile) => profile.serverId === serverId)
+    if (index === -1) throw new Error('profile_not_found')
+    const current = this.#state.profiles[index]
+    if (!current) throw new Error('profile_not_found')
+    const profile: ServerProfile = { ...current, name: normalizeFactoryName(name) }
+    this.#state.profiles[index] = profile
+    this.#write()
+    return structuredClone(profile)
   }
 
   remove(serverId: string): void {

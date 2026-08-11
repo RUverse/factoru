@@ -70,6 +70,61 @@ describe('connection profiles', () => {
     expect(store.get(first.serverId)?.cursor).toBe(9)
   })
 
+  it('renames a profile without changing the active server or cached state', () => {
+    const root = directory()
+    const store = new ProfileStore(root)
+    const first = {
+      serverId: `srv_${'1'.repeat(32)}`,
+      deviceId: 'dev_first',
+      name: 'First',
+      url: 'http://127.0.0.1:18787',
+      createdAt: new Date().toISOString(),
+      lastConnectedAt: null,
+      projects: [],
+      selectedProjectId: null,
+      workspaces: {},
+      cursor: 7,
+    }
+    const second = { ...first, serverId: `srv_${'2'.repeat(32)}`, name: 'Second' }
+    store.save(first)
+    store.save(second)
+
+    expect(store.rename(first.serverId, '  Local Factory  ')).toEqual({
+      ...first,
+      name: 'Local Factory',
+    })
+    expect(store.active()?.serverId).toBe(second.serverId)
+    expect(new ProfileStore(root).get(first.serverId)).toEqual({
+      ...first,
+      name: 'Local Factory',
+    })
+    expect(() => store.rename(first.serverId, '   ')).toThrow(/required/)
+  })
+
+  it('selects a deterministic fallback when an active profile is forgotten', () => {
+    const root = directory()
+    const store = new ProfileStore(root)
+    const first = {
+      serverId: `srv_${'1'.repeat(32)}`,
+      deviceId: 'dev_first',
+      name: 'First',
+      url: 'http://127.0.0.1:18787',
+      createdAt: new Date().toISOString(),
+      lastConnectedAt: null,
+      projects: [],
+      selectedProjectId: null,
+      workspaces: {},
+      cursor: 0,
+    }
+    const second = { ...first, serverId: `srv_${'2'.repeat(32)}`, name: 'Second' }
+    store.save(first)
+    store.save(second)
+
+    store.remove(second.serverId)
+
+    expect(store.active()?.serverId).toBe(first.serverId)
+  })
+
   it('never persists a credential in plaintext', () => {
     const root = directory()
     const encryption = {

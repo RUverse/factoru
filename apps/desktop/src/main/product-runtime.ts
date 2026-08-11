@@ -29,9 +29,10 @@ import {
 } from '@factoru/protocol'
 import { DESKTOP_NAME, DESKTOP_VERSION } from './version'
 import { normalizeProfileUrl } from './profile-store'
-import type { CredentialStore, ProfileStore, ServerProfile } from './profile-store'
+import { type CredentialStore, type ProfileStore, type ServerProfile } from './profile-store'
 import { LiveFactoruClient } from './live-client'
 import type { ProductSnapshot } from '../shared/product'
+import { normalizeFactoryName } from '../shared/factory'
 import { readLocalEnrollmentFile } from './local-enrollment'
 
 export interface ProductRuntimeOptions {
@@ -137,8 +138,14 @@ export class ProductRuntime {
     return () => this.#listeners.delete(listener)
   }
 
-  async pair(urlValue: string, code: string, deviceName: string): Promise<ProductSnapshot> {
+  async pair(
+    urlValue: string,
+    code: string,
+    deviceName: string,
+    factoryName: string,
+  ): Promise<ProductSnapshot> {
     const url = normalizeProfileUrl(urlValue)
+    const name = normalizeFactoryName(factoryName)
     const client = this.#options.createClient({
       baseUrl: url,
       clientName: DESKTOP_NAME,
@@ -154,7 +161,7 @@ export class ProductRuntime {
     const paired = await client.pair(code, deviceName)
     if (paired.serverId !== handshake.response.server.serverId)
       throw new Error('Server identity changed during pairing')
-    return this.#acceptPairing(url, paired)
+    return this.#acceptPairing(url, paired, name)
   }
 
   async pairLocal(deviceName: string): Promise<ProductSnapshot> {
@@ -178,16 +185,20 @@ export class ProductRuntime {
     if (paired.serverId !== enrollment.serverId) {
       throw new Error('Server identity changed during local enrollment')
     }
-    return this.#acceptPairing(url, paired)
+    return this.#acceptPairing(url, paired, 'Local Factory')
   }
 
-  async #acceptPairing(url: string, paired: PairingExchangeResponse): Promise<ProductSnapshot> {
+  async #acceptPairing(
+    url: string,
+    paired: PairingExchangeResponse,
+    factoryName: string,
+  ): Promise<ProductSnapshot> {
     const existing = this.#profiles.get(paired.serverId)
     this.#credentials.set(paired.serverId, paired.token)
     this.#profiles.save({
       serverId: paired.serverId,
       deviceId: paired.device.id,
-      name: existing?.name ?? new URL(url).host,
+      name: existing?.name ?? factoryName,
       url,
       createdAt: existing?.createdAt ?? this.#options.now().toISOString(),
       lastConnectedAt: null,
@@ -210,6 +221,11 @@ export class ProductRuntime {
     return this.#snapshot
   }
 
+  rename(serverId: string, name: string): ProductSnapshot {
+    this.#profiles.rename(serverId, name)
+    return this.#updateFromStore()
+  }
+
   remove(serverId: string): ProductSnapshot {
     this.#credentials.delete(serverId)
     this.#profiles.remove(serverId)
@@ -218,10 +234,9 @@ export class ProductRuntime {
     return this.#updateFromStore()
   }
 
-  async connect(): Promise<ProductSnapshot> {
-    const profile = this.#profiles.active()
-    if (!profile) return this.#updateFromStore()
-    return this.#connectProfile(profile.serverId)
+  async connect(serverId = this.#profiles.activeServerId): Promise<ProductSnapshot> {
+    if (!serverId || !this.#profiles.get(serverId)) return this.#updateFromStore()
+    return this.#connectProfile(serverId)
   }
 
   async connectAll(): Promise<ProductSnapshot> {

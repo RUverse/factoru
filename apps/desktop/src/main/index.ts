@@ -34,6 +34,7 @@ import {
   IPC_PRODUCT_PAIR_LOCAL,
   IPC_PRODUCT_PREVIEW,
   IPC_PRODUCT_RECONNECT,
+  IPC_PRODUCT_RENAME,
   IPC_PRODUCT_REMOVE,
   IPC_PRODUCT_RETRY,
   IPC_PRODUCT_REVOKE,
@@ -130,15 +131,20 @@ function registerIpc(): void {
   })
 
   ipcMain.handle(IPC_PRODUCT_GET, () => product.snapshot)
-  ipcMain.handle(IPC_PRODUCT_PAIR, (_event, url: string, code: string, deviceName: string) =>
-    product.pair(url, code, deviceName),
+  ipcMain.handle(
+    IPC_PRODUCT_PAIR,
+    (_event, url: string, code: string, deviceName: string, factoryName: string) =>
+      product.pair(url, code, deviceName, factoryName),
   )
   ipcMain.handle(IPC_PRODUCT_PAIR_LOCAL, (_event, deviceName: string) =>
     product.pairLocal(deviceName),
   )
   ipcMain.handle(IPC_PRODUCT_ACTIVATE, (_event, serverId: string) => product.activate(serverId))
+  ipcMain.handle(IPC_PRODUCT_RENAME, (_event, serverId: string, name: string) =>
+    product.rename(serverId, name),
+  )
   ipcMain.handle(IPC_PRODUCT_REMOVE, (_event, serverId: string) => product.remove(serverId))
-  ipcMain.handle(IPC_PRODUCT_RECONNECT, () => product.connect())
+  ipcMain.handle(IPC_PRODUCT_RECONNECT, (_event, serverId: string) => product.connect(serverId))
   ipcMain.handle(IPC_PRODUCT_ROOTS, () => product.request('repositories.roots'))
   ipcMain.handle(IPC_PRODUCT_BROWSE, (_event, rootId: string, relativePath: string) =>
     product.request('repositories.browse', { rootId, relativePath }),

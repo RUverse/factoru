@@ -146,15 +146,19 @@ The desktop remembers trusted servers, maintains independent connections to the
 local server and every added remote server, and clearly shows which server is
 active. Changing the active server changes the visible projects and command
 destination without disconnecting the other servers, because projects belong to
-one server rather than the laptop.
+one server rather than the laptop. In the main workspace, a named factory
+switcher at the top of the sidebar combines active-server status, switching,
+pairing, reconnect, trusted-device management, and profile removal. Friendly
+factory names are Desktop-local preferences; local enrollment defaults to
+**Local Factory**.
 
 ### Main workspace
 
 The initial layout follows the supplied mockup while remaining Factoru's own
 design:
 
-- **Left sidebar:** server state, project list, project activity summary, add
-  project, and settings.
+- **Left sidebar:** named factory switcher and status, project list, project
+  activity summary, add project, and settings.
 - **Center:** the selected project's Project Manager conversation and message
   composer.
 - **Right pane:** switchable **Tasks** and **Workers** tabs.

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { LiveMethod } from '@factoru/protocol'
+import type { LiveMethod, PairingExchangeResponse } from '@factoru/protocol'
 import { CredentialStore, ProfileStore, type ServerProfile } from './profile-store'
 import {
   ProductRuntime,
@@ -30,6 +30,21 @@ function profile(serverId: string, url: string, name: string): ServerProfile {
     selectedProjectId: null,
     workspaces: {},
     cursor: 0,
+  }
+}
+
+function pairingResponse(serverId: string): PairingExchangeResponse {
+  return {
+    serverId,
+    device: {
+      id: 'dev_desktop',
+      name: 'My Mac',
+      scopes: ['projects:read', 'projects:write', 'events:read', 'devices:read', 'devices:revoke'],
+      createdAt: '2026-08-11T12:00:00.000Z',
+      lastSeenAt: null,
+      revokedAt: null,
+    },
+    token: 't'.repeat(32),
   }
 }
 
@@ -142,6 +157,21 @@ describe('multi-server product runtime', () => {
     expect(liveClients.get(first.url)?.connectCount).toBe(1)
     expect(liveClients.get(second.url)?.connectCount).toBe(1)
 
+    runtime.rename(first.serverId, '  Local Factory  ')
+    expect(runtime.snapshot.profiles).toEqual([
+      expect.objectContaining({ serverId: first.serverId, name: 'Local Factory' }),
+      expect.objectContaining({ serverId: second.serverId, name: 'Pi' }),
+    ])
+    expect(runtime.snapshot.activeServerId).toBe(second.serverId)
+
+    const originalFirstLive = liveClients.get(first.url)!
+    const secondLive = liveClients.get(second.url)!
+    await runtime.connect(first.serverId)
+    expect(originalFirstLive.closeCount).toBe(1)
+    expect(liveClients.get(first.url)).not.toBe(originalFirstLive)
+    expect(secondLive.closeCount).toBe(0)
+    expect(runtime.snapshot.activeServerId).toBe(second.serverId)
+
     await runtime.activate(first.serverId)
     const result = await runtime.request('devices.list')
 
@@ -167,6 +197,115 @@ describe('multi-server product runtime', () => {
     expect(liveClients.get(second.url)?.closeCount).toBe(0)
     expect(runtime.snapshot.activeServerId).toBe(second.serverId)
     expect(runtime.snapshot.connected).toBe(true)
+    runtime.dispose()
+  })
+
+  it('persists a friendly name supplied while pairing a remote factory', async () => {
+    const root = directory()
+    const profiles = new ProfileStore(root)
+    const credentials = new CredentialStore(root, {
+      isEncryptionAvailable: () => true,
+      encryptString: (value) => Buffer.from(value),
+      decryptString: (value) => value.toString(),
+    })
+    const serverId = `srv_${'c'.repeat(32)}`
+    const runtime = new ProductRuntime(profiles, credentials, {
+      createClient: () => ({
+        baseUrl: 'http://127.0.0.1:28788',
+        handshake: async () => ({
+          response: {
+            server: {
+              serverId,
+              serverVersion: '0.0.0',
+              protocolVersion: 1,
+              minProtocolVersion: 1,
+              capabilities: [],
+            },
+            compatible: true,
+            negotiatedProtocolVersion: 1,
+            incompatibility: null,
+          },
+          compatibility: {
+            compatible: true,
+            negotiatedProtocolVersion: 1,
+            incompatibility: null,
+          },
+        }),
+        pair: async () => pairingResponse(serverId),
+        pairLocal: async () => {
+          throw new Error('pairLocal is not used by this test')
+        },
+      }),
+      createLiveClient: (options) => new FakeLiveClient(options.baseUrl),
+      now: () => new Date('2026-08-11T12:30:00.000Z'),
+    })
+
+    await runtime.pair('http://127.0.0.1:28788', 'ABCD-EFGH-JKMN', 'My Mac', '  Raspberry Pi  ')
+
+    expect(runtime.snapshot.profiles).toEqual([
+      expect.objectContaining({ serverId, name: 'Raspberry Pi' }),
+    ])
+    expect(new ProfileStore(root).active()?.name).toBe('Raspberry Pi')
+    runtime.dispose()
+  })
+
+  it('names a newly enrolled local profile Local Factory', async () => {
+    const root = directory()
+    const enrollmentFile = path.join(root, 'local-enrollment.json')
+    const serverId = `srv_${'d'.repeat(32)}`
+    fs.writeFileSync(
+      enrollmentFile,
+      JSON.stringify({
+        version: 1,
+        serverId,
+        serverUrl: 'http://127.0.0.1:32800',
+        proof: 'a'.repeat(43),
+      }),
+      { mode: 0o600 },
+    )
+    const profiles = new ProfileStore(root)
+    const credentials = new CredentialStore(root, {
+      isEncryptionAvailable: () => true,
+      encryptString: (value) => Buffer.from(value),
+      decryptString: (value) => value.toString(),
+    })
+    const runtime = new ProductRuntime(profiles, credentials, {
+      localEnrollmentFile: enrollmentFile,
+      createClient: () => ({
+        baseUrl: 'http://127.0.0.1:32800',
+        handshake: async () => ({
+          response: {
+            server: {
+              serverId,
+              serverVersion: '0.0.0',
+              protocolVersion: 1,
+              minProtocolVersion: 1,
+              capabilities: ['local-enrollment-v1'],
+            },
+            compatible: true,
+            negotiatedProtocolVersion: 1,
+            incompatibility: null,
+          },
+          compatibility: {
+            compatible: true,
+            negotiatedProtocolVersion: 1,
+            incompatibility: null,
+          },
+        }),
+        pair: async () => {
+          throw new Error('pair is not used by this test')
+        },
+        pairLocal: async () => pairingResponse(serverId),
+      }),
+      createLiveClient: (options) => new FakeLiveClient(options.baseUrl),
+      now: () => new Date('2026-08-11T12:30:00.000Z'),
+    })
+
+    await runtime.pairLocal('My Mac')
+
+    expect(runtime.snapshot.profiles).toEqual([
+      expect.objectContaining({ serverId, name: 'Local Factory' }),
+    ])
     runtime.dispose()
   })
 })

@@ -38,6 +38,7 @@ export const IPC_PRODUCT_GET = 'factoru:product:get'
 export const IPC_PRODUCT_PAIR = 'factoru:product:pair'
 export const IPC_PRODUCT_PAIR_LOCAL = 'factoru:product:pair-local'
 export const IPC_PRODUCT_ACTIVATE = 'factoru:product:activate'
+export const IPC_PRODUCT_RENAME = 'factoru:product:rename'
 export const IPC_PRODUCT_REMOVE = 'factoru:product:remove'
 export const IPC_PRODUCT_RECONNECT = 'factoru:product:reconnect'
 export const IPC_PRODUCT_ROOTS = 'factoru:product:roots'
@@ -68,11 +69,12 @@ export const IPC_PRODUCT_ARCHIVE_RUN = 'factoru:product:archive-run'
 
 export interface ProductBridge {
   get(): Promise<ProductSnapshot>
-  pair(url: string, code: string, deviceName: string): Promise<ProductSnapshot>
+  pair(url: string, code: string, deviceName: string, factoryName: string): Promise<ProductSnapshot>
   pairLocal(deviceName: string): Promise<ProductSnapshot>
   activate(serverId: string): Promise<ProductSnapshot>
+  rename(serverId: string, name: string): Promise<ProductSnapshot>
   remove(serverId: string): Promise<ProductSnapshot>
-  reconnect(): Promise<ProductSnapshot>
+  reconnect(serverId: string): Promise<ProductSnapshot>
   roots(): Promise<Array<{ id: string; label: string }>>
   browse(
     rootId: string,

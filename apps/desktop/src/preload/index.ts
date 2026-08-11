@@ -20,6 +20,7 @@ import {
   IPC_PRODUCT_PAIR_LOCAL,
   IPC_PRODUCT_PREVIEW,
   IPC_PRODUCT_RECONNECT,
+  IPC_PRODUCT_RENAME,
   IPC_PRODUCT_REMOVE,
   IPC_PRODUCT_RETRY,
   IPC_PRODUCT_REVOKE,
@@ -43,11 +44,13 @@ import {
 
 const product: ProductBridge = {
   get: () => ipcRenderer.invoke(IPC_PRODUCT_GET),
-  pair: (url, code, deviceName) => ipcRenderer.invoke(IPC_PRODUCT_PAIR, url, code, deviceName),
+  pair: (url, code, deviceName, factoryName) =>
+    ipcRenderer.invoke(IPC_PRODUCT_PAIR, url, code, deviceName, factoryName),
   pairLocal: (deviceName) => ipcRenderer.invoke(IPC_PRODUCT_PAIR_LOCAL, deviceName),
   activate: (serverId) => ipcRenderer.invoke(IPC_PRODUCT_ACTIVATE, serverId),
+  rename: (serverId, name) => ipcRenderer.invoke(IPC_PRODUCT_RENAME, serverId, name),
   remove: (serverId) => ipcRenderer.invoke(IPC_PRODUCT_REMOVE, serverId),
-  reconnect: () => ipcRenderer.invoke(IPC_PRODUCT_RECONNECT),
+  reconnect: (serverId) => ipcRenderer.invoke(IPC_PRODUCT_RECONNECT, serverId),
   roots: () => ipcRenderer.invoke(IPC_PRODUCT_ROOTS),
   browse: (rootId, relativePath) => ipcRenderer.invoke(IPC_PRODUCT_BROWSE, rootId, relativePath),
   preview: (rootId, relativePath, defaultBranch) =>

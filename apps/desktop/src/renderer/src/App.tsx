@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { ProjectPreview, Task, TrustedDevice, WorkerType } from '@factoru/protocol'
 import type { ProductSnapshot } from '../../shared/product'
+import { FACTORY_NAME_MAX_LENGTH, factoryStatusLabel } from '../../shared/factory'
 
 type Root = { id: string; label: string }
 type Entry = { name: string; relativePath: string; kind: 'directory' | 'repository' }
@@ -25,6 +26,9 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const [tab, setTab] = useState<'tasks' | 'workers'>('tasks')
   const [showPairing, setShowPairing] = useState(false)
+  const [factorySwitcherOpen, setFactorySwitcherOpen] = useState(false)
+  const [renamingFactoryId, setRenamingFactoryId] = useState<string | null>(null)
+  const [factoryName, setFactoryName] = useState('')
   const [showProjectSetup, setShowProjectSetup] = useState(false)
   const [connectionType, setConnectionType] = useState<'local' | 'remote'>('local')
   const [serverUrl, setServerUrl] = useState('https://')
@@ -39,6 +43,7 @@ export function App() {
   const [repositoryDrafts, setRepositoryDrafts] = useState<RepositoryDraft[]>([])
   const [showServerBrowser, setShowServerBrowser] = useState(false)
   const [devices, setDevices] = useState<TrustedDevice[]>([])
+  const [showDevices, setShowDevices] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -54,6 +59,21 @@ export function App() {
     () => snapshot?.projects.find((project) => project.id === snapshot.activeProjectId) ?? null,
     [snapshot],
   )
+  const activeProfile = useMemo(
+    () =>
+      snapshot?.profiles.find((profile) => profile.serverId === snapshot.activeServerId) ?? null,
+    [snapshot],
+  )
+
+  useEffect(() => {
+    if (!factorySwitcherOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || renamingFactoryId) return
+      setFactorySwitcherOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [factorySwitcherOpen, renamingFactoryId])
 
   const run = async <T,>(operation: () => Promise<T>): Promise<T | undefined> => {
     setBusy(true)
@@ -76,6 +96,7 @@ export function App() {
         String(data.get('url')),
         String(data.get('code')).toUpperCase(),
         String(data.get('deviceName')),
+        String(data.get('factoryName')),
       ),
     ).then((value) => {
       if (value) {
@@ -96,6 +117,59 @@ export function App() {
         }
       },
     )
+  }
+
+  const selectFactory = (serverId: string) => {
+    void run(() => window.factoru.product.activate(serverId)).then((value) => {
+      if (!value) return
+      setSnapshot(value)
+      setFactorySwitcherOpen(false)
+      setShowDevices(false)
+      setDevices([])
+    })
+  }
+
+  const renameFactory = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!renamingFactoryId) return
+    void run(() => window.factoru.product.rename(renamingFactoryId, factoryName)).then((value) => {
+      if (!value) return
+      setSnapshot(value)
+      setRenamingFactoryId(null)
+      setFactoryName('')
+    })
+  }
+
+  const reconnectFactory = () => {
+    if (!activeProfile) return
+    void run(() => window.factoru.product.reconnect(activeProfile.serverId)).then(
+      (value) => value && setSnapshot(value),
+    )
+  }
+
+  const openTrustedDevices = () => {
+    setShowDevices(true)
+    setFactorySwitcherOpen(false)
+    void run(() => window.factoru.product.devices()).then((value) => value && setDevices(value))
+  }
+
+  const forgetFactory = () => {
+    if (!activeProfile) return
+    if (
+      !window.confirm(
+        `Forget “${activeProfile.name}” on this Desktop? Its local profile and credential will be removed. Projects and server data will not be changed.`,
+      )
+    ) {
+      return
+    }
+    void run(() => window.factoru.product.remove(activeProfile.serverId)).then((value) => {
+      if (!value) return
+      setSnapshot(value)
+      setFactorySwitcherOpen(value.profiles.length > 0)
+      setRenamingFactoryId(null)
+      setShowDevices(false)
+      setDevices([])
+    })
   }
 
   const loadRoots = async () => {
@@ -394,6 +468,16 @@ export function App() {
             <>
               <form className="form-stack" onSubmit={pair}>
                 <label>
+                  Factory name
+                  <input
+                    name="factoryName"
+                    required
+                    maxLength={FACTORY_NAME_MAX_LENGTH}
+                    defaultValue="Remote Factory"
+                    placeholder="Raspberry Pi"
+                  />
+                </label>
+                <label>
                   Server address
                   <input
                     name="url"
@@ -462,10 +546,131 @@ factoru-server providers configure --provider codex`}</code>
           </div>
         </header>
 
-        <div className="connection-row">
-          <span className={`status-dot ${snapshot.connected ? 'online' : 'offline'}`} />
-          <span>{snapshot.connected ? 'Server connected' : 'Working offline'}</span>
-        </div>
+        {activeProfile && (
+          <div className={`factory-switcher ${factorySwitcherOpen ? 'open' : ''}`}>
+            <button
+              type="button"
+              className="factory-switcher-trigger"
+              aria-expanded={factorySwitcherOpen}
+              aria-controls="factory-switcher-panel"
+              onClick={() => {
+                setFactorySwitcherOpen((open) => !open)
+                setRenamingFactoryId(null)
+              }}
+            >
+              <span className={`status-dot ${activeProfile.connectionState}`} aria-hidden="true" />
+              <span className="factory-switcher-title">
+                <strong>{activeProfile.name}</strong>
+                <small>{factoryStatusLabel(activeProfile.connectionState)}</small>
+              </span>
+              <span className="factory-switcher-chevron" aria-hidden="true">
+                ▾
+              </span>
+            </button>
+
+            {factorySwitcherOpen && (
+              <section
+                id="factory-switcher-panel"
+                className="factory-switcher-panel"
+                aria-label="Factories"
+              >
+                <p className="factory-switcher-heading">Factories</p>
+                <div className="factory-list">
+                  {snapshot.profiles.map((profile) => (
+                    <button
+                      type="button"
+                      key={profile.serverId}
+                      className={profile.serverId === snapshot.activeServerId ? 'active' : ''}
+                      aria-current={
+                        profile.serverId === snapshot.activeServerId ? 'true' : undefined
+                      }
+                      title={profile.error ?? profile.url}
+                      onClick={() => selectFactory(profile.serverId)}
+                    >
+                      <span
+                        className={`status-dot ${profile.connectionState}`}
+                        aria-hidden="true"
+                      />
+                      <span>
+                        <strong>{profile.name}</strong>
+                        <small>{profile.url}</small>
+                      </span>
+                      <small>{factoryStatusLabel(profile.connectionState)}</small>
+                    </button>
+                  ))}
+                </div>
+
+                {renamingFactoryId === activeProfile.serverId ? (
+                  <form className="factory-rename" onSubmit={renameFactory}>
+                    <label htmlFor="factory-name">Factory name</label>
+                    <input
+                      id="factory-name"
+                      autoFocus
+                      required
+                      maxLength={FACTORY_NAME_MAX_LENGTH}
+                      value={factoryName}
+                      onChange={(event) => setFactoryName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Escape') return
+                        event.stopPropagation()
+                        setRenamingFactoryId(null)
+                        setFactoryName('')
+                      }}
+                    />
+                    <div>
+                      <button disabled={busy}>Save</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRenamingFactoryId(null)
+                          setFactoryName('')
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="factory-actions" aria-label={`${activeProfile.name} actions`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenamingFactoryId(activeProfile.serverId)
+                        setFactoryName(activeProfile.name)
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button type="button" onClick={reconnectFactory} disabled={busy}>
+                      Reconnect
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openTrustedDevices}
+                      disabled={!snapshot.connected || busy}
+                    >
+                      Trusted devices
+                    </button>
+                    <button type="button" className="danger" onClick={forgetFactory}>
+                      Forget factory
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="add-factory"
+                  onClick={() => {
+                    setFactorySwitcherOpen(false)
+                    setShowPairing(true)
+                  }}
+                >
+                  + Add factory
+                </button>
+              </section>
+            )}
+          </div>
+        )}
 
         <div className="sidebar-section-head">
           <span>Projects</span>
@@ -505,41 +710,6 @@ factoru-server providers configure --provider codex`}</code>
             ))
           )}
         </nav>
-
-        <details className="server-settings">
-          <summary>Server & devices</summary>
-          <label>
-            Server
-            <select
-              value={snapshot.activeServerId ?? ''}
-              onChange={(event) =>
-                void run(() => window.factoru.product.activate(event.target.value)).then(
-                  (value) => value && setSnapshot(value),
-                )
-              }
-            >
-              {snapshot.profiles.map((profile) => (
-                <option key={profile.serverId} value={profile.serverId}>
-                  {profile.connectionState === 'connected' ? '●' : '○'} {profile.name} ·{' '}
-                  {statusLabel(profile.connectionState)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button onClick={() => void run(() => window.factoru.product.reconnect())}>
-            Reconnect
-          </button>
-          <button onClick={() => setShowPairing(true)}>Add server</button>
-          <button
-            onClick={() =>
-              void run(() => window.factoru.product.devices()).then(
-                (value) => value && setDevices(value),
-              )
-            }
-          >
-            Trusted devices
-          </button>
-        </details>
       </aside>
 
       <section className="conversation-pane">
@@ -1356,29 +1526,43 @@ factoru-server providers configure --provider codex`}</code>
         )}
       </aside>
 
-      {devices.length > 0 && (
-        <section className="device-drawer">
+      {showDevices && activeProfile && (
+        <section className="device-drawer" aria-labelledby="trusted-devices-heading">
           <header>
-            <h2>Trusted devices</h2>
-            <button onClick={() => setDevices([])}>Close</button>
-          </header>
-          {devices.map((device) => (
-            <div key={device.id}>
-              <span>{device.name}</span>
-              {!device.revokedAt && (
-                <button
-                  onClick={() =>
-                    window.confirm(`Revoke ${device.name}?`) &&
-                    void run(() => window.factoru.product.revoke(device.id)).then(() =>
-                      window.factoru.product.devices().then(setDevices),
-                    )
-                  }
-                >
-                  Revoke
-                </button>
-              )}
+            <div>
+              <h2 id="trusted-devices-heading">Trusted devices</h2>
+              <p className="muted">{activeProfile.name}</p>
             </div>
-          ))}
+            <button
+              onClick={() => {
+                setShowDevices(false)
+                setDevices([])
+              }}
+            >
+              Close
+            </button>
+          </header>
+          {devices.length === 0 ? (
+            <p className="muted">No trusted devices found for this factory.</p>
+          ) : (
+            devices.map((device) => (
+              <div key={device.id}>
+                <span>{device.name}</span>
+                {!device.revokedAt && (
+                  <button
+                    onClick={() =>
+                      window.confirm(`Revoke ${device.name}?`) &&
+                      void run(() => window.factoru.product.revoke(device.id)).then(() =>
+                        window.factoru.product.devices().then(setDevices),
+                      )
+                    }
+                  >
+                    Revoke
+                  </button>
+                )}
+              </div>
+            ))
+          )}
         </section>
       )}
 
