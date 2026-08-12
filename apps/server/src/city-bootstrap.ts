@@ -68,7 +68,6 @@ interface FactoruPackReconcileInput {
   readonly factoruImportExists: boolean
   readonly rigs?: readonly {
     readonly name: string
-    readonly factoruImportExists: boolean
   }[]
 }
 
@@ -82,9 +81,7 @@ export function factoruPackReconcileCommands(
   // lock graph during `import add` and must never observe a new root pin beside
   // an old rig pin.
   for (const rig of input.rigs ?? []) {
-    if (rig.factoruImportExists) {
-      commands.push(['import', 'remove', 'factoru', '--rig', rig.name, '--city', input.cityPath])
-    }
+    commands.push(['import', 'remove', 'factoru', '--rig', rig.name, '--city', input.cityPath])
   }
   if (input.factoruImportExists) {
     commands.push(['import', 'remove', 'factoru', '--city', input.cityPath])
@@ -157,7 +154,7 @@ async function executeCommands(config: ServerConfig, commands: readonly (readonl
 /** Re-pin and reload the Factoru-owned root and rig packs on server start. */
 export async function reconcileFactoruPack(
   config: ServerConfig,
-  rigs: readonly { readonly name: string; readonly repositoryPath: string }[],
+  rigs: readonly { readonly name: string }[],
 ): Promise<boolean> {
   const packFile = path.join(config.gasCityPath, 'pack.toml')
   const cityFile = path.join(config.gasCityPath, 'city.toml')
@@ -176,14 +173,7 @@ export async function reconcileFactoruPack(
         cityPath: config.gasCityPath,
         factoruPackPath: config.factoruPackPath,
         factoruImportExists: hasFactoruImport(fs.readFileSync(packFile, 'utf8')),
-        rigs: rigs.map((rig) => {
-          const rigPackFile = path.join(rig.repositoryPath, 'pack.toml')
-          return {
-            name: rig.name,
-            factoruImportExists:
-              fs.existsSync(rigPackFile) && hasFactoruImport(fs.readFileSync(rigPackFile, 'utf8')),
-          }
-        }),
+        rigs: rigs.map((rig) => ({ name: rig.name })),
       },
       true,
     ),

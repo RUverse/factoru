@@ -150,10 +150,7 @@ async function main(): Promise<void> {
       .listProjects()
       .flatMap((project) => project.repositories)
       .filter((repository) => repository.rig.registrationState === 'ready')
-      .map((repository) => ({
-        name: repository.rig.rigName,
-        repositoryPath: repository.repositoryRealPath,
-      }))
+      .map((repository) => ({ name: repository.rig.rigName }))
     try {
       await reconcileFactoruPack(config, rigs)
     } catch (error) {

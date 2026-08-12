@@ -71,7 +71,7 @@ describe('Factoru city bootstrap', () => {
           cityPath: '/tmp/factoru/city',
           factoruPackPath: '/worktree/packs/factoru-default',
           factoruImportExists: true,
-          rigs: [{ name: 'factoru-project', factoruImportExists: true }],
+          rigs: [{ name: 'factoru-project' }],
         },
         true,
       ),
