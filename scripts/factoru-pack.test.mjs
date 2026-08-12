@@ -36,6 +36,21 @@ describe('portable Factoru agent contracts', () => {
     assert.doesNotMatch(formula, /mayor/i)
   })
 
+  it('declares a supported type for every Formula variable', () => {
+    const formulas = path.join(resolveWorktreeRoot(), 'packs', 'factoru-default', 'formulas')
+    for (const entry of fs.readdirSync(formulas, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.formula.toml')) continue
+      const source = fs.readFileSync(path.join(formulas, entry.name), 'utf8')
+      for (const match of source.matchAll(/^\[vars\.([^\]]+)\]\n([\s\S]*?)(?=^\[)/gm)) {
+        assert.match(
+          match[2],
+          /^type = "(?:string|int|bool)"$/m,
+          `${entry.name} vars.${match[1]} lacks a supported type`,
+        )
+      }
+    }
+  })
+
   it('keeps each Blueprint default inside its allowed Formula Preset catalog', () => {
     const root = resolveWorktreeRoot()
     const blueprints = []

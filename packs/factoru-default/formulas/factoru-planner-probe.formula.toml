@@ -24,6 +24,7 @@ type = "string"
 [vars.planner_target]
 description = "Rig-scoped Project Manager planner agent binding."
 default = "factoru.project-manager-planner"
+type = "string"
 
 [[steps]]
 id = "planner-probe"
