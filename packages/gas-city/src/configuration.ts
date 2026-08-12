@@ -232,9 +232,9 @@ function sessionBlocks(projects: readonly ProjectRuntimeConfiguration[]): string
 
 function patchBlock(project: ProjectRuntimeConfiguration): string {
   const bindings: Array<[string, ProjectAgentBinding]> = [
-    ['project-manager-planner', project.planning],
-    ['software-implementer', project.implementation],
-    ['software-reviewer', project.review],
+    ['factoru.project-manager-planner', project.planning],
+    ['factoru.software-implementer', project.implementation],
+    ['factoru.software-reviewer', project.review],
     ['gc.run-operator', project.design],
     ['gc.requirements-planner', project.design],
     ['gc.design-author', project.design],

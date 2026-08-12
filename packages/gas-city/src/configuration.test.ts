@@ -64,10 +64,11 @@ describe('GasCityProjectConfigurator', () => {
       ),
     ).toContain('option_defaults = { model = "claude-sonnet" }')
     const city = fs.readFileSync(path.join(root, 'city.toml'), 'utf8')
-    expect(city).toContain('agent = "project-manager-planner"')
+    expect(city).toContain('agent = "factoru.project-manager-planner"')
     expect(city).toContain('agent = "gc.requirements-planner"')
     expect(city).toContain('option_defaults = { model = "gemini-design" }')
-    expect(city).toContain('agent = "software-reviewer"')
+    expect(city).toContain('agent = "factoru.software-implementer"')
+    expect(city).toContain('agent = "factoru.software-reviewer"')
     expect(run).toHaveBeenCalledWith('gc', ['reload', '--city', root])
     expect(fs.readFileSync(path.join(root, '.gc/factoru-server.json'), 'utf8')).toBe(
       '{\n  "version": 1,\n  "serverUrl": "http://127.0.0.1:8787"\n}\n',
