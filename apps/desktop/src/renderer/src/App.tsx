@@ -37,6 +37,17 @@ function statusLabel(value: string): string {
   return value.replaceAll('_', ' ')
 }
 
+function modelCatalogRevision(catalog: ModelCatalog): string {
+  return `${catalog.status}:${catalog.providers
+    .map(
+      (provider) =>
+        `${provider.id}:${provider.defaultModelId ?? ''}:${provider.models
+          .map((model) => model.id)
+          .join(',')}`,
+    )
+    .join('|')}`
+}
+
 function ModelBindingEditor({
   binding,
   catalog,
@@ -1994,7 +2005,9 @@ factoru-server providers configure --provider codex`}</code>
                   <summary>Model slots</summary>
                   {worker.modelBindings.map((binding) => (
                     <ModelBindingEditor
-                      key={`${binding.slot}:${binding.version}`}
+                      key={`${binding.slot}:${binding.version}:${modelCatalogRevision(
+                        snapshot.workspace!.modelCatalog,
+                      )}`}
                       binding={binding}
                       catalog={snapshot.workspace!.modelCatalog}
                       connected={snapshot.connected}
