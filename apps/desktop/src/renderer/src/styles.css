@@ -619,8 +619,8 @@ code {
 }
 
 .conversation-pane {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   background: var(--factoru-surface);
 }
 
@@ -752,6 +752,9 @@ code {
 }
 
 .message-list {
+  /* Let the transcript shrink into the available pane and scroll without displacing the composer. */
+  min-height: 0;
+  flex: 1 1 auto;
   overflow: auto;
   padding: 18px clamp(16px, 4vw, 48px);
 }
@@ -814,6 +817,7 @@ code {
 
 .composer {
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: 1fr auto;
   align-items: end;
   gap: 8px;
@@ -827,7 +831,8 @@ code {
 }
 
 .setup-panel {
-  grid-row: 2 / -1;
+  min-height: 0;
+  flex: 1 1 auto;
   overflow: auto;
   padding: 20px;
 }
