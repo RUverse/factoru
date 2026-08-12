@@ -422,7 +422,7 @@ export class ProjectService {
           rigName: repository.rig.rigName,
           beadPrefix: repository.rig.beadPrefix,
           defaultBranch: repository.defaultBranch,
-          recoverPartialManagedSetup: project.managedProjectDirectory && item.attemptCount > 1,
+          recoverPartialManagedSetup: project.managedProjectDirectory,
         })
         changed.push(
           this.publicProject(
