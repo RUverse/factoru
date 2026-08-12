@@ -232,21 +232,21 @@ function sessionBlocks(projects: readonly ProjectRuntimeConfiguration[]): string
 
 function patchBlock(project: ProjectRuntimeConfiguration): string {
   const bindings: Array<[string, ProjectAgentBinding]> = [
-    ['factoru.project-manager-planner', project.planning],
-    ['factoru.software-implementer', project.implementation],
-    ['factoru.software-reviewer', project.review],
-    ['gc.run-operator', project.design],
-    ['gc.requirements-planner', project.design],
-    ['gc.design-author', project.design],
-    ['gc.task-decomposer', project.design],
-    ['gc.issue-triager', project.design],
-    ['gc.design-implementation-reviewer', project.review],
-    ['gc.design-test-risk-reviewer', project.review],
-    ['gc.review-synthesizer', project.review],
-    ['gc.gap-analyst', project.review],
-    ['gc.implementation-reviewer', project.review],
-    ['gc.implementation-worker', project.implementation],
-    ['gc.publisher', project.implementation],
+    ['project-manager-planner', project.planning],
+    ['software-implementer', project.implementation],
+    ['software-reviewer', project.review],
+    ['run-operator', project.design],
+    ['requirements-planner', project.design],
+    ['design-author', project.design],
+    ['task-decomposer', project.design],
+    ['issue-triager', project.design],
+    ['design-implementation-reviewer', project.review],
+    ['design-test-risk-reviewer', project.review],
+    ['review-synthesizer', project.review],
+    ['gap-analyst', project.review],
+    ['implementation-reviewer', project.review],
+    ['implementation-worker', project.implementation],
+    ['publisher', project.implementation],
   ]
   return bindings
     .filter(([, binding]) => binding.provider !== null)

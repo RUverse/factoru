@@ -301,6 +301,11 @@ describe('Milestone 2 server slice', () => {
       },
     )
     let registrationAttempts = 0
+    fs.mkdirSync(path.join(root, 'city'))
+    fs.writeFileSync(
+      path.join(root, 'city', 'pack.toml'),
+      '[imports.factoru]\nsource = "/factoru/pack"\n',
+    )
     const registrar = new GasCityRigRegistrar({
       async run(executable, args) {
         if (executable === 'gc' && args[0] === 'rig' && args[1] === 'add') {

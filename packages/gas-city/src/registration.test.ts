@@ -22,6 +22,16 @@ function repository(): string {
   return directory
 }
 
+function city(version = 'sha:1111111111111111111111111111111111111111'): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-city-'))
+  directories.push(directory)
+  fs.writeFileSync(
+    path.join(directory, 'pack.toml'),
+    `[imports.factoru]\nsource = "file:///factoru//packs/factoru-default"\nversion = "${version}"\n`,
+  )
+  return directory
+}
+
 describe('GasCityRigRegistrar', () => {
   it('enforces registration order and explicit identity values', async () => {
     const calls: string[][] = []
@@ -32,8 +42,9 @@ describe('GasCityRigRegistrar', () => {
       },
     }
     const target = repository()
+    const cityPath = city()
     await new GasCityRigRegistrar(executor).register({
-      cityPath: '/factoru/city',
+      cityPath,
       repositoryPath: target,
       rigName: 'factoru-project',
       beadPrefix: 'f1234567',
@@ -52,16 +63,64 @@ describe('GasCityRigRegistrar', () => {
         '--default-branch',
         'dev',
         '--city',
-        '/factoru/city',
+        cityPath,
       ],
-      ['gc', 'import', 'install', '--city', '/factoru/city'],
-      ['gc', 'reload', '--city', '/factoru/city'],
+      [
+        'gc',
+        'import',
+        'add',
+        'file:///factoru//packs/factoru-default',
+        '--version',
+        'sha:1111111111111111111111111111111111111111',
+        '--name',
+        'factoru',
+        '--rig',
+        'factoru-project',
+        '--city',
+        cityPath,
+      ],
+      ['gc', 'import', 'install', '--city', cityPath],
+      ['gc', 'reload', '--city', cityPath],
+    ])
+  })
+
+  it('attaches a non-git Factoru pack without inventing a version', async () => {
+    const calls: string[][] = []
+    const cityPath = city()
+    fs.writeFileSync(
+      path.join(cityPath, 'pack.toml'),
+      '[imports.factoru]\nsource = "/opt/factoru/pack"\n',
+    )
+    await new GasCityRigRegistrar({
+      async run(executable, args) {
+        calls.push([executable, ...args])
+        return { stdout: '', stderr: '' }
+      },
+    }).register({
+      cityPath,
+      repositoryPath: repository(),
+      rigName: 'factoru-project',
+      beadPrefix: 'f1234567',
+      defaultBranch: 'dev',
+    })
+    expect(calls[1]).toEqual([
+      'gc',
+      'import',
+      'add',
+      '/opt/factoru/pack',
+      '--name',
+      'factoru',
+      '--rig',
+      'factoru-project',
+      '--city',
+      cityPath,
     ])
   })
 
   it('blocks a staged path before invoking Gas City', async () => {
     const calls: string[][] = []
     const target = repository()
+    const cityPath = city()
     fs.writeFileSync(path.join(target, 'staged.txt'), 'user work')
     execFileSync('git', ['add', 'staged.txt'], { cwd: target })
     await expect(
@@ -71,7 +130,7 @@ describe('GasCityRigRegistrar', () => {
           return { stdout: '', stderr: '' }
         },
       }).register({
-        cityPath: '/factoru/city',
+        cityPath,
         repositoryPath: target,
         rigName: 'factoru-project',
         beadPrefix: 'f1234567',
@@ -84,6 +143,7 @@ describe('GasCityRigRegistrar', () => {
   it('unstages only known Gas City files when recovering a managed clone', async () => {
     const calls: string[][] = []
     const target = repository()
+    const cityPath = city()
     fs.mkdirSync(path.join(target, '.beads'))
     fs.writeFileSync(path.join(target, '.beads', 'config.yaml'), 'database: partial\n')
     fs.appendFileSync(path.join(target, '.gitignore'), '.beads/*\n!.beads/config.yaml\n')
@@ -95,7 +155,7 @@ describe('GasCityRigRegistrar', () => {
         return { stdout: '', stderr: '' }
       },
     }).register({
-      cityPath: '/factoru/city',
+      cityPath,
       repositoryPath: target,
       rigName: 'factoru-project',
       beadPrefix: 'f1234567',
@@ -111,14 +171,17 @@ describe('GasCityRigRegistrar', () => {
 
   it('never unstages unrelated user work during managed recovery', async () => {
     const target = repository()
+    const cityPath = city()
     fs.mkdirSync(path.join(target, '.beads'))
     fs.writeFileSync(path.join(target, '.beads', 'config.yaml'), 'database: partial\n')
     fs.writeFileSync(path.join(target, 'user-work.txt'), 'keep staged\n')
     execFileSync('git', ['add', '.beads/config.yaml', 'user-work.txt'], { cwd: target })
 
     await expect(
-      new GasCityRigRegistrar({ run: async () => ({ stdout: '', stderr: '' }) }).register({
-        cityPath: '/factoru/city',
+      new GasCityRigRegistrar({
+        run: async () => ({ stdout: '', stderr: '' }),
+      }).register({
+        cityPath,
         repositoryPath: target,
         rigName: 'factoru-project',
         beadPrefix: 'f1234567',

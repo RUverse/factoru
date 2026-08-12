@@ -1,5 +1,8 @@
 import { execFile } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
 import { promisify } from 'node:util'
+import { parse } from 'smol-toml'
 import { parsePorcelainStatusZ, previewRigRegistration } from './rig-safety.js'
 import { GasCityError } from './errors.js'
 
@@ -38,11 +41,52 @@ const defaultExecutor: CommandExecutor = {
   },
 }
 
+interface PinnedFactoruImport {
+  source: string
+  version?: string
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function readPinnedFactoruImport(cityPath: string): PinnedFactoruImport {
+  const packFile = path.join(cityPath, 'pack.toml')
+  let manifest: Record<string, unknown>
+  try {
+    manifest = record(parse(fs.readFileSync(packFile, 'utf8'))) ?? {}
+  } catch (cause) {
+    throw new GasCityError(`Gas City Factoru pack import could not be read: ${packFile}`, {
+      kind: 'unavailable',
+      cause,
+    })
+  }
+  const imported = record(record(manifest.imports)?.factoru)
+  const source = imported?.source
+  const version = imported?.version
+  if (
+    typeof source !== 'string' ||
+    source.trim() === '' ||
+    /[\r\n\0]/.test(source) ||
+    (version !== undefined &&
+      (typeof version !== 'string' || version.trim() === '' || /[\r\n\0]/.test(version)))
+  ) {
+    throw new GasCityError(
+      `Gas City root pack must declare a valid [imports.factoru] source${version === undefined ? '' : ' and version'}`,
+      { kind: 'unavailable' },
+    )
+  }
+  return { source, ...(typeof version === 'string' ? { version } : {}) }
+}
+
 /** Real, idempotent CLI-backed registration for the pinned Gas City release. */
 export class GasCityRigRegistrar implements RigRegistrar {
   constructor(readonly executor: CommandExecutor = defaultExecutor) {}
 
   async register(request: RegisterProjectRigRequest): Promise<void> {
+    const factoruImport = readPinnedFactoruImport(request.cityPath)
     let preview = await this.#preview(request.repositoryPath)
     if (
       !preview.safe &&
@@ -88,6 +132,30 @@ export class GasCityRigRegistrar implements RigRegistrar {
           kind: 'unavailable',
           cause,
         })
+      }
+    }
+
+    try {
+      const args = [
+        'import',
+        'add',
+        factoruImport.source,
+        ...(factoruImport.version ? ['--version', factoruImport.version] : []),
+        '--name',
+        'factoru',
+        '--rig',
+        request.rigName,
+        '--city',
+        request.cityPath,
+      ]
+      await this.executor.run('gc', args)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      if (!/already|exists|registered/i.test(message)) {
+        throw new GasCityError(
+          `Gas City could not attach the Factoru pack to the project rig: ${message}`,
+          { kind: 'unavailable', cause },
+        )
       }
     }
 
