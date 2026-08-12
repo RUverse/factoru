@@ -26,6 +26,7 @@ import {
   IPC_PRODUCT_REVOKE,
   IPC_PRODUCT_ROOTS,
   IPC_PRODUCT_SELECT_PROJECT,
+  IPC_PRODUCT_SELECT_RUN,
   IPC_PRODUCT_SEND_MESSAGE,
   IPC_PRODUCT_UPLOAD_IMAGE,
   IPC_PRODUCT_CANCEL_IMAGE_UPLOAD,
@@ -78,6 +79,7 @@ const product: ProductBridge = {
   devices: (factoryId) => ipcRenderer.invoke(IPC_PRODUCT_DEVICES, factoryId),
   revoke: (factoryId, deviceId) => ipcRenderer.invoke(IPC_PRODUCT_REVOKE, factoryId, deviceId),
   selectProject: (project) => ipcRenderer.invoke(IPC_PRODUCT_SELECT_PROJECT, project),
+  selectRun: (project, runId) => ipcRenderer.invoke(IPC_PRODUCT_SELECT_RUN, project, runId),
   sendMessage: (project, message, artifactIds) =>
     ipcRenderer.invoke(IPC_PRODUCT_SEND_MESSAGE, project, message, artifactIds),
   uploadImage: (input) => ipcRenderer.invoke(IPC_PRODUCT_UPLOAD_IMAGE, input),

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "factoru.specialist-report.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "lane", "verdict", "summary", "findings", "evidence"],
+  "properties": {
+    "version": { "const": 1 },
+    "lane": {
+      "enum": ["correctness_testing", "security_reliability", "maintainability_architecture"]
+    },
+    "verdict": { "enum": ["approve", "iterate"] },
+    "summary": { "type": "string", "maxLength": 4096 },
+    "findings": {
+      "type": "array",
+      "maxItems": 50,
+      "items": { "type": "string", "maxLength": 1000 }
+    },
+    "evidence": { "type": "array", "maxItems": 50, "items": { "type": "string", "maxLength": 500 } }
+  }
+}

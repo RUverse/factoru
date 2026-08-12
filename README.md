@@ -9,7 +9,7 @@ connected together and present one project catalog. See
 [docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the living system map.
 
-> **Status: Milestone 7 implementation complete; Milestone 8 is next.** The development app
+> **Status: Milestone 8 implementation is connected; live orchestration acceptance remains.** The development app
 > connects durable projects and Project Manager chat to the four-state task
 > board, serialized Queue reconciliation, one-at-a-time software delivery,
 > independent review, and human acceptance. The real provider path completed
@@ -17,7 +17,11 @@ connected together and present one project catalog. See
 > restart. Scoped resilient streams, rich conversation turns, and image
 > artifacts are connected, including an auditable fresh-context control that
 > opens a clean chat and preserves prior talks as read-only history while rotating the agent session; remote reconnect and live Claude/Codex image
-> acceptance matrix remains pending alongside Milestone 9 packaging work.
+> acceptance matrix remains pending. Protocol v5 now adds selected-run native
+> projections, serial decomposition, three specialist reviews plus synthesis,
+> safe task splitting/resource intent, and approval-gated durable memory. The
+> pinned live Standard Build restart/failure/cancellation matrix remains an
+> explicit gate before Milestone 8 is considered exited.
 
 ## Requirements
 

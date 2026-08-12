@@ -14,6 +14,7 @@ import type {
   RepositoryAccessErrorCode,
   Artifact,
   ConversationHistoryPage,
+  RunDetail,
 } from '@factoru/protocol'
 
 export interface ServerProfileSummary {
@@ -51,6 +52,7 @@ export interface ProductSnapshot {
   cached: boolean
   error: string | null
   remoteFactoryIntroComplete: boolean
+  selectedRunDetail: RunDetail | null
 }
 
 export type ConversationHistoryResult = Omit<ConversationHistoryPage, 'messages'> & {
@@ -81,6 +83,7 @@ export const IPC_PRODUCT_DEVICES = 'factoru:product:devices'
 export const IPC_PRODUCT_REVOKE = 'factoru:product:revoke'
 export const IPC_PRODUCT_CHANGED = 'factoru:product:changed'
 export const IPC_PRODUCT_SELECT_PROJECT = 'factoru:product:select-project'
+export const IPC_PRODUCT_SELECT_RUN = 'factoru:product:select-run'
 export const IPC_PRODUCT_SEND_MESSAGE = 'factoru:product:send-message'
 export const IPC_PRODUCT_UPLOAD_IMAGE = 'factoru:product:upload-image'
 export const IPC_PRODUCT_CANCEL_IMAGE_UPLOAD = 'factoru:product:cancel-image-upload'
@@ -154,6 +157,7 @@ export interface ProductBridge {
   devices(factoryId: string): Promise<TrustedDevice[]>
   revoke(factoryId: string, deviceId: string): Promise<unknown>
   selectProject(project: ProjectRef): Promise<ProductSnapshot>
+  selectRun(project: ProjectRef, runId: string | null): Promise<RunDetail | null>
   sendMessage(
     project: ProjectRef,
     text: string,

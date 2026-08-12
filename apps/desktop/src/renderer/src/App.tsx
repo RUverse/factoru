@@ -27,6 +27,7 @@ import { DesktopShell } from './components/DesktopShell'
 import { ConversationSurface } from './features/conversation/ConversationSurface'
 import { InspectorTabs } from './features/inspector/InspectorTabs'
 import { TasksSurface } from './features/tasks/TasksSurface'
+import { RunInspector } from './features/tasks/RunInspector'
 import { TeamSurface } from './features/team/TeamSurface'
 import { ProjectSidebarSurface } from './features/sidebar/ProjectSidebarSurface'
 import { ProjectSetupSurface } from './features/project-setup/ProjectSetupSurface'
@@ -197,6 +198,17 @@ export function App() {
   const [messageDraft, setMessageDraft] = useState('')
   const [showContextReset, setShowContextReset] = useState(false)
   const contextResetTrigger = useRef<HTMLButtonElement>(null)
+  const runInspectorTrigger = useRef<HTMLButtonElement | null>(null)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+
+  const inspectedTask = useMemo(() => {
+    if (!snapshot?.workspace || !selectedTaskId) return null
+    return (
+      snapshot.workspace.tasks.find((task) => task.id === selectedTaskId) ??
+      snapshot.workspace.recentTaskResolutions.find((task) => task.id === selectedTaskId) ??
+      null
+    )
+  }, [selectedTaskId, snapshot?.workspace])
 
   useEffect(() => {
     let active = true
@@ -207,6 +219,10 @@ export function App() {
       unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    setSelectedTaskId(null)
+  }, [snapshot?.activeProjectRef?.factoryId, snapshot?.activeProjectRef?.projectId])
 
   const activeLocatedProject = useMemo(
     () =>
@@ -1630,438 +1646,536 @@ factoru-server providers configure --provider codex`}</code>
           {tab === 'tasks' ? (
             <TasksSurface>
               {snapshot.workspace ? (
-                <>
-                  <section className="board-toolbar">
-                    <details>
-                      <summary>Capture a task</summary>
-                      <form className="task-create-form" onSubmit={createTask}>
-                        <input
-                          name="title"
-                          required
-                          maxLength={200}
-                          placeholder="A rough thought…"
-                        />
-                        <textarea
-                          name="description"
-                          rows={2}
-                          maxLength={20_000}
-                          placeholder="Optional context or acceptance criteria"
-                        />
-                        <select name="status" defaultValue="backlog">
-                          <option value="backlog">Save to Backlog</option>
-                          <option value="queue">Save and request planning</option>
-                        </select>
-                        <button className="primary" disabled={!snapshot.connected || busy}>
-                          Add task
-                        </button>
-                      </form>
-                    </details>
-                    <div className="queue-summary" aria-live="polite">
-                      <strong>Execution WIP {snapshot.workspace.factory.executionWipLimit}</strong>
-                      {snapshot.workspace.queueReconciliation ? (
-                        <span
-                          className={`health-pill ${snapshot.workspace.queueReconciliation.status}`}
-                        >
-                          Planning {statusLabel(snapshot.workspace.queueReconciliation.status)} · r
-                          {snapshot.workspace.queueReconciliation.coalescedThroughRevision}
-                        </span>
-                      ) : (
-                        <span className="muted">Queue is settled</span>
-                      )}
-                    </div>
-                    {snapshot.workspace.taskMergeProposals.map((proposal) => {
-                      const source = snapshot.workspace!.tasks.find(
-                        (task) => task.id === proposal.sourceTaskId,
+                inspectedTask && snapshot.selectedRunDetail ? (
+                  <RunInspector
+                    task={inspectedTask}
+                    run={snapshot.workspace.taskRuns.find(
+                      (candidate) => candidate.id === snapshot.selectedRunDetail!.summary.id,
+                    )!}
+                    detail={snapshot.selectedRunDetail}
+                    connected={snapshot.connected}
+                    busy={busy}
+                    onBack={() => {
+                      void window.factoru.product.selectRun(activeProjectRef!, null).then(() => {
+                        setSelectedTaskId(null)
+                        window.requestAnimationFrame(() => runInspectorTrigger.current?.focus())
+                      })
+                    }}
+                    onCancel={() =>
+                      void run(() =>
+                        window.factoru.product.cancelRun(
+                          activeProjectRef!,
+                          snapshot.selectedRunDetail!.summary.id,
+                        ),
                       )
-                      const target = snapshot.workspace!.tasks.find(
-                        (task) => task.id === proposal.targetTaskId,
+                    }
+                    onApprove={() =>
+                      window.confirm('Approve this implementation?') &&
+                      void run(() =>
+                        window.factoru.product.approveRun(
+                          activeProjectRef!,
+                          snapshot.selectedRunDetail!.summary.id,
+                          'Accepted after reviewing the delivery evidence.',
+                        ),
                       )
-                      return (
-                        <article className="merge-proposal" key={proposal.id}>
-                          <strong>Merge confirmation</strong>
-                          <p>
-                            Merge “{source?.title ?? proposal.sourceTaskId}” into “
-                            {target?.title ?? proposal.targetTaskId}”? {proposal.reason}
-                          </p>
-                          <div>
-                            <button
-                              className="primary"
-                              disabled={!snapshot.connected || busy}
-                              onClick={() =>
-                                void run(() =>
-                                  window.factoru.product.decideTaskMerge({
-                                    project: activeProjectRef!,
-                                    proposalId: proposal.id,
-                                    decision: 'accept',
-                                  }),
-                                )
-                              }
-                            >
-                              Confirm merge
-                            </button>
-                            <button
-                              disabled={!snapshot.connected || busy}
-                              onClick={() =>
-                                void run(() =>
-                                  window.factoru.product.decideTaskMerge({
-                                    project: activeProjectRef!,
-                                    proposalId: proposal.id,
-                                    decision: 'reject',
-                                  }),
-                                )
-                              }
-                            >
-                              Keep separate
-                            </button>
-                          </div>
-                        </article>
+                    }
+                    onRequestChanges={() => {
+                      const feedback = window
+                        .prompt('What should the implementation change?')
+                        ?.trim()
+                      if (feedback)
+                        void run(() =>
+                          window.factoru.product.requestRunChanges(
+                            activeProjectRef!,
+                            snapshot.selectedRunDetail!.summary.id,
+                            feedback,
+                          ),
+                        )
+                    }}
+                    onRetry={() =>
+                      void run(() =>
+                        window.factoru.product.retryRun(
+                          activeProjectRef!,
+                          snapshot.selectedRunDetail!.summary.id,
+                        ),
                       )
-                    })}
-                  </section>
-                  <div className="task-grid">
-                    {taskColumns.map(([id, label]) => {
-                      const tasks = snapshot.workspace!.tasks.filter((task) => task.status === id)
-                      return (
-                        <section key={id} className="task-column">
-                          <header>
-                            <span className={`column-dot ${id}`} />
-                            <h2>{label}</h2>
-                            <span>{tasks.length}</span>
-                          </header>
-                          <div className="task-list">
-                            {tasks.length === 0 ? (
-                              <p>No tasks</p>
-                            ) : (
-                              tasks.map((task) => {
-                                const taskRun = snapshot.workspace!.taskRuns.find(
-                                  (candidate) => candidate.taskId === task.id,
-                                )
-                                return (
-                                  <article className="task-card" key={`${task.id}:${task.version}`}>
-                                    <header>
-                                      <strong>{task.title}</strong>
-                                      {task.queuePhase && (
-                                        <span className="phase-badge">
-                                          {statusLabel(task.queuePhase)}
-                                        </span>
-                                      )}
-                                    </header>
-                                    {task.description && <p>{task.description}</p>}
-                                    {task.status === 'needs_you' && (
-                                      <div className="needs-action">
-                                        <strong>{statusLabel(task.needsYouAction!)}</strong>
-                                        <span>{task.needsYouMessage}</span>
-                                      </div>
-                                    )}
-                                    {taskRun && (
-                                      <section
-                                        className="run-summary"
-                                        aria-label="Software delivery run"
-                                      >
-                                        <header>
-                                          <strong>{statusLabel(taskRun.stage)}</strong>
-                                          <span className={`health-pill ${taskRun.status}`}>
-                                            {statusLabel(taskRun.status)}
+                    }
+                    onArchive={() =>
+                      void run(() =>
+                        window.factoru.product.archiveRun(
+                          activeProjectRef!,
+                          snapshot.selectedRunDetail!.summary.id,
+                        ),
+                      )
+                    }
+                  />
+                ) : (
+                  <>
+                    <section className="board-toolbar">
+                      <details>
+                        <summary>Capture a task</summary>
+                        <form className="task-create-form" onSubmit={createTask}>
+                          <input
+                            name="title"
+                            required
+                            maxLength={200}
+                            placeholder="A rough thought…"
+                          />
+                          <textarea
+                            name="description"
+                            rows={2}
+                            maxLength={20_000}
+                            placeholder="Optional context or acceptance criteria"
+                          />
+                          <select name="status" defaultValue="backlog">
+                            <option value="backlog">Save to Backlog</option>
+                            <option value="queue">Save and request planning</option>
+                          </select>
+                          <button className="primary" disabled={!snapshot.connected || busy}>
+                            Add task
+                          </button>
+                        </form>
+                      </details>
+                      <div className="queue-summary" aria-live="polite">
+                        <strong>
+                          Execution WIP {snapshot.workspace.factory.executionWipLimit}
+                        </strong>
+                        {snapshot.workspace.queueReconciliation ? (
+                          <span
+                            className={`health-pill ${snapshot.workspace.queueReconciliation.status}`}
+                          >
+                            Planning {statusLabel(snapshot.workspace.queueReconciliation.status)} ·
+                            r{snapshot.workspace.queueReconciliation.coalescedThroughRevision}
+                          </span>
+                        ) : (
+                          <span className="muted">Queue is settled</span>
+                        )}
+                      </div>
+                      {snapshot.workspace.taskMergeProposals.map((proposal) => {
+                        const source = snapshot.workspace!.tasks.find(
+                          (task) => task.id === proposal.sourceTaskId,
+                        )
+                        const target = snapshot.workspace!.tasks.find(
+                          (task) => task.id === proposal.targetTaskId,
+                        )
+                        return (
+                          <article className="merge-proposal" key={proposal.id}>
+                            <strong>Merge confirmation</strong>
+                            <p>
+                              Merge “{source?.title ?? proposal.sourceTaskId}” into “
+                              {target?.title ?? proposal.targetTaskId}”? {proposal.reason}
+                            </p>
+                            <div>
+                              <button
+                                className="primary"
+                                disabled={!snapshot.connected || busy}
+                                onClick={() =>
+                                  void run(() =>
+                                    window.factoru.product.decideTaskMerge({
+                                      project: activeProjectRef!,
+                                      proposalId: proposal.id,
+                                      decision: 'accept',
+                                    }),
+                                  )
+                                }
+                              >
+                                Confirm merge
+                              </button>
+                              <button
+                                disabled={!snapshot.connected || busy}
+                                onClick={() =>
+                                  void run(() =>
+                                    window.factoru.product.decideTaskMerge({
+                                      project: activeProjectRef!,
+                                      proposalId: proposal.id,
+                                      decision: 'reject',
+                                    }),
+                                  )
+                                }
+                              >
+                                Keep separate
+                              </button>
+                            </div>
+                          </article>
+                        )
+                      })}
+                    </section>
+                    <div className="task-grid">
+                      {taskColumns.map(([id, label]) => {
+                        const tasks = snapshot.workspace!.tasks.filter((task) => task.status === id)
+                        return (
+                          <section key={id} className="task-column">
+                            <header>
+                              <span className={`column-dot ${id}`} />
+                              <h2>{label}</h2>
+                              <span>{tasks.length}</span>
+                            </header>
+                            <div className="task-list">
+                              {tasks.length === 0 ? (
+                                <p>No tasks</p>
+                              ) : (
+                                tasks.map((task) => {
+                                  const taskRun = snapshot.workspace!.taskRuns.find(
+                                    (candidate) => candidate.taskId === task.id,
+                                  )
+                                  return (
+                                    <article
+                                      className="task-card"
+                                      key={`${task.id}:${task.version}`}
+                                    >
+                                      <header>
+                                        <strong>{task.title}</strong>
+                                        {task.queuePhase && (
+                                          <span className="phase-badge">
+                                            {statusLabel(task.queuePhase)}
                                           </span>
-                                        </header>
-                                        <div className="run-meter">
-                                          {taskRun.steps.map((step) => (
-                                            <span
-                                              className={step.status}
-                                              key={step.id}
-                                              title={step.title}
-                                            >
-                                              {statusLabel(step.title)}
-                                            </span>
-                                          ))}
+                                        )}
+                                      </header>
+                                      {task.description && <p>{task.description}</p>}
+                                      {task.status === 'needs_you' && (
+                                        <div className="needs-action">
+                                          <strong>{statusLabel(task.needsYouAction!)}</strong>
+                                          <span>{task.needsYouMessage}</span>
                                         </div>
-                                        <p>
-                                          {taskRun.usage.inputTokens + taskRun.usage.outputTokens}{' '}
-                                          tokens ·{' '}
-                                          {taskRun.usage.pricing === 'priced'
-                                            ? `$${taskRun.usage.estimatedCostUsd.toFixed(4)} estimated`
-                                            : taskRun.usage.pricing === 'unpriced'
-                                              ? 'cost unpriced by the configured provider'
-                                              : 'cost pending'}
-                                        </p>
-                                        {taskRun.error && (
-                                          <p className="run-error">
-                                            {taskRun.error.code}: {taskRun.error.message}
-                                          </p>
-                                        )}
-                                        {(taskRun.logs.length > 0 || taskRun.reviewPackage) && (
-                                          <details className="run-evidence">
-                                            <summary>Logs and evidence</summary>
-                                            {taskRun.logs.map((entry, index) => (
-                                              <pre key={index}>{entry}</pre>
+                                      )}
+                                      {taskRun && (
+                                        <section
+                                          className="run-summary"
+                                          aria-label="Software delivery run"
+                                        >
+                                          <header>
+                                            <strong>{statusLabel(taskRun.stage)}</strong>
+                                            <span className={`health-pill ${taskRun.status}`}>
+                                              {statusLabel(taskRun.status)}
+                                            </span>
+                                          </header>
+                                          <button
+                                            className="inspect-run-button"
+                                            ref={
+                                              selectedTaskId === task.id
+                                                ? runInspectorTrigger
+                                                : undefined
+                                            }
+                                            onClick={(event) => {
+                                              runInspectorTrigger.current = event.currentTarget
+                                              setSelectedTaskId(task.id)
+                                              void run(() =>
+                                                window.factoru.product.selectRun(
+                                                  activeProjectRef!,
+                                                  taskRun.id,
+                                                ),
+                                              ).then((value) => {
+                                                if (!value) setSelectedTaskId(null)
+                                              })
+                                            }}
+                                          >
+                                            Inspect run
+                                          </button>
+                                          <div className="run-meter">
+                                            {taskRun.steps.map((step) => (
+                                              <span
+                                                className={step.status}
+                                                key={step.id}
+                                                title={step.title}
+                                              >
+                                                {statusLabel(step.title)}
+                                              </span>
                                             ))}
-                                            {taskRun.reviewPackage && (
-                                              <>
-                                                <strong>Commits</strong>
-                                                <pre>
-                                                  {taskRun.reviewPackage.commits.join('\n')}
-                                                </pre>
-                                                <strong>Checks</strong>
-                                                <pre>{taskRun.reviewPackage.checks.output}</pre>
-                                                <strong>Independent review</strong>
-                                                <pre>{taskRun.reviewPackage.internalReview}</pre>
-                                                <strong>Diff</strong>
-                                                <pre>{taskRun.reviewPackage.diff}</pre>
-                                                {taskRun.reviewPackage.unresolvedRisks.length >
-                                                  0 && (
-                                                  <p className="run-error">
-                                                    Risks:{' '}
-                                                    {taskRun.reviewPackage.unresolvedRisks.join(
-                                                      '; ',
-                                                    )}
-                                                  </p>
-                                                )}
-                                              </>
-                                            )}
-                                          </details>
-                                        )}
-                                        <div className="run-actions">
-                                          {['pending', 'running', 'cancelling'].includes(
-                                            taskRun.status,
-                                          ) && (
-                                            <button
-                                              disabled={
-                                                !snapshot.connected ||
-                                                busy ||
-                                                taskRun.status === 'cancelling'
-                                              }
-                                              onClick={() =>
-                                                void run(() =>
-                                                  window.factoru.product.cancelRun(
-                                                    activeProjectRef!,
-                                                    taskRun.id,
-                                                  ),
-                                                )
-                                              }
-                                            >
-                                              Cancel run
-                                            </button>
+                                          </div>
+                                          <p>
+                                            {taskRun.usage.inputTokens + taskRun.usage.outputTokens}{' '}
+                                            tokens ·{' '}
+                                            {taskRun.usage.pricing === 'priced'
+                                              ? `$${taskRun.usage.estimatedCostUsd.toFixed(4)} estimated`
+                                              : taskRun.usage.pricing === 'unpriced'
+                                                ? 'cost unpriced by the configured provider'
+                                                : 'cost pending'}
+                                          </p>
+                                          {taskRun.error && (
+                                            <p className="run-error">
+                                              {taskRun.error.code}: {taskRun.error.message}
+                                            </p>
                                           )}
-                                          {taskRun.status === 'completed' && (
-                                            <>
+                                          {(taskRun.logs.length > 0 || taskRun.reviewPackage) && (
+                                            <details className="run-evidence">
+                                              <summary>Logs and evidence</summary>
+                                              {taskRun.logs.map((entry, index) => (
+                                                <pre key={index}>{entry}</pre>
+                                              ))}
+                                              {taskRun.reviewPackage && (
+                                                <>
+                                                  <strong>Commits</strong>
+                                                  <pre>
+                                                    {taskRun.reviewPackage.commits.join('\n')}
+                                                  </pre>
+                                                  <strong>Checks</strong>
+                                                  <pre>{taskRun.reviewPackage.checks.output}</pre>
+                                                  <strong>Independent review</strong>
+                                                  <pre>{taskRun.reviewPackage.internalReview}</pre>
+                                                  <strong>Diff</strong>
+                                                  <pre>{taskRun.reviewPackage.diff}</pre>
+                                                  {taskRun.reviewPackage.unresolvedRisks.length >
+                                                    0 && (
+                                                    <p className="run-error">
+                                                      Risks:{' '}
+                                                      {taskRun.reviewPackage.unresolvedRisks.join(
+                                                        '; ',
+                                                      )}
+                                                    </p>
+                                                  )}
+                                                </>
+                                              )}
+                                            </details>
+                                          )}
+                                          <div className="run-actions">
+                                            {['pending', 'running', 'cancelling'].includes(
+                                              taskRun.status,
+                                            ) && (
                                               <button
-                                                className="primary"
-                                                disabled={!snapshot.connected || busy}
+                                                disabled={
+                                                  !snapshot.connected ||
+                                                  busy ||
+                                                  taskRun.status === 'cancelling'
+                                                }
                                                 onClick={() =>
-                                                  window.confirm('Approve this implementation?') &&
                                                   void run(() =>
-                                                    window.factoru.product.approveRun(
+                                                    window.factoru.product.cancelRun(
                                                       activeProjectRef!,
                                                       taskRun.id,
-                                                      'Accepted after reviewing the delivery evidence.',
                                                     ),
                                                   )
                                                 }
                                               >
-                                                Approve
+                                                Cancel run
                                               </button>
-                                              <button
-                                                disabled={!snapshot.connected || busy}
-                                                onClick={() => {
-                                                  const feedback = window
-                                                    .prompt(
-                                                      'What should the implementation change?',
-                                                    )
-                                                    ?.trim()
-                                                  if (feedback)
+                                            )}
+                                            {taskRun.status === 'completed' && (
+                                              <>
+                                                <button
+                                                  className="primary"
+                                                  disabled={!snapshot.connected || busy}
+                                                  onClick={() =>
+                                                    window.confirm(
+                                                      'Approve this implementation?',
+                                                    ) &&
                                                     void run(() =>
-                                                      window.factoru.product.requestRunChanges(
+                                                      window.factoru.product.approveRun(
                                                         activeProjectRef!,
                                                         taskRun.id,
-                                                        feedback,
+                                                        'Accepted after reviewing the delivery evidence.',
                                                       ),
                                                     )
-                                                }}
+                                                  }
+                                                >
+                                                  Approve
+                                                </button>
+                                                <button
+                                                  disabled={!snapshot.connected || busy}
+                                                  onClick={() => {
+                                                    const feedback = window
+                                                      .prompt(
+                                                        'What should the implementation change?',
+                                                      )
+                                                      ?.trim()
+                                                    if (feedback)
+                                                      void run(() =>
+                                                        window.factoru.product.requestRunChanges(
+                                                          activeProjectRef!,
+                                                          taskRun.id,
+                                                          feedback,
+                                                        ),
+                                                      )
+                                                  }}
+                                                >
+                                                  Request changes
+                                                </button>
+                                              </>
+                                            )}
+                                            {taskRun.status === 'failed' && (
+                                              <button
+                                                disabled={!snapshot.connected || busy}
+                                                onClick={() =>
+                                                  void run(() =>
+                                                    window.factoru.product.retryRun(
+                                                      activeProjectRef!,
+                                                      taskRun.id,
+                                                    ),
+                                                  )
+                                                }
                                               >
-                                                Request changes
+                                                Retry
                                               </button>
-                                            </>
-                                          )}
-                                          {taskRun.status === 'failed' && (
-                                            <button
-                                              disabled={!snapshot.connected || busy}
-                                              onClick={() =>
-                                                void run(() =>
-                                                  window.factoru.product.retryRun(
-                                                    activeProjectRef!,
-                                                    taskRun.id,
-                                                  ),
-                                                )
-                                              }
-                                            >
-                                              Retry
-                                            </button>
-                                          )}
-                                          {['completed', 'failed', 'cancelled'].includes(
-                                            taskRun.status,
-                                          ) && (
-                                            <button
-                                              disabled={!snapshot.connected || busy}
-                                              onClick={() =>
-                                                void run(() =>
-                                                  window.factoru.product.archiveRun(
-                                                    activeProjectRef!,
-                                                    taskRun.id,
-                                                  ),
-                                                )
-                                              }
-                                            >
-                                              Archive run
-                                            </button>
-                                          )}
-                                        </div>
-                                      </section>
-                                    )}
-                                    <footer>
-                                      <span>Priority {task.priority}</span>
-                                      <span>
-                                        {task.workerTypeKind
-                                          ? statusLabel(task.workerTypeKind)
-                                          : 'Unassigned'}
-                                      </span>
-                                      <span>
-                                        {task.workflowPresetId
-                                          ? (snapshot.workspace!.workflowPresets.find(
-                                              (preset) => preset.id === task.workflowPresetId,
-                                            )?.name ?? statusLabel(task.workflowPresetId))
-                                          : 'Project workflow'}
-                                        {task.workflowLockedByUser ? ' · locked' : ''}
-                                      </span>
-                                    </footer>
-                                    {task.status === 'backlog' && (
-                                      <button
-                                        className="queue-button"
-                                        disabled={!snapshot.connected || busy}
-                                        onClick={() => void queueTask(task)}
-                                      >
-                                        Move to Queue
-                                      </button>
-                                    )}
-                                    <details className="task-details">
-                                      <summary>Edit and move</summary>
-                                      <form onSubmit={(event) => updateTask(event, task)}>
-                                        <input
-                                          name="title"
-                                          required
-                                          defaultValue={task.title}
-                                          maxLength={200}
-                                        />
-                                        <textarea
-                                          name="description"
-                                          rows={3}
-                                          defaultValue={task.description}
-                                          maxLength={20_000}
-                                        />
-                                        <label>
-                                          Priority
-                                          <input
-                                            name="priority"
-                                            type="number"
-                                            min={0}
-                                            max={100}
-                                            defaultValue={task.priority}
-                                          />
-                                        </label>
-                                        {snapshot.workspace!.workflowPresets.length > 0 && (
-                                          <label>
-                                            Workflow preset
-                                            <select
-                                              name="workflowPresetId"
-                                              defaultValue={
-                                                task.workflowSelectionSource === 'pm' ||
-                                                task.workflowSelectionSource === 'user'
-                                                  ? (task.workflowPresetId ?? '')
-                                                  : ''
-                                              }
-                                              disabled={task.status === 'in_progress'}
-                                            >
-                                              <option value="">
-                                                Project default (
-                                                {snapshot.workspace!.workflowPresets.find(
-                                                  (preset) =>
-                                                    preset.id ===
-                                                    snapshot.workspace!.factory
-                                                      .defaultWorkflowPresetId,
-                                                )?.name ??
-                                                  statusLabel(
-                                                    snapshot.workspace!.factory
-                                                      .defaultWorkflowPresetId,
-                                                  )}
-                                                )
-                                              </option>
-                                              {snapshot
-                                                .workspace!.workflowPresets.filter((preset) =>
-                                                  snapshot.workspace!.blueprint.allowedWorkflowPresetIds.includes(
-                                                    preset.id,
-                                                  ),
-                                                )
-                                                .map((preset) => (
-                                                  <option value={preset.id} key={preset.id}>
-                                                    {preset.name}
-                                                  </option>
-                                                ))}
-                                            </select>
-                                          </label>
-                                        )}
-                                        <button disabled={!snapshot.connected || busy}>
-                                          Save edits
-                                        </button>
-                                      </form>
-                                      <form onSubmit={(event) => moveTask(event, task)}>
-                                        <select name="status" defaultValue={task.status}>
-                                          {taskColumns.map(([value, text]) => (
-                                            <option value={value} key={value}>
-                                              {text}
-                                            </option>
-                                          ))}
-                                        </select>
-                                        <select name="needsYouAction" defaultValue="clarify">
-                                          <option value="clarify">Clarify</option>
-                                          <option value="approve">Approve</option>
-                                          <option value="review">Review</option>
-                                          <option value="resolve_conflict">Resolve conflict</option>
-                                          <option value="recover_failure">Recover failure</option>
-                                        </select>
-                                        <input
-                                          name="needsYouMessage"
-                                          placeholder="Required when moving to Needs you"
-                                        />
-                                        <button disabled={!snapshot.connected || busy}>Move</button>
-                                      </form>
-                                      <form onSubmit={(event) => resolveTask(event, task)}>
-                                        <select name="resolution" defaultValue="cancelled">
-                                          <option value="accepted">Accepted</option>
-                                          <option value="rejected">Rejected</option>
-                                          <option value="cancelled">Cancelled</option>
-                                        </select>
-                                        <input
-                                          name="summary"
-                                          required
-                                          placeholder="Why is this terminal?"
-                                        />
+                                            )}
+                                            {['completed', 'failed', 'cancelled'].includes(
+                                              taskRun.status,
+                                            ) && (
+                                              <button
+                                                disabled={!snapshot.connected || busy}
+                                                onClick={() =>
+                                                  void run(() =>
+                                                    window.factoru.product.archiveRun(
+                                                      activeProjectRef!,
+                                                      taskRun.id,
+                                                    ),
+                                                  )
+                                                }
+                                              >
+                                                Archive run
+                                              </button>
+                                            )}
+                                          </div>
+                                        </section>
+                                      )}
+                                      <footer>
+                                        <span>Priority {task.priority}</span>
+                                        <span>
+                                          {task.workerTypeKind
+                                            ? statusLabel(task.workerTypeKind)
+                                            : 'Unassigned'}
+                                        </span>
+                                        <span>
+                                          {task.workflowPresetId
+                                            ? (snapshot.workspace!.workflowPresets.find(
+                                                (preset) => preset.id === task.workflowPresetId,
+                                              )?.name ?? statusLabel(task.workflowPresetId))
+                                            : 'Project workflow'}
+                                          {task.workflowLockedByUser ? ' · locked' : ''}
+                                        </span>
+                                      </footer>
+                                      {task.status === 'backlog' && (
                                         <button
-                                          className="danger"
+                                          className="queue-button"
                                           disabled={!snapshot.connected || busy}
+                                          onClick={() => void queueTask(task)}
                                         >
-                                          Resolve task
+                                          Move to Queue
                                         </button>
-                                      </form>
-                                    </details>
-                                  </article>
-                                )
-                              })
-                            )}
-                          </div>
-                        </section>
-                      )
-                    })}
-                  </div>
-                </>
+                                      )}
+                                      <details className="task-details">
+                                        <summary>Edit and move</summary>
+                                        <form onSubmit={(event) => updateTask(event, task)}>
+                                          <input
+                                            name="title"
+                                            required
+                                            defaultValue={task.title}
+                                            maxLength={200}
+                                          />
+                                          <textarea
+                                            name="description"
+                                            rows={3}
+                                            defaultValue={task.description}
+                                            maxLength={20_000}
+                                          />
+                                          <label>
+                                            Priority
+                                            <input
+                                              name="priority"
+                                              type="number"
+                                              min={0}
+                                              max={100}
+                                              defaultValue={task.priority}
+                                            />
+                                          </label>
+                                          {snapshot.workspace!.workflowPresets.length > 0 && (
+                                            <label>
+                                              Workflow preset
+                                              <select
+                                                name="workflowPresetId"
+                                                defaultValue={
+                                                  task.workflowSelectionSource === 'pm' ||
+                                                  task.workflowSelectionSource === 'user'
+                                                    ? (task.workflowPresetId ?? '')
+                                                    : ''
+                                                }
+                                                disabled={task.status === 'in_progress'}
+                                              >
+                                                <option value="">
+                                                  Project default (
+                                                  {snapshot.workspace!.workflowPresets.find(
+                                                    (preset) =>
+                                                      preset.id ===
+                                                      snapshot.workspace!.factory
+                                                        .defaultWorkflowPresetId,
+                                                  )?.name ??
+                                                    statusLabel(
+                                                      snapshot.workspace!.factory
+                                                        .defaultWorkflowPresetId,
+                                                    )}
+                                                  )
+                                                </option>
+                                                {snapshot
+                                                  .workspace!.workflowPresets.filter((preset) =>
+                                                    snapshot.workspace!.blueprint.allowedWorkflowPresetIds.includes(
+                                                      preset.id,
+                                                    ),
+                                                  )
+                                                  .map((preset) => (
+                                                    <option value={preset.id} key={preset.id}>
+                                                      {preset.name}
+                                                    </option>
+                                                  ))}
+                                              </select>
+                                            </label>
+                                          )}
+                                          <button disabled={!snapshot.connected || busy}>
+                                            Save edits
+                                          </button>
+                                        </form>
+                                        <form onSubmit={(event) => moveTask(event, task)}>
+                                          <select name="status" defaultValue={task.status}>
+                                            {taskColumns.map(([value, text]) => (
+                                              <option value={value} key={value}>
+                                                {text}
+                                              </option>
+                                            ))}
+                                          </select>
+                                          <select name="needsYouAction" defaultValue="clarify">
+                                            <option value="clarify">Clarify</option>
+                                            <option value="approve">Approve</option>
+                                            <option value="review">Review</option>
+                                            <option value="resolve_conflict">
+                                              Resolve conflict
+                                            </option>
+                                            <option value="recover_failure">Recover failure</option>
+                                          </select>
+                                          <input
+                                            name="needsYouMessage"
+                                            placeholder="Required when moving to Needs you"
+                                          />
+                                          <button disabled={!snapshot.connected || busy}>
+                                            Move
+                                          </button>
+                                        </form>
+                                        <form onSubmit={(event) => resolveTask(event, task)}>
+                                          <select name="resolution" defaultValue="cancelled">
+                                            <option value="accepted">Accepted</option>
+                                            <option value="rejected">Rejected</option>
+                                            <option value="cancelled">Cancelled</option>
+                                          </select>
+                                          <input
+                                            name="summary"
+                                            required
+                                            placeholder="Why is this terminal?"
+                                          />
+                                          <button
+                                            className="danger"
+                                            disabled={!snapshot.connected || busy}
+                                          >
+                                            Resolve task
+                                          </button>
+                                        </form>
+                                      </details>
+                                    </article>
+                                  )
+                                })
+                              )}
+                            </div>
+                          </section>
+                        )
+                      })}
+                    </div>
+                  </>
+                )
               ) : (
                 <p className="board-note">Choose a project to see its task board.</p>
               )}

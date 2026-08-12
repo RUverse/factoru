@@ -70,35 +70,18 @@ workflow root. Enumerate its member work-item beads. On every member, set
 `work_dir={{capsule_path}}` and metadata `factoru.task_id={{task_id}}` and
 `factoru.run_id={{run_id}}`, then read every bead back and verify the exact
 absolute path and identities. Do not create a Gas City worktree and do not
-change the launcher's `gc.work_dir`. Fail closed if the convoy is empty, has
-more than 20 members, or any member cannot be bound. Close this step only after
+change the launcher's `gc.work_dir`. Fail closed unless the convoy contains
+between 2 and 20 members, inclusive, if the decomposition does not validate
+against schemas/decomposition.v1.json, or if any member cannot be bound. Require
+every completed unit to validate its schemas/implementation-handoff.v1.json.
+Close this step only after
 all members point to the same Factoru-owned capsule.
 """
-
-[[steps]]
-id = "implement"
-title = "Drain build implementation"
-needs = ["factoru-bind-capsule"]
-condition = "{{drain_policy}} == separate"
-metadata = { "gc.run_target" = "{{implementation_target}}" }
-description = """
-Drain the approved implementation convoy using the pinned upstream `do-work`
-formula. Every member must use its Factoru-bound `work_dir`; never use the
-launcher checkout as an implementation worktree. Preserve upstream artifact
-and source-anchor semantics and stop after at most 20 units.
-"""
-
-[steps.drain]
-context = "separate"
-formula = "do-work"
-max_units = 20
-member_access = "exclusive"
 
 [[steps]]
 id = "implement-same-session"
 title = "Drain build implementation in one shared session"
 needs = ["factoru-bind-capsule"]
-condition = "{{drain_policy}} == same-session"
 metadata = { "gc.run_target" = "{{implementation_target}}" }
 description = """
 Drain the approved implementation convoy through the pinned upstream
@@ -145,15 +128,17 @@ timeout = "20m"
 
 [[steps]]
 id = "review"
-title = "Run upstream implementation review"
+title = "Run Factoru specialist review"
 needs = ["factoru-verify"]
 metadata = { "gc.run_target" = "gc.implementation-reviewer", "gc.build.artifact_schema" = "gc.build.review.v1", "gc.build.artifact_path_keys" = "gc.build.review_report_path" }
-expand = "build-basic-review"
-expand_vars = { implementation_target = "{{implementation_target}}" }
+expand = "factoru-specialist-review"
+expand_vars = { implementation_target = "{{implementation_target}}", capsule_path = "{{capsule_path}}", evidence_path = "{{evidence_path}}" }
 description = """
-Run the pinned upstream `build-basic-review` expansion after Factoru's trusted
-verification succeeds. Review the implementation source anchors and the shared
-Factoru capsule, synthesize the required review artifact, and apply only the
-bounded upstream correction loop. Do not push, open a pull request, or mutate
-the launcher checkout.
+Run the fixed correctness/testing, security/reliability, and
+maintainability/architecture specialist contexts after trusted verification.
+Fan their schema-checked reports into a separate synthesis session. Route only
+the synthesized corrections to the existing implementation binding, rerun the
+trusted checks, and stop after six correction attempts. Specialists are
+read-only and trusted pre/post checks reject any capsule mutation. Do not push
+or open a pull request.
 """

@@ -45,6 +45,7 @@ import {
   IPC_PRODUCT_REVOKE,
   IPC_PRODUCT_ROOTS,
   IPC_PRODUCT_SELECT_PROJECT,
+  IPC_PRODUCT_SELECT_RUN,
   IPC_PRODUCT_SEND_MESSAGE,
   IPC_PRODUCT_UPLOAD_IMAGE,
   IPC_PRODUCT_CANCEL_IMAGE_UPLOAD,
@@ -223,6 +224,9 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC_PRODUCT_SELECT_PROJECT, (_event, project: ProjectRef) =>
     product.selectProject(project),
+  )
+  ipcMain.handle(IPC_PRODUCT_SELECT_RUN, (_event, project: ProjectRef, runId: string | null) =>
+    product.selectRun(project, runId),
   )
   ipcMain.handle(
     IPC_PRODUCT_SEND_MESSAGE,

@@ -130,11 +130,136 @@ const TOOLS = [
       ['taskId', 'resolution', 'summary'],
     ),
   },
+  {
+    name: 'factoru_tasks_split',
+    description: 'Atomically replace one oversized task with 2–8 linked Queue children.',
+    inputSchema: object(
+      {
+        taskId: string('Task to supersede by splitting.'),
+        reason: string('Durable split rationale.'),
+        children: {
+          type: 'array',
+          minItems: 2,
+          maxItems: 8,
+          items: object({ title: string('Child title.'), description: string('Child scope.') }, [
+            'title',
+          ]),
+        },
+      },
+      ['taskId', 'reason', 'children'],
+    ),
+    tool: 'tasks.split',
+  },
+  {
+    name: 'factoru_tasks_set_resource_intents',
+    description:
+      'Replace bounded task claims for repository paths, services, databases, and named exclusive resources.',
+    inputSchema: object(
+      {
+        taskId: string('Task whose resource intent is updated.'),
+        intents: {
+          type: 'array',
+          maxItems: 32,
+          items: object(
+            {
+              kind: {
+                type: 'string',
+                enum: ['repository_path', 'service', 'database', 'exclusive_resource'],
+              },
+              name: string('Relative path or resource name.'),
+              access: { type: 'string', enum: ['read', 'write', 'exclusive'] },
+            },
+            ['kind', 'name', 'access'],
+          ),
+        },
+      },
+      ['taskId', 'intents'],
+    ),
+    tool: 'tasks.set_resource_intents',
+  },
+  {
+    name: 'factoru_tasks_append_evidence',
+    description:
+      'Append provenance-bearing scope to a clear new-request duplicate without creating another card.',
+    inputSchema: object(
+      {
+        taskId: string('Existing matching task.'),
+        sourceRef: string('New request/message reference.'),
+        kind: { type: 'string', enum: ['request', 'scope', 'decision'] },
+        summary: string('Evidence or added scope.'),
+      },
+      ['taskId', 'sourceRef', 'summary'],
+    ),
+    tool: 'tasks.append_evidence',
+  },
+  {
+    name: 'factoru_memory_search',
+    description:
+      'Search at most eight latest accepted project/role memories rendered as untrusted references.',
+    inputSchema: object({
+      query: string('Relevant task or planning text.'),
+      limit: { type: 'number', minimum: 1, maximum: 8 },
+    }),
+    tool: 'memory.search',
+  },
+  {
+    name: 'factoru_memory_propose_update',
+    description: 'Propose durable memory for user approval; this never activates memory silently.',
+    inputSchema: object(
+      {
+        scope: { type: 'string', enum: ['project', 'worker_type'] },
+        content: string('Bounded proposed memory.'),
+      },
+      ['content'],
+    ),
+    tool: 'memory.propose_update',
+  },
+  {
+    name: 'factoru_runs_inspect',
+    description:
+      'Inspect bounded run status, stage, usage, projection health, and attempt budgets.',
+    inputSchema: object({ runId: string('Optional Factoru run ID.') }),
+    tool: 'runs.inspect',
+  },
+  {
+    name: 'factoru_runs_context',
+    description: 'Read one scoped run with task evidence, resources, and accepted memory.',
+    inputSchema: object({ runId: string('Factoru run ID.') }, ['runId']),
+    tool: 'runs.context',
+  },
+  {
+    name: 'factoru_runs_report_evidence',
+    description: 'Record bounded structured implementation/check evidence for a run.',
+    inputSchema: object(
+      { runId: string('Factoru run ID.'), summary: string('Evidence summary.') },
+      ['runId', 'summary'],
+    ),
+    tool: 'runs.report_evidence',
+  },
+  {
+    name: 'factoru_runs_report_review',
+    description: 'Record bounded structured specialist review evidence for a run.',
+    inputSchema: object({ runId: string('Factoru run ID.'), summary: string('Review summary.') }, [
+      'runId',
+      'summary',
+    ]),
+    tool: 'runs.report_review',
+  },
+  {
+    name: 'factoru_capacity_inspect',
+    description: 'Read WIP-one implementation admission state.',
+    inputSchema: object({}),
+    tool: 'capacity.inspect',
+  },
 ]
 
 const names = new Map(
-  TOOLS.map((tool) => [tool.name, `tasks.${tool.name.replace(/^factoru_tasks_/, '')}`]),
+  TOOLS.map((tool) => [
+    tool.name,
+    tool.tool ?? `tasks.${tool.name.replace(/^factoru_tasks_/, '')}`,
+  ]),
 )
+const publicTools = TOOLS.map(({ tool: _tool, ...definition }) => definition)
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`)
@@ -185,11 +310,11 @@ async function handle(request) {
       result: {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'factoru-tools', version: '0.2.0' },
+        serverInfo: { name: 'factoru-tools', version: '0.3.0' },
       },
     })
   } else if (method === 'tools/list') {
-    send({ jsonrpc: '2.0', id, result: { tools: TOOLS } })
+    send({ jsonrpc: '2.0', id, result: { tools: publicTools } })
   } else if (method === 'tools/call') {
     await callTool(id, params?.name, params?.arguments)
   } else if (id !== undefined && id !== null) {

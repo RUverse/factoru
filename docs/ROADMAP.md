@@ -1,6 +1,6 @@
 # Factoru Roadmap
 
-> Status: Milestone 7 implementation complete; provider/remote acceptance pending; Milestone 8 is next
+> Status: Milestone 8 implementation connected; pinned live orchestration acceptance pending
 > Last updated: 2026-08-12
 
 This is the single delivery roadmap for Factoru. It intentionally starts with a
@@ -789,6 +789,15 @@ authorization, retention, and delivery pass through every supported Claude and
 Codex configuration; chat remains responsive while planning or execution runs.
 
 ### Milestone 8 — Gas City-Native Orchestration Depth
+
+Implementation status (2026-08-12): the protocol-v5 projection, migration
+0012, native adapter reads, serial convoy/review Formula path, PM split/resource
+and approval-gated memory tools, resumable per-run streams, and Desktop run
+inspector are connected and automated-test covered. The exit remains open: the
+installed Beads 1.2.1 and Dolt 2.2.3 do not match the accepted pinned 1.1.2 and
+2.1.7 set, so the required disposable-city provider matrix was stopped pending
+an explicit compatibility decision. See
+[`docs/spikes/milestone-8-acceptance.md`](./spikes/milestone-8-acceptance.md).
 
 - Extend `packages/gas-city` to consume served run, Formula preview, bead,
   convoy, agent/session stream, structured transcript, stage, usage, and cost

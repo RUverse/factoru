@@ -123,8 +123,20 @@ export interface ExecutionRunRecord {
   packLockDigest: string | null
   sourceBeadId: string | null
   runId: string | null
+  workflowId: string | null
   workflowRootBeadId: string | null
   startingEventCursor: number
+  eventCursor: number
+  gasCityEventCursor: number
+  lastCompleteEventCursor: number
+  projectionState: 'complete' | 'partial' | 'stale'
+  projectionReason: string | null
+  projectionReconciledAt: string | null
+  gasCityConvoyId: string | null
+  verificationAttempts: number
+  correctionAttempts: number
+  transientAttempts: number
+  transientAttemptLimit: number
   requestId: string
   status: 'pending' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
   stage: ExecutionStage
@@ -222,8 +234,20 @@ interface ExecutionRunRow {
   pack_lock_digest: string | null
   source_bead_id: string | null
   run_id: string | null
+  gas_city_workflow_id: string | null
   workflow_root_bead_id: string | null
   starting_event_cursor: number
+  event_cursor: number
+  gas_city_event_cursor: number
+  last_complete_event_cursor: number
+  projection_state: ExecutionRunRecord['projectionState']
+  projection_reason: string | null
+  projection_reconciled_at: string | null
+  gas_city_convoy_id: string | null
+  verification_attempts: number
+  correction_attempts: number
+  transient_attempts: number
+  transient_attempt_limit: number
   request_id: string
   status: ExecutionRunRecord['status']
   stage: ExecutionStage
@@ -284,8 +308,20 @@ function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
     packLockDigest: row.pack_lock_digest,
     sourceBeadId: row.source_bead_id,
     runId: row.run_id,
+    workflowId: row.gas_city_workflow_id,
     workflowRootBeadId: row.workflow_root_bead_id,
     startingEventCursor: row.starting_event_cursor,
+    eventCursor: row.event_cursor,
+    gasCityEventCursor: row.gas_city_event_cursor,
+    lastCompleteEventCursor: row.last_complete_event_cursor,
+    projectionState: row.projection_state,
+    projectionReason: row.projection_reason,
+    projectionReconciledAt: row.projection_reconciled_at,
+    gasCityConvoyId: row.gas_city_convoy_id,
+    verificationAttempts: row.verification_attempts,
+    correctionAttempts: row.correction_attempts,
+    transientAttempts: row.transient_attempts,
+    transientAttemptLimit: row.transient_attempt_limit,
     requestId: row.request_id,
     status: row.status,
     stage: row.stage,
@@ -562,6 +598,16 @@ export class TaskStore {
       for (const id of dependencyIds) {
         const dependency = this.#requireActive(id)
         if (dependency.projectId !== task.projectId) throw new Error('cross_project_dependency')
+        const cycle = this.#db
+          .prepare(
+            `WITH RECURSIVE reachable(id) AS (
+               SELECT needs_task_id FROM task_dependencies WHERE task_id = ?
+               UNION
+               SELECT d.needs_task_id FROM task_dependencies d JOIN reachable r ON d.task_id = r.id
+             ) SELECT 1 AS found FROM reachable WHERE id = ? LIMIT 1`,
+          )
+          .get(id, task.id)
+        if (cycle) throw new Error('task_dependency_cycle')
       }
       this.#db.prepare('DELETE FROM task_dependencies WHERE task_id = ?').run(task.id)
       const now = this.#now().toISOString()
@@ -1146,6 +1192,7 @@ export class TaskStore {
     id: string,
     correlation: {
       runId: string
+      workflowId?: string
       workflowRootBeadId: string
       formulaHash?: string
       startingEventSeq: number
@@ -1158,11 +1205,12 @@ export class TaskStore {
       const updated = this.#db
         .prepare(
           `UPDATE task_runs SET status = 'running', stage = 'implementation', run_id = ?,
-             workflow_root_bead_id = ?, formula_hash = ?, source_bead_id = ?, starting_event_cursor = ?,
+             gas_city_workflow_id = ?, workflow_root_bead_id = ?, formula_hash = ?, source_bead_id = ?, starting_event_cursor = ?,
              started_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
         )
         .run(
           correlation.runId,
+          correlation.workflowId ?? correlation.runId,
           correlation.workflowRootBeadId,
           correlation.formulaHash ?? null,
           correlation.sourceBeadId ?? null,

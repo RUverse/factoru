@@ -7,6 +7,7 @@ export const CAPABILITY_LIVE = 'live-v1'
 export const CAPABILITY_PROJECTS = 'projects-v2'
 export const CAPABILITY_REPOSITORY_ACCESS_CHECK = 'repository-access-check-v1'
 export const CAPABILITY_TRUSTED_DEVICES = 'trusted-devices-v1'
+export const CAPABILITY_ORCHESTRATION_DEPTH = 'orchestration-depth-v1'
 export const ARTIFACTS_PATH_PREFIX = '/api/v1/projects'
 export const PAIRING_EXCHANGE_PATH = '/api/v1/pairing/exchange'
 export const LOCAL_ENROLLMENT_PATH = '/api/v1/pairing/local'
@@ -185,6 +186,14 @@ export const liveMethodSchema = z.enum([
   'tasks.resolve',
   'tasks.search',
   'tasks.decideMerge',
+  'tasks.split',
+  'tasks.addEvidence',
+  'tasks.setResourceIntents',
+  'memory.search',
+  'memory.proposeUpdate',
+  'memory.decideProposal',
+  'runs.getDetail',
+  'runs.readArtifact',
   'runs.cancel',
   'runs.retry',
   'runs.requestChanges',

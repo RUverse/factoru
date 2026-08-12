@@ -6,6 +6,14 @@ import {
   type Task,
   type TaskCandidate,
   type TaskMergeProposal,
+  taskEvidenceSchema,
+  taskResourceIntentSchema,
+  memoryProposalSchema,
+  runDetailSchema,
+  type TaskEvidence,
+  type TaskResourceIntent,
+  type MemoryProposal,
+  type RunDetail,
 } from '@factoru/protocol'
 import { ApplicationError } from './project-service.js'
 
@@ -155,6 +163,118 @@ export class TaskService {
       }
       throw error
     }
+  }
+
+  split(
+    input: {
+      projectId: string
+      taskId: string
+      reason: string
+      children: Array<{
+        title: string
+        description: string
+        resourceIntents: Array<{
+          kind: TaskResourceIntent['kind']
+          name: string
+          access: TaskResourceIntent['access']
+        }>
+      }>
+    },
+    actorId: string,
+  ): { parent: Task; children: Task[] } {
+    this.#requireTask(input.projectId, input.taskId)
+    const result = this.#database.orchestration.splitTask({
+      ...input,
+      actorKind: 'user',
+      actorId,
+    })
+    return { parent: taskProjection(result.parent), children: result.children.map(taskProjection) }
+  }
+
+  addEvidence(input: {
+    projectId: string
+    taskId: string
+    kind: TaskEvidence['kind']
+    summary: string
+    provenance: TaskEvidence['provenance']
+  }): TaskEvidence {
+    this.#requireTask(input.projectId, input.taskId)
+    return taskEvidenceSchema.parse(
+      this.#database.orchestration.addEvidence(input.projectId, input.taskId, input),
+    )
+  }
+
+  setResourceIntents(input: {
+    projectId: string
+    taskId: string
+    intents: Array<{
+      kind: TaskResourceIntent['kind']
+      name: string
+      access: TaskResourceIntent['access']
+    }>
+  }): TaskResourceIntent[] {
+    this.#requireTask(input.projectId, input.taskId)
+    return taskResourceIntentSchema
+      .array()
+      .parse(
+        this.#database.orchestration.setResourceIntents(
+          input.projectId,
+          input.taskId,
+          input.intents,
+        ),
+      )
+  }
+
+  proposeMemory(
+    input: {
+      projectId: string
+      scope: 'project' | 'worker_type'
+      workerTypeKind?: 'project_manager' | 'software_engineer'
+      content: string
+      provenance: { kind: string; ref: string }
+    },
+    actorId: string,
+  ): MemoryProposal {
+    this.#requireProject(input.projectId)
+    return memoryProposalSchema.parse(
+      this.#database.orchestration.proposeMemory({
+        projectId: input.projectId,
+        scope: input.scope,
+        workerTypeKind: input.workerTypeKind,
+        content: input.content,
+        provenanceKind: input.provenance.kind,
+        provenanceRef: input.provenance.ref,
+        proposedBy: actorId,
+      }),
+    )
+  }
+
+  decideMemory(
+    projectId: string,
+    proposalId: string,
+    decision: 'accept' | 'reject',
+  ): MemoryProposal {
+    this.#requireProject(projectId)
+    return memoryProposalSchema.parse(
+      this.#database.orchestration.decideMemory(projectId, proposalId, decision),
+    )
+  }
+
+  searchMemory(
+    projectId: string,
+    query: string,
+    workerTypeKind?: 'project_manager' | 'software_engineer',
+    limit = 8,
+  ) {
+    this.#requireProject(projectId)
+    return this.#database.orchestration.searchMemory(projectId, query, workerTypeKind, limit)
+  }
+
+  runDetail(projectId: string, runId: string): RunDetail {
+    const run = this.#database.tasks.getExecutionRun(runId)
+    if (!run || run.projectId !== projectId)
+      throw new ApplicationError('not_found', 'Run not found')
+    return runDetailSchema.parse(this.#database.orchestration.getRunDetail(runId))
   }
 
   #requireProject(projectId: string): void {

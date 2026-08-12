@@ -49,6 +49,8 @@ export {
   type RigBinding,
   type RunCorrelation,
   type RunSnapshot,
+  type NativeRunSnapshot,
+  type FormulaPreview,
   type RunUsage,
   type RunStatus,
   type RunStep,

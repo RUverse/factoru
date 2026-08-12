@@ -55,6 +55,9 @@ describe('CapsuleService', () => {
     expect(
       fs.readFileSync(path.join(repository, '.beads/factoru/run-delivery-check.sh'), 'utf8'),
     ).toContain('gc.graphv2_vars.v1')
+    expect(
+      fs.readFileSync(path.join(repository, '.beads/factoru/review-read-only-check.sh'), 'utf8'),
+    ).toContain('review-baseline-head')
     expect(await service.prepare(project, run)).toEqual(capsule)
   })
 

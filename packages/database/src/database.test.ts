@@ -32,7 +32,7 @@ describe('FactoruDatabase', () => {
       parseServerId('srv_11111111111111111111111111111111'),
     )
     expect(reopened.connection.prepare('SELECT COUNT(*) AS count FROM migrations').get()).toEqual({
-      count: 11,
+      count: 12,
     })
     reopened.close()
   })

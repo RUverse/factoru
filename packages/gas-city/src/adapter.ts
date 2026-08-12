@@ -88,6 +88,42 @@ export interface RunSnapshot {
   readonly partial: boolean
 }
 
+export interface FormulaPreview {
+  readonly name: string
+  readonly stages: readonly { id: string; title: string; kind: string }[]
+  readonly edges: readonly { from: string; to: string }[]
+}
+
+export interface NativeRunSnapshot extends RunSnapshot {
+  readonly eventCursor: number
+  readonly gapDetected: boolean
+  readonly convoyId: string | undefined
+  readonly units: readonly {
+    id: string
+    title: string
+    status: RunStatus
+    dependencyIds: readonly string[]
+    sessionId: string | undefined
+  }[]
+  readonly sessions: readonly {
+    id: string
+    purpose:
+      | 'implementation'
+      | 'correctness_testing'
+      | 'security_reliability'
+      | 'maintainability_architecture'
+      | 'review_synthesis'
+      | 'correction'
+    status: RunStatus
+    transcript: readonly {
+      sequence: number
+      role: 'user' | 'assistant' | 'tool' | 'system'
+      text: string
+      createdAt: string
+    }[]
+  }[]
+}
+
 export interface RunUsage {
   readonly inputTokens: number
   readonly outputTokens: number
@@ -102,6 +138,7 @@ export interface RunCorrelation {
   readonly cityName: string
   readonly rigName: string
   readonly runId: string
+  readonly workflowId?: string
   readonly workflowRootBeadId: string
   readonly formulaName: string
   /**
@@ -269,6 +306,19 @@ const formulaPreviewSchema = z.object({
   ),
   deps: z.array(z.object({ from: z.string(), to: z.string() })).default([]),
 })
+
+function formulaPreview(raw: unknown): FormulaPreview {
+  const preview = formulaPreviewSchema.parse(raw)
+  return {
+    name: preview.name,
+    stages: preview.steps.map((step) => ({
+      id: step.id,
+      title: step.metadata['title'] ?? step.id,
+      kind: step.kind,
+    })),
+    edges: preview.deps,
+  }
+}
 
 const runStepsSchema = z.object({
   run_id: z.string().optional(),
@@ -928,12 +978,31 @@ export class GasCityAdapter {
       cityName: this.#cityName,
       rigName: request.rigName,
       runId: result.run?.run_id ?? result.workflow_id,
+      workflowId: result.workflow_id,
       workflowRootBeadId: result.root_bead_id,
       formulaName: request.formulaName,
       formulaHash,
       sourceBeadId: sourceBead?.id,
       startingEventSeq,
     }
+  }
+
+  async previewFormula(request: {
+    rigName: string
+    formulaName: string
+    target: string
+    variables: Readonly<Record<string, FormulaVariableValue>>
+  }): Promise<FormulaPreview> {
+    const raw = await this.#client.post(
+      `/city/${this.#cityName}/formulas/${request.formulaName}/preview`,
+      {
+        scope_kind: 'rig',
+        scope_ref: request.rigName,
+        target: request.target,
+        vars: serializeFormulaVariables(request.variables),
+      },
+    )
+    return formulaPreview(raw)
   }
 
   /**
@@ -961,6 +1030,103 @@ export class GasCityAdapter {
         title: step.title,
         status: toRunStatus(step.status),
       })),
+    }
+  }
+
+  /**
+   * Rebuild a detailed projection from 1.4.0's authoritative workflow, event,
+   * and provider-neutral transcript reads. Event delivery is the fast path;
+   * this method deliberately remains sufficient after a cursor gap or server
+   * restart.
+   */
+  async describeNativeRun(
+    runId: string,
+    workflowId: string,
+    workflowRootBeadId: string,
+    afterEventSeq: number,
+  ): Promise<NativeRunSnapshot> {
+    const [snapshot, workflowRaw, events] = await Promise.all([
+      this.describeRun(runId, workflowRootBeadId),
+      this.#client.get(`/city/${this.#cityName}/workflow/${encodeURIComponent(workflowId)}`),
+      this.readEvents({ lastHandledSeq: afterEventSeq }),
+    ])
+    const workflow = workflowSchema.parse(workflowRaw)
+    const sessionBeads = workflow.beads.filter((bead) => {
+      const session = bead.metadata['gc.session_id']
+      return typeof session === 'string' && session.length > 0
+    })
+    const sessions = await Promise.all(
+      sessionBeads.slice(0, 32).map(async (bead) => {
+        const sessionId = String(bead.metadata['gc.session_id'])
+        const raw = await this.#client.get(
+          `/city/${this.#cityName}/session/${encodeURIComponent(sessionId)}/transcript`,
+          { format: 'structured', tail: 40 },
+        )
+        const transcript = structuredTranscriptSchema.parse(raw)
+        const identity = `${bead.id} ${bead.title}`.toLocaleLowerCase()
+        const purpose =
+          identity.includes('correctness') || identity.includes('testing')
+            ? ('correctness_testing' as const)
+            : identity.includes('security') || identity.includes('reliability')
+              ? ('security_reliability' as const)
+              : identity.includes('maintainability') || identity.includes('architecture')
+                ? ('maintainability_architecture' as const)
+                : identity.includes('synth')
+                  ? ('review_synthesis' as const)
+                  : identity.includes('correct')
+                    ? ('correction' as const)
+                    : ('implementation' as const)
+        return {
+          id: sessionId,
+          purpose,
+          status: toRunStatus(bead.status),
+          transcript: transcript.structured_messages.slice(-40).map((message, sequence) => {
+            const role: 'user' | 'assistant' | 'tool' | 'system' =
+              message.role === 'assistant' || message.role === 'user'
+                ? message.role
+                : message.role === 'tool'
+                  ? 'tool'
+                  : 'system'
+            return {
+              sequence,
+              role,
+              text: message.blocks
+                .map((block) => block.text ?? block.content ?? block.structured?.text ?? '')
+                .filter(Boolean)
+                .join('\n')
+                .slice(0, 4_096),
+              createdAt: message.timestamp ?? '1970-01-01T00:00:00.000Z',
+            }
+          }),
+        }
+      }),
+    )
+    const unitBeads = workflow.beads.filter((bead) => {
+      const kind = bead.metadata['gc.kind'] ?? bead.metadata['gc.step_kind']
+      return kind === 'drain_item' || bead.metadata['gc.drain_item'] === true
+    })
+    const convoyId = workflow.beads
+      .map((bead) => bead.metadata['gc.convoy_id'])
+      .find((value): value is string => typeof value === 'string' && value.length > 0)
+    return {
+      ...snapshot,
+      partial: snapshot.partial || events.gapDetected,
+      eventCursor: events.nextCursor.lastHandledSeq,
+      gapDetected: events.gapDetected,
+      convoyId,
+      units: unitBeads.slice(0, 20).map((bead) => ({
+        id: bead.id,
+        title: bead.title || bead.id,
+        status: toRunStatus(bead.status),
+        dependencyIds: Array.isArray(bead.metadata['needs'])
+          ? bead.metadata['needs'].filter((value): value is string => typeof value === 'string')
+          : [],
+        sessionId:
+          typeof bead.metadata['gc.session_id'] === 'string'
+            ? bead.metadata['gc.session_id']
+            : undefined,
+      })),
+      sessions,
     }
   }
 

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "factoru.review-synthesis.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "verdict", "summary", "laneReports", "corrections"],
+  "properties": {
+    "version": { "const": 1 },
+    "verdict": { "enum": ["approve", "iterate"] },
+    "summary": { "type": "string", "maxLength": 4096 },
+    "laneReports": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "string" } },
+    "corrections": {
+      "type": "array",
+      "maxItems": 50,
+      "items": { "type": "string", "maxLength": 1000 }
+    }
+  }
+}

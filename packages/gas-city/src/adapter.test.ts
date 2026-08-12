@@ -846,6 +846,98 @@ describe('GasCityAdapter.describeRun', () => {
   })
 })
 
+describe('GasCityAdapter.describeNativeRun', () => {
+  it('rebuilds convoy units and bounded specialist transcripts from recorded 1.4.0 DTOs', async () => {
+    const { fn } = fakeFetch((url) => {
+      if (url.pathname.endsWith('/runs/run-native/steps')) {
+        return {
+          body: {
+            run_id: 'run-native',
+            steps: [{ id: 'review.security', title: 'Security review', status: 'active' }],
+          },
+        }
+      }
+      if (url.pathname.endsWith('/workflow/workflow-native')) {
+        return {
+          body: {
+            workflow_id: 'run-native',
+            root_bead_id: 'root-native',
+            beads: [
+              {
+                id: 'unit-1',
+                title: 'API unit',
+                status: 'closed',
+                metadata: {
+                  'gc.kind': 'drain_item',
+                  'gc.convoy_id': 'convoy-1',
+                  'gc.session_id': 'session-impl',
+                  needs: [],
+                },
+              },
+              {
+                id: 'review-security',
+                title: 'Security reliability reviewer',
+                status: 'active',
+                metadata: { 'gc.session_id': 'session-security' },
+              },
+            ],
+          },
+        }
+      }
+      if (url.pathname.endsWith('/events')) {
+        return {
+          body: {
+            items: [
+              {
+                seq: 8,
+                type: 'bead.updated',
+                ts: '2026-08-12T10:00:00Z',
+                payload: { run_id: 'run-native' },
+              },
+            ],
+          },
+        }
+      }
+      if (url.pathname.includes('/session/')) {
+        return {
+          body: {
+            provider: 'claude',
+            format: 'structured',
+            structured_messages: [
+              {
+                id: 'm1',
+                role: 'assistant',
+                status: 'final',
+                timestamp: '2026-08-12T10:00:01Z',
+                blocks: [{ type: 'text', text: 'No reliability issue found.' }],
+                usage: { input_tokens: 10, output_tokens: 5 },
+              },
+            ],
+          },
+        }
+      }
+      throw new Error(`unexpected ${url.pathname}`)
+    })
+
+    const detail = await adapterWith(fn).describeNativeRun(
+      'run-native',
+      'workflow-native',
+      'root-native',
+      7,
+    )
+    expect(detail).toMatchObject({ eventCursor: 8, gapDetected: false, convoyId: 'convoy-1' })
+    expect(detail.units).toEqual([
+      expect.objectContaining({ id: 'unit-1', sessionId: 'session-impl' }),
+    ])
+    expect(detail.sessions.find((session) => session.id === 'session-security')).toMatchObject({
+      purpose: 'security_reliability',
+      transcript: [
+        expect.objectContaining({ role: 'assistant', text: 'No reliability issue found.' }),
+      ],
+    })
+  })
+})
+
 describe('GasCityAdapter.readRunUsage', () => {
   it('folds only worker-operation facts correlated to the requested run', async () => {
     const { fn } = fakeFetch(() => ({

@@ -21,6 +21,7 @@ import {
   repositoryAccessErrorCodeSchema,
   artifactSchema,
   CAPABILITY_SCOPED_STREAMS,
+  runDetailSchema,
   scopedStreamEventSchema,
   type MemoryEntry,
   type PairingExchangeResponse,
@@ -31,6 +32,7 @@ import {
   type Task,
   type TaskMergeProposal,
   type ExecutionRun,
+  type RunDetail,
   type FactoruClient,
   type LiveMethod,
 } from '@factoru/protocol'
@@ -103,6 +105,8 @@ export class ProductRuntime {
   #disposed = false
   #initialized = false
   readonly #uploads = new Map<string, AbortController>()
+  #selectedRun: { project: ProjectRef; runId: string; cursor: number } | null = null
+  #selectedRunDetail: RunDetail | null = null
 
   constructor(
     profiles: ProfileStore,
@@ -526,12 +530,15 @@ export class ProductRuntime {
       throw new Error('Project not found in its home factory')
     }
     this.#profiles.selectProject(reference)
+    this.#selectedRun = null
+    this.#selectedRunDetail = null
     const live = this.#sessions.get(profile.serverId)?.live
     if (live) {
       if (this.#sessions.get(profile.serverId)?.scopedStreams) {
         await Promise.allSettled([
           live.request('streams.unsubscribe', { subscriptionId: 'workspace' }),
           live.request('streams.unsubscribe', { subscriptionId: 'conversation' }),
+          live.request('streams.unsubscribe', { subscriptionId: 'run' }),
         ])
       }
       profile.workspaces[reference.projectId] = workspaceSchema.parse(
@@ -544,6 +551,38 @@ export class ProductRuntime {
     }
     this.#profiles.update(profile)
     return this.#updateFromStore()
+  }
+
+  async selectRun(project: ProjectRef, runId: string | null): Promise<RunDetail | null> {
+    const profile = this.#profiles.get(project.factoryId)
+    const session = profile ? this.#sessions.get(project.factoryId) : null
+    const live = session?.live
+    if (!profile || !live || this.#profiles.activeProjectRef?.projectId !== project.projectId) {
+      throw new Error('Project is not connected')
+    }
+    if (session.scopedStreams) {
+      await live.request('streams.unsubscribe', { subscriptionId: 'run' }).catch(() => undefined)
+    }
+    this.#selectedRun = null
+    this.#selectedRunDetail = null
+    if (!runId) {
+      this.#updateFromStore()
+      return null
+    }
+    const detail = runDetailSchema.parse(
+      await live.request('runs.getDetail', { projectId: project.projectId, runId }),
+    )
+    this.#selectedRun = { project, runId, cursor: detail.projection.cursor }
+    this.#selectedRunDetail = detail
+    if (session.scopedStreams) {
+      await live.request('streams.subscribe', {
+        subscriptionId: 'run',
+        resource: { kind: 'run', projectId: project.projectId, runId },
+        afterCursor: detail.projection.cursor,
+      })
+    }
+    this.#updateFromStore()
+    return detail
   }
 
   async sendMessage(project: ProjectRef, text: string, artifactIds: readonly string[] = []) {
@@ -1066,6 +1105,7 @@ export class ProductRuntime {
       cached: !connected && active !== null,
       error: activeSession?.error ?? null,
       remoteFactoryIntroComplete: this.#profiles.remoteFactoryIntroComplete,
+      selectedRunDetail: this.#selectedRunDetail,
     }
   }
 
@@ -1128,14 +1168,15 @@ export class ProductRuntime {
       },
       afterCursor: workspace.conversation.streamCursor,
     })
-    const run = workspace.taskRuns.find((candidate) =>
-      ['pending', 'running', 'cancelling'].includes(candidate.status),
-    )
-    if (run) {
+    const selected = this.#selectedRun
+    if (
+      selected?.project.factoryId === profile.serverId &&
+      selected.project.projectId === active.projectId
+    ) {
       await live.request('streams.subscribe', {
         subscriptionId: 'run',
-        resource: { kind: 'run', projectId: active.projectId, runId: run.id },
-        afterCursor: profile.cursor,
+        resource: { kind: 'run', projectId: active.projectId, runId: selected.runId },
+        afterCursor: selected.cursor,
       })
     }
   }
@@ -1148,7 +1189,7 @@ export class ProductRuntime {
     const profile = this.#profiles.get(serverId)
     if (!profile) return true
     const data = event.data as Record<string, unknown>
-    if (event.resource.kind !== 'conversation') {
+    if (event.resource.kind !== 'conversation' && event.resource.kind !== 'run') {
       profile.cursor = Math.max(profile.cursor, event.cursor)
     }
     if ('projects' in data) {
@@ -1185,6 +1226,11 @@ export class ProductRuntime {
             : [...workspace.taskRuns, run],
         }
       }
+    }
+    if (event.resource.kind === 'run' && this.#selectedRun?.runId === event.resource.runId) {
+      const candidate = 'detail' in data ? data.detail : 'summary' in data ? data : null
+      if (candidate) this.#selectedRunDetail = runDetailSchema.parse(candidate)
+      this.#selectedRun.cursor = event.cursor
     }
     profile.lastConnectedAt = this.#options.now().toISOString()
     this.#profiles.update(profile)

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "factoru.decomposition.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "convoyId", "capsule", "units"],
+  "properties": {
+    "version": { "const": 1 },
+    "convoyId": { "type": "string", "minLength": 1 },
+    "capsule": { "type": "string", "minLength": 1 },
+    "units": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "needs"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "needs": { "type": "array", "maxItems": 20, "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

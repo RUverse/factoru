@@ -26,6 +26,7 @@ import {
   CAPABILITY_RICH_CONVERSATIONS,
   CAPABILITY_IMAGE_ARTIFACTS,
   CAPABILITY_CONVERSATION_CONTEXT_RESET,
+  CAPABILITY_ORCHESTRATION_DEPTH,
   CONNECTION_TICKET_PATH,
   HANDSHAKE_PATH,
   HEALTH_PATH,
@@ -77,6 +78,14 @@ import {
   conversationRetryParamsSchema,
   streamSubscribeParamsSchema,
   streamUnsubscribeParamsSchema,
+  taskSplitParamsSchema,
+  taskEvidenceParamsSchema,
+  taskResourceIntentsParamsSchema,
+  memorySearchParamsSchema,
+  memoryProposeUpdateParamsSchema,
+  memoryDecideProposalParamsSchema,
+  runDetailParamsSchema,
+  runArtifactReadParamsSchema,
   type StreamResource,
 } from '@factoru/protocol'
 import type { ServerConfig } from './config.js'
@@ -180,7 +189,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
                 ...(artifacts ? [CAPABILITY_IMAGE_ARTIFACTS] : []),
               ]
             : []),
-          ...(tasks ? [CAPABILITY_TASKS, CAPABILITY_QUEUE_RECONCILIATION] : []),
+          ...(tasks
+            ? [CAPABILITY_TASKS, CAPABILITY_QUEUE_RECONCILIATION, CAPABILITY_ORCHESTRATION_DEPTH]
+            : []),
         ]
       : BASE_SERVER_CAPABILITIES
   const tickets = new TicketStore()
@@ -256,6 +267,13 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
 
   function streamCursor(resource: StreamResource): number {
     if (!database) return 0
+    if (resource.kind === 'run') {
+      const run = database.tasks.getExecutionRun(resource.runId)
+      if (!run || run.projectId !== resource.projectId) {
+        throw new ApplicationError('not_found', 'Run not found')
+      }
+      return database.orchestration.currentRunCursor(resource.runId)
+    }
     if (resource.kind !== 'conversation') return database.currentSequence()
     const conversation = database.product.getConversationById(resource.conversationId)
     if (!conversation || conversation.projectId !== resource.projectId) {
@@ -280,7 +298,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     }
     const run = workspace.taskRuns.find((candidate) => candidate.id === resource.runId)
     if (!run) throw new ApplicationError('not_found', 'Run not found')
-    return { run }
+    return { run, detail: database?.orchestration.getRunDetail(resource.runId) }
   }
 
   async function subscribeStream(
@@ -319,6 +337,26 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
             eventId: event.eventId,
             eventType: event.type,
             data: { event: event.payload, ...((await streamData(input.resource)) as object) },
+            occurredAt: event.occurredAt,
+          })
+        )
+          break
+      }
+    } else if (input.resource.kind === 'run') {
+      for (const event of database.orchestration.runEventsAfter(
+        input.resource.runId,
+        input.afterCursor,
+        500,
+      )) {
+        if (
+          !sendStream(socket, {
+            type: 'stream.delta',
+            subscriptionId: input.subscriptionId,
+            resource: input.resource,
+            cursor: event.cursor,
+            eventId: event.eventId,
+            eventType: event.type,
+            data: event.data,
             occurredAt: event.occurredAt,
           })
         )
@@ -387,6 +425,35 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
                 eventId: event.eventId,
                 eventType: event.type,
                 data: { event: event.payload, ...((await streamData(resource)) as object) },
+                occurredAt: event.occurredAt,
+              })
+            )
+              break
+          }
+        } else if (resource.kind === 'run') {
+          const events = database.orchestration.runEventsAfter(
+            resource.runId,
+            subscription.cursor,
+            501,
+          )
+          if (events.length > 500) {
+            await subscribeStream(socket, subscription.deviceId, {
+              subscriptionId,
+              resource,
+              afterCursor: 0,
+            })
+            continue
+          }
+          for (const event of events) {
+            if (
+              !sendStream(socket, {
+                type: 'stream.delta',
+                subscriptionId,
+                resource,
+                cursor: event.cursor,
+                eventId: event.eventId,
+                eventType: event.type,
+                data: event.data,
                 occurredAt: event.occurredAt,
               })
             )
@@ -816,6 +883,14 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'tasks.resolve': 'projects:write',
       'tasks.search': 'projects:read',
       'tasks.decideMerge': 'projects:write',
+      'tasks.split': 'projects:write',
+      'tasks.addEvidence': 'projects:write',
+      'tasks.setResourceIntents': 'projects:write',
+      'memory.search': 'projects:read',
+      'memory.proposeUpdate': 'projects:write',
+      'memory.decideProposal': 'projects:write',
+      'runs.getDetail': 'projects:read',
+      'runs.readArtifact': 'projects:read',
       'runs.cancel': 'projects:write',
       'runs.retry': 'projects:write',
       'runs.requestChanges': 'projects:write',
@@ -1205,6 +1280,113 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           )
           break
         }
+        case 'tasks.split': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = taskSplitParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Splitting a task requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => tasks.split(params, currentDevice.id),
+          )
+          break
+        }
+        case 'tasks.addEvidence': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = taskEvidenceParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Adding evidence requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => tasks.addEvidence(params),
+          )
+          break
+        }
+        case 'tasks.setResourceIntents': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = taskResourceIntentsParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Setting resources requires commandId',
+            )
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => tasks.setResourceIntents(params),
+          )
+          break
+        }
+        case 'memory.search': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = memorySearchParamsSchema.parse(request.params)
+          result = tasks.searchMemory(
+            params.projectId,
+            params.query,
+            params.workerTypeKind,
+            params.limit,
+          )
+          break
+        }
+        case 'memory.proposeUpdate': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = memoryProposeUpdateParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Proposing memory requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () =>
+              tasks.proposeMemory(
+                { ...params, workerTypeKind: params.workerTypeKind ?? undefined },
+                currentDevice.id,
+              ),
+          )
+          break
+        }
+        case 'memory.decideProposal': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = memoryDecideProposalParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError('command_id_required', 'Deciding memory requires commandId')
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () => tasks.decideMemory(params.projectId, params.proposalId, params.decision),
+          )
+          break
+        }
+        case 'runs.getDetail': {
+          if (!tasks) throw new ApplicationError('unavailable', 'Task service is unavailable')
+          const params = runDetailParamsSchema.parse(request.params)
+          result = tasks.runDetail(params.projectId, params.runId)
+          break
+        }
+        case 'runs.readArtifact': {
+          const params = runArtifactReadParamsSchema.parse(request.params)
+          const artifact = database.orchestration.readArtifact(
+            params.projectId,
+            params.runId,
+            params.artifactId,
+          )
+          result = {
+            mediaType: artifact.mediaType,
+            contentBase64: artifact.content.toString('base64'),
+          }
+          break
+        }
         case 'runs.cancel': {
           if (!workspaces)
             throw new ApplicationError('unavailable', 'Workspace service is unavailable')
@@ -1315,6 +1497,11 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         request.method === 'tasks.move' ||
         request.method === 'tasks.resolve' ||
         request.method === 'tasks.decideMerge' ||
+        request.method === 'tasks.split' ||
+        request.method === 'tasks.addEvidence' ||
+        request.method === 'tasks.setResourceIntents' ||
+        request.method === 'memory.proposeUpdate' ||
+        request.method === 'memory.decideProposal' ||
         request.method === 'runs.cancel' ||
         request.method === 'runs.retry' ||
         request.method === 'runs.requestChanges' ||

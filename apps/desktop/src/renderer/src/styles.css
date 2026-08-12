@@ -1791,6 +1791,147 @@ html[data-platform='linux'] .workspace-shell:not([data-mode='compact']) .inspect
   font-size: 9px;
 }
 
+/* Detailed evidence and mutations live in the selected-run inspector. */
+.task-card .run-evidence,
+.task-card .run-actions {
+  display: none;
+}
+
+.inspect-run-button {
+  justify-self: start;
+  border-color: rgba(138, 180, 255, 0.35);
+  color: var(--factoru-accent);
+}
+
+.run-inspector {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.run-inspector-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.run-inspector-heading h2,
+.run-inspector-heading p {
+  margin: 0;
+}
+
+.back-button {
+  min-height: 32px;
+}
+
+.projection-notice {
+  border-left: 2px solid var(--factoru-accent);
+  padding: 6px 8px;
+  color: var(--factoru-text-muted);
+  font-size: 10px;
+}
+
+.run-inspector-section {
+  min-width: 0;
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  background: var(--factoru-surface);
+  padding: 9px;
+}
+
+.run-inspector-section h3,
+.run-inspector-section summary {
+  margin: 0;
+  color: var(--factoru-text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.run-inspector-section summary {
+  cursor: pointer;
+}
+
+.stage-ladder,
+.unit-list,
+.dependency-list {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.stage-ladder li,
+.unit-list li,
+.session-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--factoru-text-muted);
+  font-size: 10px;
+}
+
+.stage-ladder li::marker {
+  color: var(--factoru-text-faint);
+}
+
+.stage-ladder li.running::marker,
+.stage-ladder li.blocked::marker {
+  color: var(--factoru-warn);
+}
+
+.stage-ladder li.completed::marker {
+  color: var(--factoru-ok);
+}
+
+.stage-ladder li.failed::marker,
+.stage-ladder li.cancelled::marker {
+  color: var(--factoru-error);
+}
+
+.session-card,
+.specialist-grid article,
+.synthesis-card {
+  min-width: 0;
+  margin-top: 8px;
+  border: 1px solid var(--factoru-border);
+  border-radius: 5px;
+  padding: 7px;
+}
+
+.session-card pre,
+.run-inspector-section > pre {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--factoru-text-muted);
+  font-size: 9px;
+}
+
+.specialist-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.specialist-grid article > strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 10px;
+  text-transform: capitalize;
+}
+
+.run-inspector > .run-actions {
+  position: sticky;
+  bottom: 0;
+  border-top: 1px solid var(--factoru-border);
+  background: var(--factoru-surface);
+  padding: 8px 0;
+}
+
 .task-card footer {
   color: var(--factoru-text-faint);
   font-size: 9px;
@@ -2079,6 +2220,10 @@ button.danger {
   .merge-proposal > div {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .specialist-grid {
+    grid-template-columns: 1fr;
   }
 }
 

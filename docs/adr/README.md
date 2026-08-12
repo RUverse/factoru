@@ -30,6 +30,7 @@ the historical reasoning behind one decision.
 | [0020](./0020-desktop-shell-and-ui-foundation.md) | Frameless native-control Desktop shell, responsive panes, and shared React UI foundation | Accepted, implemented |
 | [0021](./0021-scoped-streams-over-existing-websocket.md) | Bounded resource subscriptions over the existing authenticated WebSocket | Accepted, implemented |
 | [0022](./0022-conversation-context-reset-preserves-transcript.md) | Reset provider context while preserving the durable Factoru transcript | Accepted, implemented |
+| [0023](./0023-orchestration-projections-splits-review-and-memory.md) | Run projection ownership, split semantics, specialist review routing, and memory trust | Accepted, implemented; provider acceptance pending |
 
 ## Writing a new ADR
 

@@ -9,7 +9,7 @@
  * `MIN_SUPPORTED_PROTOCOL_VERSION` when support for an older version is
  * deliberately dropped, because doing so blocks older peers.
  */
-export const PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 5
 
 export const MIN_SUPPORTED_PROTOCOL_VERSION = 1
 

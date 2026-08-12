@@ -8,6 +8,7 @@ import { initializeProjectProductModel, ProductStore } from './product-store.js'
 import { TaskStore } from './task-store.js'
 import { AgentToolStore } from './agent-tool-store.js'
 import { ConversationStore } from './conversation-store.js'
+import { OrchestrationDepthStore } from './orchestration-depth-store.js'
 
 export const OWNER_SCOPES = [
   'projects:read',
@@ -275,6 +276,7 @@ export class FactoruDatabase {
   readonly tasks: TaskStore
   readonly agentTools: AgentToolStore
   readonly conversations: ConversationStore
+  readonly orchestration: OrchestrationDepthStore
   readonly #now: () => Date
   readonly #filePath: string
 
@@ -291,6 +293,7 @@ export class FactoruDatabase {
       this.#bindServerIdentity(serverId)
       this.product = new ProductStore(this.connection, this.#now)
       this.tasks = new TaskStore(this.connection, this.#now)
+      this.orchestration = new OrchestrationDepthStore(this.connection, this.tasks, this.#now)
       this.agentTools = new AgentToolStore(this.connection, this.#now)
       this.conversations = new ConversationStore(this.connection, this.#now)
     } catch (error) {

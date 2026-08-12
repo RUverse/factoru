@@ -126,6 +126,72 @@ describe('AgentToolService', () => {
     database.close()
   })
 
+  it('scopes split, resource, evidence, and memory proposal tools to the PM project', () => {
+    const { database, service, project } = fixture()
+    const task = database.tasks.create({
+      projectId: project.id,
+      title: 'Deliver orchestration depth',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    const session = service.createSession({
+      rigName: project.rig.rigName,
+      agentName: 'factoru.project-manager-planner',
+      sessionId: 'session-plan-depth',
+    })
+
+    expect(
+      service.call(session.token, {
+        requestId: 'call-resources',
+        tool: 'tasks.set_resource_intents',
+        arguments: {
+          taskId: task.id,
+          intents: [{ kind: 'repository_path', name: '.github/workflows', access: 'write' }],
+        },
+      }),
+    ).toMatchObject({ ok: true, result: [expect.objectContaining({ name: '.github/workflows' })] })
+    expect(
+      service.call(session.token, {
+        requestId: 'call-evidence',
+        tool: 'tasks.append_evidence',
+        arguments: {
+          taskId: task.id,
+          sourceRef: 'turn-42',
+          summary: 'The new request clearly extends this task.',
+        },
+      }),
+    ).toMatchObject({ ok: true, result: { provenance: { ref: 'turn-42' } } })
+    const proposal = service.call(session.token, {
+      requestId: 'call-memory-proposal',
+      tool: 'memory.propose_update',
+      arguments: { content: 'Use repository-local fixtures for orchestration tests.' },
+    })
+    expect(proposal).toMatchObject({ ok: true, result: { status: 'pending' } })
+    expect(
+      service.call(session.token, {
+        requestId: 'call-memory-search-pending',
+        tool: 'memory.search',
+        arguments: { query: 'fixtures' },
+      }),
+    ).toMatchObject({ ok: true, result: [] })
+
+    const split = service.call(session.token, {
+      requestId: 'call-split',
+      tool: 'tasks.split',
+      arguments: {
+        taskId: task.id,
+        reason: 'Two durable deliverables.',
+        children: [{ title: 'Persist projection' }, { title: 'Render inspector' }],
+      },
+    })
+    expect(split).toMatchObject({ ok: true, result: { children: [{}, {}] } })
+    expect(database.tasks.get(task.id)).toMatchObject({ resolution: 'superseded' })
+    expect(database.orchestration.listEvidence(project.id, task.id)).toHaveLength(1)
+    database.close()
+  })
+
   it('lets planning choose an allowed preset only when the user has not locked it', () => {
     const { database, service, project } = fixture()
     const unlocked = database.tasks.create({

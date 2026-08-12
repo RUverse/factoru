@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "factoru.review-context.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "taskId",
+    "runId",
+    "requirements",
+    "decomposition",
+    "handoffs",
+    "verification",
+    "sourceCommit"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "taskId": { "type": "string" },
+    "runId": { "type": "string" },
+    "requirements": { "type": "string" },
+    "decomposition": { "type": "string" },
+    "handoffs": { "type": "array", "minItems": 2, "maxItems": 20, "items": { "type": "string" } },
+    "verification": { "type": "string" },
+    "sourceCommit": { "type": "string" }
+  }
+}

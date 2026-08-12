@@ -177,7 +177,12 @@ export const conversationResetContextParamsSchema = conversationCancelParamsSche
 })
 
 export const shellStreamSnapshotSchema = z.object({ projects: z.array(projectSchema) })
-export const runStreamSnapshotSchema = z.object({ run: executionRunSchema })
+export const runStreamSnapshotSchema = z.object({
+  run: executionRunSchema,
+  // Protocol v5 fills this with runDetailSchema. It remains optional so v4
+  // clients can continue consuming the compact summary unchanged.
+  detail: z.unknown().optional(),
+})
 
 export type Artifact = z.infer<typeof artifactSchema>
 export type MessageContentPart = z.infer<typeof messageContentPartSchema>

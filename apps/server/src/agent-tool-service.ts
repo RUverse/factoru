@@ -26,8 +26,19 @@ function roleForAgent(agentName: string, chatAgentName: string): AgentRole | nul
   const localName = agentName.split('/').at(-1) ?? agentName
   if (localName === chatAgentName || localName.includes('project-manager-chat')) return 'pm_chat'
   if (localName.includes('project-manager-planner')) return 'pm_planner'
-  if (localName.includes('software-implementer')) return 'software_implementer'
-  if (localName.includes('software-reviewer')) return 'software_reviewer'
+  if (
+    localName.includes('software-implementer') ||
+    localName.includes('implementation-worker') ||
+    localName.includes('apply-findings')
+  )
+    return 'software_implementer'
+  if (
+    localName.includes('software-reviewer') ||
+    localName.includes('reviewer') ||
+    localName.includes('review-synthesizer') ||
+    localName.includes('gap-analyst')
+  )
+    return 'software_reviewer'
   return null
 }
 
@@ -115,6 +126,8 @@ export class AgentToolService {
           message.startsWith('task_') ||
           message.startsWith('workflow_') ||
           message.startsWith('cross_project') ||
+          message.startsWith('resource_') ||
+          message.startsWith('memory_') ||
           message.startsWith('superseded_')
         return this.#record(credential, input, expected ? 'denied' : 'failed', {
           ok: false,
@@ -274,6 +287,81 @@ export class AgentToolService {
           actorId: credential.sessionId,
         })
       }
+      case 'tasks.set_resource_intents': {
+        const taskId = requireString(args.taskId, 'task_id')
+        requireTask(taskId)
+        if (!Array.isArray(args.intents) || args.intents.length > 32) {
+          throw new Error('invalid_resource_intents')
+        }
+        const intents = args.intents.map((value) => {
+          if (!value || typeof value !== 'object') throw new Error('invalid_resource_intents')
+          const intent = value as Record<string, unknown>
+          return {
+            kind: optionalEnum(
+              requireString(intent.kind, 'resource_kind'),
+              ['repository_path', 'service', 'database', 'exclusive_resource'] as const,
+              'resource_kind',
+            )!,
+            name: requireString(intent.name, 'resource_name'),
+            access: optionalEnum(
+              requireString(intent.access, 'resource_access'),
+              ['read', 'write', 'exclusive'] as const,
+              'resource_access',
+            )!,
+          }
+        })
+        return this.#database.orchestration.setResourceIntents(
+          credential.projectId,
+          taskId,
+          intents,
+        )
+      }
+      case 'tasks.split': {
+        const taskId = requireString(args.taskId, 'task_id')
+        requireTask(taskId)
+        if (!Array.isArray(args.children) || args.children.length < 2 || args.children.length > 8) {
+          throw new Error('task_split_size_invalid')
+        }
+        const children = args.children.map((value) => {
+          if (!value || typeof value !== 'object') throw new Error('invalid_split_child')
+          const child = value as Record<string, unknown>
+          return {
+            title: requireString(child.title, 'title'),
+            description: optionalString(child.description) ?? '',
+          }
+        })
+        return this.#database.orchestration.splitTask({
+          projectId: credential.projectId,
+          taskId,
+          reason: requireString(args.reason, 'reason'),
+          children,
+          actorKind,
+          actorId: credential.sessionId,
+        })
+      }
+      case 'tasks.append_evidence': {
+        const taskId = requireString(args.taskId, 'task_id')
+        requireTask(taskId)
+        const sourceRef = requireString(args.sourceRef, 'source_ref')
+        const summary = requireString(args.summary, 'summary')
+        const evidence = this.#database.orchestration.addEvidence(credential.projectId, taskId, {
+          kind:
+            optionalEnum(args.kind, ['request', 'scope', 'decision'] as const, 'evidence_kind') ??
+            'scope',
+          summary,
+          provenance: { kind: 'pm_judgment', ref: sourceRef },
+        })
+        this.#database.orchestration.recordDuplicateDecision({
+          projectId: credential.projectId,
+          sourceKind: 'new_request',
+          sourceRef,
+          candidateTaskId: taskId,
+          decision: 'append_evidence',
+          reason: summary,
+          decidedBy: credential.sessionId,
+        })
+        return evidence
+      }
       case 'tasks.propose_merge': {
         const sourceTaskId = requireString(args.sourceTaskId, 'source_task_id')
         const targetTaskId = requireString(args.targetTaskId, 'target_task_id')
@@ -304,6 +392,93 @@ export class AgentToolService {
           summary: requireString(args.summary, 'summary'),
           actorKind,
           actorId: credential.sessionId,
+        })
+      }
+      case 'memory.read':
+      case 'memory.search':
+        return this.#database.orchestration.searchMemory(
+          credential.projectId,
+          optionalString(args.query) ?? '',
+          workerKind(credential.role),
+          typeof args.limit === 'number' ? args.limit : 8,
+        )
+      case 'memory.propose':
+      case 'memory.propose_update':
+        return this.#database.orchestration.proposeMemory({
+          projectId: credential.projectId,
+          scope:
+            optionalEnum(args.scope, ['project', 'worker_type'] as const, 'memory_scope') ??
+            'worker_type',
+          workerTypeKind: args.scope === 'project' ? undefined : workerKind(credential.role),
+          content: requireString(args.content, 'content'),
+          provenanceKind: 'agent_proposal',
+          provenanceRef: credential.sessionId,
+          proposedBy: credential.sessionId,
+        })
+      case 'capacity.inspect': {
+        const active = this.#database.tasks.activeExecution(credential.projectId)
+        return { executionWipLimit: 1, admitted: active ? 1 : 0, available: active ? 0 : 1 }
+      }
+      case 'runs.inspect': {
+        const requested = optionalString(args.runId)
+        const runs = requested
+          ? [this.#database.tasks.getExecutionRun(requested)].filter(Boolean)
+          : this.#database.tasks.listExecutionRuns(credential.projectId).slice(0, 10)
+        return runs.map((run) => {
+          if (!run || run.projectId !== credential.projectId)
+            throw new Error('invalid_run_reference')
+          return {
+            id: run.id,
+            taskId: run.taskId,
+            status: run.status,
+            stage: run.stage,
+            formulaName: run.formulaName,
+            usage: run.usage,
+            projectionState: run.projectionState,
+            attempts: {
+              verification: run.verificationAttempts,
+              correction: run.correctionAttempts,
+              transient: run.transientAttempts,
+            },
+          }
+        })
+      }
+      case 'runs.context': {
+        const runId = requireString(args.runId, 'run_id')
+        const run = this.#database.tasks.getExecutionRun(runId)
+        if (!run || run.projectId !== credential.projectId) throw new Error('invalid_run_reference')
+        const task = requireTask(run.taskId)
+        return {
+          run: {
+            id: run.id,
+            status: run.status,
+            stage: run.stage,
+            formulaName: run.formulaName,
+            usage: run.usage,
+          },
+          task,
+          evidence: this.#database.orchestration.listEvidence(credential.projectId, task.id),
+          resourceIntents: this.#database.orchestration.listResourceIntents(
+            credential.projectId,
+            task.id,
+          ),
+          memory: this.#database.orchestration.searchMemory(
+            credential.projectId,
+            `${task.title} ${task.description}`,
+            workerKind(credential.role),
+            8,
+          ),
+        }
+      }
+      case 'runs.report_evidence':
+      case 'runs.report_review': {
+        const runId = requireString(args.runId, 'run_id')
+        const run = this.#database.tasks.getExecutionRun(runId)
+        if (!run || run.projectId !== credential.projectId) throw new Error('invalid_run_reference')
+        return this.#database.orchestration.addEvidence(credential.projectId, run.taskId, {
+          kind: tool === 'runs.report_review' ? 'review' : 'check',
+          summary: requireString(args.summary, 'summary'),
+          provenance: { kind: 'agent_report', ref: runId },
         })
       }
       default:

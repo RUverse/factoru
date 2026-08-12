@@ -26,14 +26,58 @@ describe('portable Factoru agent contracts', () => {
       path.join(root, 'packs/factoru-default/formulas/standard-build.formula.toml'),
       'utf8',
     )
-    assert.match(pack, /version = "0\.4\.2"/)
+    const specialist = fs.readFileSync(
+      path.join(root, 'packs/factoru-default/formulas/factoru-specialist-review.formula.toml'),
+      'utf8',
+    )
+    assert.match(pack, /version = "0\.5\.0"/)
     assert.match(pack, /gascity\/roles/)
     assert.match(pack, /tree\/main\/gascity"/)
     assert.equal(lock.match(/3b3b89f2011e06d84459aa7bea1552382f13930a/g)?.length, 4)
     assert.match(formula, /extends = \["build-basic"\]/)
-    assert.equal(formula.match(/max_units = 20/g)?.length, 2)
+    assert.equal(formula.match(/max_units = 20/g)?.length, 1)
+    assert.match(formula, /context = "shared"[\s\S]*single_lane = true/)
+    assert.doesNotMatch(formula, /context = "separate"/)
     assert.match(formula, /id = "factoru-verify"[\s\S]*max_attempts = 2/)
     assert.match(formula, /id = "review"[\s\S]*needs = \["factoru-verify"\]/)
+    assert.match(formula, /expand = "factoru-specialist-review"/)
+    assert.equal(specialist.match(/factoru\.review_lane/g)?.length, 3)
+    assert.match(specialist, /correctness_testing/)
+    assert.match(specialist, /security_reliability/)
+    assert.match(specialist, /maintainability_architecture/)
+    assert.match(specialist, /id = "\{target\}\.synthesize-specialist-review"/)
+    assert.match(specialist, /max_attempts = 6/)
+    assert.equal(specialist.match(/review-read-only-check\.sh/g)?.length, 2)
+    assert.match(specialist, /Never push or open a pull request/)
+    const toolServer = fs.readFileSync(
+      path.join(root, 'packs/factoru-default/assets/probe-tool/server.mjs'),
+      'utf8',
+    )
+    for (const tool of [
+      'factoru_tasks_split',
+      'factoru_tasks_set_resource_intents',
+      'factoru_tasks_append_evidence',
+      'factoru_memory_search',
+      'factoru_memory_propose_update',
+      'factoru_runs_context',
+      'factoru_runs_report_review',
+      'factoru_capacity_inspect',
+    ])
+      assert.match(toolServer, new RegExp(`name: '${tool}'`))
+    for (const schema of [
+      'decomposition.v1.json',
+      'implementation-handoff.v1.json',
+      'review-context.v1.json',
+      'specialist-report.v1.json',
+      'review-synthesis.v1.json',
+    ]) {
+      assert.equal(
+        JSON.parse(
+          fs.readFileSync(path.join(root, 'packs/factoru-default/schemas', schema), 'utf8'),
+        ).type,
+        'object',
+      )
+    }
     assert.doesNotMatch(formula, /mayor/i)
   })
 
