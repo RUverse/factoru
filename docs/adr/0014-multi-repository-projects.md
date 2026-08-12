@@ -33,9 +33,12 @@ filesystem or shell access.
   reactor provisions each rig independently. A project is ready only when all
   repositories are ready, and setup retry requeues only failed repositories.
 - HTTPS, SSH, and SCP-style SSH repository sources are cloned by Factoru Server
-  into a deterministic location below an approved root. URLs containing
-  credentials are rejected. Clone and rig-registration mutations occur after
-  durable intent and are bounded/idempotent.
+  into the project's server-owned managed directory. Existing local repositories
+  are approved sources rather than execution locations; their clean committed
+  state is cloned into the same managed directory. URLs containing credentials
+  are rejected. Clone and rig-registration mutations occur after durable intent
+  and are bounded/idempotent. Placement details are recorded in
+  [ADR 0018](./0018-managed-project-directories.md).
 - Desktop requests a bounded, non-interactive access check before staging a
   remote source, and `projects.create` repeats it before persisting any project,
   receipt, event, or outbox item. Setup retry repeats the check for failed remote

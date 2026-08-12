@@ -14,6 +14,9 @@ export function sourcePreviewEnvironment(repositoryRoot, parentEnvironment = pro
   if (!parentEnvironment.FACTORU_REPOSITORY_ROOTS?.trim()) {
     env.FACTORU_REPOSITORY_ROOTS = JSON.stringify([path.join(os.homedir(), 'factoru-repositories')])
   }
+  if (!parentEnvironment.FACTORU_PROJECTS_ROOT?.trim()) {
+    env.FACTORU_PROJECTS_ROOT = path.join(os.homedir(), 'factoru-projects')
+  }
   return { dev, env }
 }
 

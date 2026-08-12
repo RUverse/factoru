@@ -39,6 +39,7 @@ function cachedProject(id: string, name: string): Project {
     id,
     name,
     description: null,
+    projectDirectory: null,
     repository: { rootId: 'root_main', relativePath: name, label: name },
     defaultBranch: 'dev',
     setupState: 'ready',

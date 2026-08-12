@@ -1,7 +1,7 @@
 # Factoru Architecture
 
 > Document type: living implementation map
-> Last reviewed: 2026-08-11
+> Last reviewed: 2026-08-12
 > Runtime implementation status: Milestones 0–6 complete; provider-backed
 > Milestones 5 and 6 acceptance passed; Milestone 7 packaging and dependable
 > operation are next
@@ -37,9 +37,9 @@ inventory below is authoritative.
 | Gas City adapter | **Implemented** | `packages/gas-city` is verified against Gas City 1.4.0: compatibility/readiness, loopback supervisor client, durable cursors, guarded rig registration, run dispatch/observation/cancellation, per-run usage folding, and project-runtime configuration. It consumes token-bearing operation facts when available and otherwise the provider-neutral structured transcript; unavailable provider pricing is explicit rather than rendered as zero cost. Dispatch reads and strictly validates the Factoru Formula source before any durable Gas City mutation. Raw DTOs and provider options stay inside the package. | Revalidate the pinned compatibility range during Milestone 7 packaging. |
 | Agent-tool bridge | **Implemented** | Factoru installs both harness MCP configs from `session_setup_script`. The server projects its current loopback origin into private, schema-versioned city runtime state so isolated ports reach the correct bootstrap. Setup requests a short-lived credential bound by the server to the exact rig, project, role, and Gas City session; the model never supplies it as an argument. The bridge exposes structured task tools, while server policy enforces role/project scope, request replay, and a redacted audit record ([ADR 0010](./adr/0010-agent-tool-transport.md)). The live PM path completed audited search/create/update/queue calls. | Revalidate tool bootstrap from packaged installations in Milestone 7. |
 | Factoru Gas City pack | **Implemented** | `packs/factoru-default` 0.3.0 defines four provider-neutral roles, prior probes, Queue reconciliation, the bounded production `software-delivery` Formula v2, and the role-scoped MCP bridge. Delivery routes implementation and independent review to separate bindings, uses real `needs` edges, a trusted deterministic check with two total attempts, and a final evidence step. It completed 10/10 benchmark tasks plus the conversation-originated production-loop task. | Tune only from measured production failures. |
-| Factoru database | **Implemented** | `@factoru/database` uses `better-sqlite3`, WAL/foreign keys/busy handling, forward-only SQL migrations, identity binding, transactional receipts/events/outbox, checkpoint, and online backup. Migration 0005 adds ordered one-to-many project repositories with one primary repository, one rig binding and provisioning state per repository, and backfills every existing project. Admission, observation, failure/retry, cancellation, review handoff, and acceptance are transactional; real correlations survived reopen/recovery. | Complete backup/restore and operational recovery drills in Milestone 7. |
+| Factoru database | **Implemented** | `@factoru/database` uses `better-sqlite3`, WAL/foreign keys/busy handling, forward-only SQL migrations, identity binding, transactional receipts/events/outbox, checkpoint, and online backup. Migration 0005 adds ordered one-to-many project repositories with one primary repository, one rig binding and provisioning state per repository, and backfills every existing project. Migration 0006 records the managed project directory and original source path of local imports while leaving existing projects explicitly unmanaged. Admission, observation, failure/retry, cancellation, review handoff, and acceptance are transactional; real correlations survived reopen/recovery. | Complete backup/restore and operational recovery drills in Milestone 7. |
 | Authentication and pairing | **Partial** | Hashed one-time remote pairing codes, private restart-scoped same-machine enrollment proofs, hashed revocable owner tokens, method scopes, 60-second one-time connection tickets, rate limiting, active-socket revocation, and OS-encrypted desktop storage are connected and tested ([ADR 0013](./adr/0013-local-desktop-enrollment.md)). The renderer never receives either enrollment proof or long-lived token. | Validate the HTTPS proxy path on another machine and the packaged local-service lifecycle in Milestone 7. |
-| Projects | **Partial** | Named projects contain an ordered repository collection. Native local selection and approved-root browsing validate canonical paths; HTTPS/SSH URLs receive a bounded non-interactive access check before project persistence, then clone into deterministic managed locations under approved roots without embedded credentials. Git/OpenSSH credentials remain owned by the unprivileged server account. Canonical paths remain globally unique. Each repository has its own branch/index preview, rig binding, durable outbox item, bounded setup retry, status, and error; the first is the primary serial execution rig. The real registrar still uses the guarded `gc rig add` sequence. | Validate packaged multi-rig creation/removal, service-account credential lifecycle, backup recovery, and explicit per-task rig routing. |
+| Projects | **Partial** | Named projects contain an ordered repository collection and, for new projects, one stable server-owned directory under `$HOME/factoru-projects`. Every remote clone and clean local import is placed below that directory's `repositories/` child, leaving the project root available for later project-level instruction files. HTTPS/SSH URLs receive a bounded non-interactive access check before persistence; Git/OpenSSH credentials remain owned by the unprivileged server account. Existing projects keep their recorded paths as unmanaged legacy projects. Each repository has its own branch/index preview, rig binding, durable outbox item, bounded setup retry, status, and error; the first is the primary serial execution rig ([ADR 0018](./adr/0018-managed-project-directories.md)). | Validate packaged multi-rig creation/removal, service-account credential lifecycle, backup recovery, and explicit per-task rig routing. |
 | Multi-factory project execution | **Deferred** | Desktop identifies each project by its one authoritative home factory and server-local project ID; additional factories are not replicas or execution targets yet. | Define server-to-server trust, per-factory repository mappings, task placement, cancellation, health, and recovery before attaching execution factories. |
 | Project Manager chat | **Partial** | Every project receives one deterministic conversation and city-local Gas City chat identity. Authenticated desktop sends are persisted before a bounded delivery outbox, transcript replies resume by Gas City sequence, status/errors publish to cached clients, and a separate serialized planner dispatches and observes production Queue reconciliation without blocking chat. A live provider conversation created and queued the Milestone 6 acceptance task through audited tools. | Validate the packaged Electron and managed-service lifecycle in Milestone 7. |
 | Four-state tasks | **Implemented** | The domain and protocol admit exactly `backlog`, `queue`, `in_progress`, and `needs_you`; SQLite persists active tasks, terminal resolutions, exact Needs-you actions, dependencies, history, run correlations, simple duplicate scores, WIP one, and coalesced Queue intent. Authenticated idempotent direct and PM tool commands are connected. The responsive desktop board supports Backlog capture/editing, Queue movement and phase badges, exact Needs-you requests, terminal resolution, and explicit merge decisions. Queue work dispatches with an idempotency key to one serialized Formula and is observed to terminal state; the provider-backed conversation path reached acceptance without manual board management. | Tune only from packaged usability and production evidence. |
@@ -444,18 +444,24 @@ Git, a test process, or the network.
 **Partial.** Project creation is one named aggregate command containing an
 ordered set of repository sources. Desktop first requires one connected home
 factory and targets every repository discovery/preview/create operation to that
-stable server ID. Existing folders carry a server-issued
-preview fingerprint; remote sources carry an HTTPS/SSH URL and approved clone
-root. Desktop asks the selected factory to validate each URL before staging it,
+stable server ID. Existing folders carry a server-issued preview fingerprint;
+remote sources carry only an HTTPS/SSH URL because clone placement is
+server-owned. Desktop asks the selected factory to validate each URL before staging it,
 and `projects.create` revalidates every unique remote URL before product state is
 written. The command transaction then persists the project, all desired
 repository/rig bindings, one primary designation, events, receipt, and one
 outbox item per repository before any remote clone or rig-registration
-mutation begins ([ADR 0014](./adr/0014-multi-repository-projects.md)).
+mutation begins ([ADR 0014](./adr/0014-multi-repository-projects.md),
+[ADR 0018](./adr/0018-managed-project-directories.md)).
 
-The provisioning reactor independently clones remote sources into
-deterministic locations, discovers their checked-out default branch, revalidates
-index safety, updates the desired repository record, and registers each rig.
+For every new project, Server derives a stable
+`$HOME/factoru-projects/<project-slug>-<project-id>/` directory. The project
+root is reserved for later project-level metadata and instruction files; the
+provisioning reactor places every repository below `repositories/`. Remote
+sources are cloned there. Existing local folders must be completely clean and
+are cloned locally without hard links so Gas City mutates only the managed copy.
+The reactor discovers each checked-out default branch, revalidates index safety,
+updates the desired repository record, and registers each rig.
 Project setup becomes `ready` only when every rig is ready; one exhausted rig
 places the project in `needs_attention` with repository-specific evidence, and
 retry revalidates failed remote access before requeueing only failed
@@ -470,8 +476,9 @@ only for Local Factory. It sends the
 chosen absolute path directly through the authenticated project operation; the
 renderer receives only the approved root ID, relative path, branch, and safety
 preview. A desktop connected to another host can use repository URLs or browse
-the server's approved roots; a client-local folder outside those roots is
-rejected. Desktop aggregates the resulting server-owned projects by compound
+the server's approved import roots; a client-local folder outside those roots
+is rejected. Source roots authorize imports, not managed clone placement.
+Desktop aggregates the resulting server-owned projects by compound
 `{ factoryId, projectId }` identity. This cache is not authoritative and does
 not alter the server protocol or SQLite schema
 ([ADR 0017](./adr/0017-factory-independent-project-catalog.md)).
@@ -1201,11 +1208,13 @@ Initial trust boundaries:
 - project/role-scoped Factoru tool authorization protects Factoru product state;
   it does not turn Gas City's host-local CLI, API, or shared Dolt store into a
   project sandbox, and product copy must not imply otherwise;
-- repository paths, including paths returned by the Electron native folder
-  chooser, are canonicalized and validated against registered server roots;
+- repository source paths, including paths returned by the Electron native
+  folder chooser, are canonicalized and validated against registered import
+  roots; managed destinations are independently constrained below the configured
+  Factoru projects root;
 - remote clone inputs accept only HTTPS, SSH URLs, or SCP-style SSH references,
   reject embedded credentials, use argument-safe Git execution, and place
-  deterministic managed clones below an approved root;
+  deterministic managed clones below each project's server-owned directory;
 - remote access probes and clones disable interactive Git, credential, and SSH
   prompts, preserve the server account's standard OpenSSH and Git credential
   configuration, classify sanitized failures, and never auto-accept an unknown

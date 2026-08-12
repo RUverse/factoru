@@ -24,6 +24,9 @@ function fixtureDirectory() {
   directories.push(value)
   return value
 }
+function projectsRoot(directory: string) {
+  return { id: 'root_projects', label: 'Projects', path: path.join(directory, 'managed-projects') }
+}
 afterEach(() => {
   for (const value of directories.splice(0)) fs.rmSync(value, { recursive: true })
 })
@@ -49,7 +52,7 @@ describe('Milestone 2 server slice', () => {
     database.createPairingCode('ABCD-EFGH-JKMN', new Date(Date.now() + 60_000))
     const projects = new ProjectService({
       database,
-      repositories: new RepositoryService([]),
+      repositories: new RepositoryService([], projectsRoot(directory)),
       registrar: { register: async () => undefined },
       cityName: 'factoru-test',
       cityPath: path.join(directory, 'city'),
@@ -95,7 +98,7 @@ describe('Milestone 2 server slice', () => {
     const database = new FactoruDatabase(path.join(directory, 'factoru.sqlite'), serverId)
     const projects = new ProjectService({
       database,
-      repositories: new RepositoryService([]),
+      repositories: new RepositoryService([], projectsRoot(directory)),
       registrar: { register: async () => undefined },
       cityName: 'factoru-test',
       cityPath: path.join(directory, 'city'),
@@ -155,7 +158,7 @@ describe('Milestone 2 server slice', () => {
     database.createPairingCode('ABCD-EFGH-JKMN', new Date(Date.now() + 60_000))
     const device = database.exchangePairingCode('ABCD-EFGH-JKMN', 'Mac')!.device
     const roots = [{ id: 'root_test', label: 'Repos', path: root }]
-    const repositories = new RepositoryService(roots)
+    const repositories = new RepositoryService(roots, projectsRoot(root))
     const preview = await repositories.preview('root_test', 'project')
     const secondPreview = await repositories.preview('root_test', 'api')
     expect(preview.preview.safe).toBe(true)
@@ -163,13 +166,22 @@ describe('Milestone 2 server slice', () => {
       rootId: 'root_test',
       relativePath: 'project',
     })
-    expect(repositories.planClone('https://example.com/org/api.git', 'root_test')).toMatchObject({
-      sourceUrl: 'https://example.com/org/api.git',
-      repository: { root: { id: 'root_test' }, relativePath: expect.stringMatching(/^api-/) },
-    })
-    await expect(repositories.clone('file:///tmp/repository', 'root_test')).rejects.toMatchObject({
-      code: 'repository_url_invalid',
-    })
+    const managedProject = repositories.planProjectDirectory(
+      'prj_11111111111111111111111111111111',
+      'My Project',
+    )
+    expect(repositories.planClone('https://example.com/org/api.git', managedProject)).toMatchObject(
+      {
+        sourceUrl: 'https://example.com/org/api.git',
+        repository: {
+          root: { id: 'root_projects' },
+          relativePath: expect.stringMatching(/^my-project-11111111\/repositories\/api-/),
+        },
+      },
+    )
+    await expect(
+      repositories.clone('file:///tmp/repository', 'root_projects', 'project/repositories/repo'),
+    ).rejects.toMatchObject({ code: 'repository_url_invalid' })
     const calls: unknown[] = []
     const registrar: RigRegistrar = {
       register: async (request) => {
@@ -203,6 +215,7 @@ describe('Milestone 2 server slice', () => {
       ],
     })
     expect(created.setupState).toBe('setting_up')
+    expect(created.projectDirectory).toMatchObject({ managed: true })
     expect(created.repositories).toHaveLength(2)
     expect(created.repositories[0]?.isPrimary).toBe(true)
     await service.processOutbox()
@@ -210,7 +223,16 @@ describe('Milestone 2 server slice', () => {
     expect(calls).toHaveLength(2)
     database.close()
     const reopened = new FactoruDatabase(file, serverId)
-    expect(reopened.getProject(created.id)?.repositoryRealPath).toBe(fs.realpathSync(repository))
+    const reopenedProject = reopened.getProject(created.id)
+    expect(reopenedProject?.repositoryRealPath).not.toBe(fs.realpathSync(repository))
+    expect(reopenedProject?.repositoryRealPath).toContain(
+      `${path.sep}managed-projects${path.sep}${created.projectDirectory?.name}${path.sep}repositories${path.sep}`,
+    )
+    expect(reopenedProject?.managedProjectDirectory).toBe(true)
+    expect(reopenedProject?.repositories.map((item) => item.sourceRepositoryRealPath)).toEqual([
+      fs.realpathSync(repository),
+      fs.realpathSync(secondRepository),
+    ])
     expect(reopened.getProject(created.id)?.repositories).toHaveLength(2)
     reopened.close()
   }, 15_000)
@@ -224,6 +246,7 @@ describe('Milestone 2 server slice', () => {
     const device = database.createTrustedDevice('Mac').device
     const repositories = new RepositoryService(
       [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
       async () => ({ stdout: 'ref: refs/heads/main\tHEAD\n', stderr: '' }),
     )
     const service = new ProjectService({
@@ -233,7 +256,6 @@ describe('Milestone 2 server slice', () => {
       cityName: 'factoru-test',
       cityPath: path.join(root, 'city'),
     })
-    const planned = repositories.planClone('https://example.com/org/api.git', 'root_test')
     const created = await service.createProject(device, 'cmd_remote', {
       name: 'Remote platform',
       repositories: [
@@ -246,7 +268,10 @@ describe('Milestone 2 server slice', () => {
       defaultBranch: 'HEAD',
       rig: { registrationState: 'pending' },
     })
-    expect(fs.existsSync(planned.repository.realPath)).toBe(false)
+    expect(created.projectDirectory).toMatchObject({ managed: true })
+    expect(fs.existsSync(path.join(root, 'managed-projects', created.projectDirectory!.name))).toBe(
+      false,
+    )
     expect(database.claimDueOutbox()).toHaveLength(1)
     database.close()
   })
@@ -260,6 +285,7 @@ describe('Milestone 2 server slice', () => {
     const device = database.createTrustedDevice('Mac').device
     const repositories = new RepositoryService(
       [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
       async (args) => {
         if (args.includes('git@github-work:private/denied.git')) {
           throw Object.assign(new Error('git failed'), {
@@ -295,7 +321,7 @@ describe('Milestone 2 server slice', () => {
     expect(database.listProjects()).toEqual([])
     expect(database.currentSequence()).toBe(0)
     expect(database.claimDueOutbox()).toEqual([])
-    expect(fs.readdirSync(root).filter((entry) => entry.includes('api-'))).toEqual([])
+    expect(fs.readdirSync(path.join(root, 'managed-projects'))).toEqual([])
     database.close()
   })
 
@@ -309,6 +335,7 @@ describe('Milestone 2 server slice', () => {
     let accessible = true
     const repositories = new RepositoryService(
       [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
       async () => {
         if (!accessible) {
           throw Object.assign(new Error('git failed'), {

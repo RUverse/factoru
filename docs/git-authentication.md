@@ -1,6 +1,7 @@
 # Git authentication on a Factoru factory
 
-Factoru Server clones remote project repositories itself. Git access must
+Factoru Server clones remote project repositories into that project's managed
+`$HOME/factoru-projects/<project>/repositories/` directory. Git access must
 therefore work for the unprivileged operating-system account that runs
 `factoru-server`, on the factory that will own the project. Desktop never sends
 Git credentials to a factory, and Factoru does not store private keys or access

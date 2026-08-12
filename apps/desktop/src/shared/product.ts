@@ -128,7 +128,7 @@ export interface ProductBridge {
             defaultBranch: string
             fingerprint: string
           }
-        | { kind: 'remote'; rootId: string; url: string }
+        | { kind: 'remote'; url: string }
       >
     },
   ): Promise<ProductSnapshot>

@@ -104,6 +104,7 @@ export interface OperatorStatus {
   readonly serverId: string | null
   readonly serverUrl: string
   readonly dataDir: string
+  readonly projectsRoot: string
   readonly database: 'ready' | 'missing'
   readonly city: { readonly name: string | null; readonly state: 'ready' | 'missing' | 'partial' }
   readonly process: 'running' | 'stopped'
@@ -133,6 +134,7 @@ export async function readOperatorStatus(config: ServerConfig): Promise<Operator
     serverId,
     serverUrl: serverUrlFor(config),
     dataDir: config.dataDir,
+    projectsRoot: config.projectsRoot.path,
     database: fs.existsSync(config.databaseFile) ? 'ready' : 'missing',
     city: {
       name: serverId ? `factoru-${serverId.slice(4, 16)}` : null,
@@ -157,6 +159,7 @@ export function renderOperatorStatus(status: OperatorStatus): string {
     line('server id', status.serverId ?? 'not initialized'),
     line('server URL', status.serverUrl),
     line('data directory', status.dataDir),
+    line('projects root', status.projectsRoot),
     line('database', status.database),
     line('Gas City', `${status.city.state}${status.city.name ? ` (${status.city.name})` : ''}`),
     line('active work', status.activeActivity.length),

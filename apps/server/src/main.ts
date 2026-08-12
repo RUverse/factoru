@@ -67,9 +67,10 @@ async function main(): Promise<void> {
 
   if (command.kind === 'repositories-check') {
     try {
-      const result = await new RepositoryService(config.repositoryRoots).checkRemoteAccess(
-        command.url,
-      )
+      const result = await new RepositoryService(
+        config.repositoryRoots,
+        config.projectsRoot,
+      ).checkRemoteAccess(command.url)
       if (command.json) {
         console.log(JSON.stringify({ ready: true, ...result }, null, 2))
       } else {
@@ -187,7 +188,7 @@ async function main(): Promise<void> {
     return
   }
 
-  const repositories = new RepositoryService(config.repositoryRoots)
+  const repositories = new RepositoryService(config.repositoryRoots, config.projectsRoot)
   const serverUrl = serverUrlFor(config)
   const localEnrollment = writeLocalEnrollmentFile(config.localEnrollmentFile, {
     serverId,

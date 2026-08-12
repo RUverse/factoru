@@ -192,4 +192,51 @@ describe('forward migrations', () => {
     })
     database.close()
   })
+
+  it('marks existing projects as unmanaged while adding managed project directories', () => {
+    const { directory, database } = fixture()
+    for (const name of [
+      '0001_milestone_2.sql',
+      '0002_milestone_3_product_model.sql',
+      '0003_milestone_4_tasks.sql',
+      '0004_milestones_5_6_delivery.sql',
+      '0005_multi_repository_projects.sql',
+    ]) {
+      fs.copyFileSync(new URL(`../migrations/${name}`, import.meta.url), path.join(directory, name))
+    }
+    applyMigrations(database, directory)
+    database
+      .prepare(
+        `INSERT INTO projects(
+           id, name, repository_root_id, repository_relative_path, repository_real_path,
+           default_branch, setup_state, created_at, updated_at
+         ) VALUES (?, 'Legacy', 'root', 'legacy', '/repos/legacy', 'dev', 'ready', ?, ?)`,
+      )
+      .run(
+        'prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        '2026-08-12T10:00:00.000Z',
+        '2026-08-12T10:00:00.000Z',
+      )
+    fs.copyFileSync(
+      new URL('../migrations/0006_managed_project_directories.sql', import.meta.url),
+      path.join(directory, '0006_managed_project_directories.sql'),
+    )
+    applyMigrations(database, directory)
+    const projectColumns = database.prepare('PRAGMA table_info(projects)').all() as Array<{
+      name: string
+    }>
+    const repositoryColumns = database
+      .prepare('PRAGMA table_info(project_repositories)')
+      .all() as Array<{ name: string }>
+    expect(projectColumns.map(({ name }) => name)).toEqual(
+      expect.arrayContaining(['project_directory', 'managed_project_directory']),
+    )
+    expect(repositoryColumns.map(({ name }) => name)).toContain('source_repository_real_path')
+    expect(
+      database
+        .prepare('SELECT project_directory, managed_project_directory FROM projects WHERE id = ?')
+        .get('prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    ).toEqual({ project_directory: null, managed_project_directory: 0 })
+    database.close()
+  })
 })

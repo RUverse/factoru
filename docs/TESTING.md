@@ -155,14 +155,16 @@ restarting a drifting machine-wide supervisor.
 
 ## 5. Exercise the complete product path
 
-Use a clean disposable Git repository. Rig registration creates reviewed Gas
-City/Beads metadata and may create a commit, so do not select the Factoru source
-repository or a repository containing uncommitted user work.
+Use a clean disposable Git repository. Factoru imports its committed state into
+the managed project directory before rig registration; any uncommitted or
+untracked work is rejected so it cannot be omitted from the imported clone.
+Do not select the Factoru source repository.
 
 Expose only a containing directory of disposable repositories:
 
 ```bash
-FACTORU_REPOSITORY_ROOTS='["/absolute/path/to/disposable-repositories"]' pnpm dev
+FACTORU_REPOSITORY_ROOTS='["/absolute/path/to/disposable-repositories"]' \
+FACTORU_PROJECTS_ROOT='/absolute/path/to/factoru-projects' pnpm dev
 ```
 
 Verify the connected Milestone 6 path:

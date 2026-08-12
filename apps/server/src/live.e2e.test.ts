@@ -24,7 +24,11 @@ describe('authenticated live API', () => {
     database.createPairingCode('ABCD-EFGH-JKMN', new Date(Date.now() + 60_000))
     const service = new ProjectService({
       database,
-      repositories: new RepositoryService([]),
+      repositories: new RepositoryService([], {
+        id: 'root_projects',
+        label: 'Projects',
+        path: path.join(directory, 'projects'),
+      }),
       registrar: { register: async () => undefined },
       cityName: 'factoru-test',
       cityPath: path.join(directory, 'city'),

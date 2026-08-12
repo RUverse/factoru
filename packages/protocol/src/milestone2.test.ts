@@ -7,6 +7,7 @@ import {
   pairingExchangeRequestSchema,
   projectSnapshotSchema,
   projectCreateParamsSchema,
+  projectSchema,
   repositoryAccessCheckParamsSchema,
   repositoryAccessCheckSchema,
 } from './milestone2.js'
@@ -87,7 +88,6 @@ describe('Milestone 2 protocol', () => {
         },
         {
           kind: 'remote',
-          rootId: 'root_local',
           url: 'https://example.com/api.git',
         },
       ],
@@ -96,6 +96,46 @@ describe('Milestone 2 protocol', () => {
     expect(projectCreateParamsSchema.safeParse({ name: 'Empty', repositories: [] }).success).toBe(
       false,
     )
+  })
+
+  it('defaults the managed directory for cached projects from older servers', () => {
+    expect(
+      projectSchema.parse({
+        id: 'prj_one',
+        name: 'Legacy',
+        description: null,
+        repository: { rootId: 'root_one', relativePath: 'legacy', label: 'Repositories' },
+        defaultBranch: 'main',
+        setupState: 'ready',
+        setupError: null,
+        version: 1,
+        createdAt: '2026-08-12T10:00:00.000Z',
+        updatedAt: '2026-08-12T10:00:00.000Z',
+        rig: {
+          rigName: 'legacy',
+          beadPrefix: 'leg',
+          registrationState: 'ready',
+          lastReconciledAt: null,
+          error: null,
+        },
+        repositories: [
+          {
+            id: 'repo_one',
+            isPrimary: true,
+            sourceUrl: null,
+            repository: { rootId: 'root_one', relativePath: 'legacy', label: 'Repositories' },
+            defaultBranch: 'main',
+            rig: {
+              rigName: 'legacy',
+              beadPrefix: 'leg',
+              registrationState: 'ready',
+              lastReconciledAt: null,
+              error: null,
+            },
+          },
+        ],
+      }).projectDirectory,
+    ).toBeNull()
   })
 
   it('validates remote repository access requests and successful results', () => {

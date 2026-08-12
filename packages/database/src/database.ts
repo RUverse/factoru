@@ -31,6 +31,8 @@ export interface ProjectRecord {
   id: string
   name: string
   description: string | null
+  projectDirectory: string | null
+  managedProjectDirectory: boolean
   repositoryRootId: string
   repositoryRelativePath: string
   repositoryRealPath: string
@@ -50,6 +52,7 @@ export interface ProjectRepositoryRecord {
   projectId: string
   isPrimary: boolean
   sourceUrl: string | null
+  sourceRepositoryRealPath: string | null
   repositoryRootId: string
   repositoryRelativePath: string
   repositoryRealPath: string
@@ -90,6 +93,8 @@ export interface CreateProjectInput {
   projectId: string
   name: string
   description?: string
+  projectDirectory?: string
+  managedProjectDirectory?: boolean
   repositoryRootId: string
   repositoryRelativePath: string
   repositoryRealPath: string
@@ -104,6 +109,7 @@ export interface CreateProjectRepositoryInput {
   id: string
   isPrimary: boolean
   sourceUrl?: string
+  sourceRepositoryRealPath?: string
   repositoryRootId: string
   repositoryRelativePath: string
   repositoryRealPath: string
@@ -127,6 +133,8 @@ interface ProjectRow {
   id: string
   name: string
   description: string | null
+  project_directory: string | null
+  managed_project_directory: number
   repository_root_id: string
   repository_relative_path: string
   repository_real_path: string
@@ -151,6 +159,7 @@ interface ProjectRepositoryRow {
   project_id: string
   is_primary: number
   source_url: string | null
+  source_repository_real_path: string | null
   repository_root_id: string
   repository_relative_path: string
   repository_real_path: string
@@ -201,6 +210,7 @@ function repositoryFromRow(row: ProjectRepositoryRow): ProjectRepositoryRecord {
     projectId: row.project_id,
     isPrimary: row.is_primary === 1,
     sourceUrl: row.source_url,
+    sourceRepositoryRealPath: row.source_repository_real_path,
     repositoryRootId: row.repository_root_id,
     repositoryRelativePath: row.repository_relative_path,
     repositoryRealPath: row.repository_real_path,
@@ -222,6 +232,8 @@ function projectFromRow(row: ProjectRow, repositories: ProjectRepositoryRecord[]
     id: row.id,
     name: row.name,
     description: row.description,
+    projectDirectory: row.project_directory,
+    managedProjectDirectory: row.managed_project_directory === 1,
     repositoryRootId: row.repository_root_id,
     repositoryRelativePath: row.repository_relative_path,
     repositoryRealPath: row.repository_real_path,
@@ -565,14 +577,17 @@ export class FactoruDatabase {
       this.connection
         .prepare(
           `INSERT INTO projects(
-             id, name, description, repository_root_id, repository_relative_path,
+             id, name, description, project_directory, managed_project_directory,
+             repository_root_id, repository_relative_path,
              repository_real_path, default_branch, setup_state, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'setting_up', ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'setting_up', ?, ?)`,
         )
         .run(
           input.projectId,
           input.name,
           input.description ?? null,
+          input.projectDirectory ?? null,
+          input.managedProjectDirectory ? 1 : 0,
           input.repositoryRootId,
           input.repositoryRelativePath,
           input.repositoryRealPath,
@@ -589,10 +604,11 @@ export class FactoruDatabase {
         .run(input.projectId, input.cityName, input.rigName, input.beadPrefix)
       const insertRepository = this.connection.prepare(
         `INSERT INTO project_repositories(
-           id, project_id, is_primary, source_url, repository_root_id,
+           id, project_id, is_primary, source_url, source_repository_real_path,
+           repository_root_id,
            repository_relative_path, repository_real_path, default_branch,
            city_name, rig_name, bead_prefix, registration_state, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
       )
       for (const repository of repositories) {
         insertRepository.run(
@@ -600,6 +616,7 @@ export class FactoruDatabase {
           input.projectId,
           repository.isPrimary ? 1 : 0,
           repository.sourceUrl ?? null,
+          repository.sourceRepositoryRealPath ?? null,
           repository.repositoryRootId,
           repository.repositoryRelativePath,
           repository.repositoryRealPath,

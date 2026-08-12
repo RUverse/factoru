@@ -1,7 +1,7 @@
 # Factoru Roadmap
 
 > Status: Milestones 0–6 complete; Milestone 7 is next
-> Last updated: 2026-08-11
+> Last updated: 2026-08-12
 
 This is the single delivery roadmap for Factoru. It intentionally starts with a
 small, coherent product and keeps the broader graph-orchestration vision as a
@@ -188,8 +188,10 @@ A Factoru project initially contains:
 
 - a name and optional description;
 - one authoritative home factory selected from the connected Desktop profiles;
-- one or more Git repositories, each with a server-local path, default branch,
-  and Gas City rig binding;
+- one stable home-factory directory under `$HOME/factoru-projects`, reserved for
+  the project's repositories and later project-level instruction files;
+- one or more Git repositories below that directory's `repositories/` child,
+  each with a default branch and Gas City rig binding;
 - a primary repository/rig used by the serial task-execution path;
 - Project Manager and Software Engineer settings;
 - project Factory capacity and resource policy;
@@ -207,7 +209,9 @@ against approved repository roots and is never exposed as a general renderer
 filesystem capability. Remote factories use their approved-root browser or
 HTTPS/SSH repository URLs. The chosen server validates each URL
 non-interactively before Desktop stages it and rechecks all URLs before project
-persistence, then clones them asynchronously into an approved root. URLs
+persistence, then clones them asynchronously into the project's managed folder.
+Choosing an existing server repository imports its committed state into the
+same folder; it must be clean so local-only work cannot be silently omitted. URLs
 containing credentials are rejected. Repository access comes from the
 unprivileged server account's standard OpenSSH configuration, agent, known
 hosts, or HTTPS credential helper; Factoru diagnoses that setup but never

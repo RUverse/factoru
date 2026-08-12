@@ -25,6 +25,7 @@ the historical reasoning behind one decision.
 | [0015](./0015-manual-ssh-preview-transport.md) | Manual SSH loopback forwarding for remote source previews | Accepted for developer preview; acceptance pending |
 | [0016](./0016-concurrent-desktop-server-connections.md) | One independent Desktop connection per saved server profile | Accepted; routing superseded by 0017 |
 | [0017](./0017-factory-independent-project-catalog.md) | Aggregate projects across factories while routing through one authoritative home factory | Accepted |
+| [0018](./0018-managed-project-directories.md) | One server-owned directory per project with managed repository imports | Accepted, implemented for new projects |
 
 ## Writing a new ADR
 

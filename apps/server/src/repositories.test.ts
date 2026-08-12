@@ -1,5 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import { RepositoryService, type GitCommandRunner } from './repositories.js'
+
+const directories: string[] = []
+function service(runner: GitCommandRunner): RepositoryService {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-repositories-'))
+  directories.push(directory)
+  return new RepositoryService(
+    [],
+    { id: 'root_projects', label: 'Projects', path: directory },
+    runner,
+  )
+}
+afterEach(() => {
+  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true })
+})
 
 describe('repository remote access', () => {
   it.each([
@@ -14,9 +31,9 @@ describe('repository remote access', () => {
       invocation = { args, environment: options.env ?? {}, timeout: options.timeout }
       return { stdout: 'ref: refs/heads/dev\tHEAD\n', stderr: '' }
     }
-    const service = new RepositoryService([], runner)
+    const repositories = service(runner)
 
-    await expect(service.checkRemoteAccess(url)).resolves.toEqual({
+    await expect(repositories.checkRemoteAccess(url)).resolves.toEqual({
       transport,
       host,
       accessible: true,
@@ -33,13 +50,13 @@ describe('repository remote access', () => {
 
   it('permits an SSH username but rejects embedded HTTPS credentials', async () => {
     const runner: GitCommandRunner = async () => ({ stdout: '', stderr: '' })
-    const service = new RepositoryService([], runner)
+    const repositories = service(runner)
 
     await expect(
-      service.checkRemoteAccess('ssh://git@github.com/RUverse/factoru.git'),
+      repositories.checkRemoteAccess('ssh://git@github.com/RUverse/factoru.git'),
     ).resolves.toMatchObject({ transport: 'ssh' })
     await expect(
-      service.checkRemoteAccess('https://token@github.com/RUverse/factoru.git'),
+      repositories.checkRemoteAccess('https://token@github.com/RUverse/factoru.git'),
     ).rejects.toMatchObject({ code: 'repository_url_contains_credentials' })
   })
 
@@ -55,11 +72,11 @@ describe('repository remote access', () => {
     const runner: GitCommandRunner = async () => {
       throw Object.assign(new Error('git failed with a sensitive command'), { code: 128, stderr })
     }
-    const service = new RepositoryService([], runner)
+    const repositories = service(runner)
 
     let failure: (Error & { code: string }) | undefined
     try {
-      await service.checkRemoteAccess('git@github.com:owner/repository.git')
+      await repositories.checkRemoteAccess('git@github.com:owner/repository.git')
     } catch (error) {
       failure = error as Error & { code: string }
     }
@@ -72,18 +89,40 @@ describe('repository remote access', () => {
   })
 
   it('classifies missing Git and bounded timeout failures', async () => {
-    const missing = new RepositoryService([], async () => {
+    const missing = service(async () => {
       throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' })
     })
     await expect(missing.checkRemoteAccess('https://example.com/repo.git')).rejects.toMatchObject({
       code: 'git_unavailable',
     })
 
-    const timeout = new RepositoryService([], async () => {
+    const timeout = service(async () => {
       throw Object.assign(new Error('timed out'), { killed: true, signal: 'SIGTERM' })
     })
     await expect(timeout.checkRemoteAccess('https://example.com/repo.git')).rejects.toMatchObject({
       code: 'repository_access_timeout',
     })
+  })
+})
+
+describe('managed project destinations', () => {
+  it('places every repository below a stable project folder', () => {
+    const repositories = service(async () => ({ stdout: '', stderr: '' }))
+    const project = repositories.planProjectDirectory(
+      'prj_1234567890abcdef1234567890abcdef',
+      'My Product / API',
+    )
+    const first = repositories.planClone('git@github-work:owner/web.git', project)
+    const second = repositories.planClone('https://gitlab.com/owner/api.git', project)
+
+    expect(project.relativePath).toBe('my-product-api-12345678')
+    expect(first.repository.relativePath).toMatch(
+      /^my-product-api-12345678\/repositories\/web-[a-f0-9]{8}$/,
+    )
+    expect(second.repository.relativePath).toMatch(
+      /^my-product-api-12345678\/repositories\/api-[a-f0-9]{8}$/,
+    )
+    expect(path.dirname(path.dirname(first.repository.realPath))).toBe(project.realPath)
+    expect(path.dirname(path.dirname(second.repository.realPath))).toBe(project.realPath)
   })
 })

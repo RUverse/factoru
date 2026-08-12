@@ -133,13 +133,15 @@ pnpm dev:desktop
 `pnpm dev:desktop` expects a server already listening on this worktree's derived
 port.
 
-For project-creation testing, prefer a clean disposable Git repository because
-Gas City rig registration intentionally creates Beads metadata and may commit it
-in the selected repository. Point the development server at a containing folder
-instead of this source worktree:
+For project-creation testing, prefer a clean disposable Git repository. Factoru
+imports its committed state into the new project's managed folder before Gas
+City creates Beads metadata, so dirty or untracked source work is rejected.
+Point the development server at a containing import folder instead of this
+source worktree:
 
 ```bash
-FACTORU_REPOSITORY_ROOTS='["/absolute/path/to/disposable-repositories"]' pnpm dev
+FACTORU_REPOSITORY_ROOTS='["/absolute/path/to/disposable-repositories"]' \
+FACTORU_PROJECTS_ROOT='/absolute/path/to/factoru-projects' pnpm dev
 ```
 
 After connecting, add the disposable repository, open Tasks, capture a Backlog

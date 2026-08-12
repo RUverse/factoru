@@ -93,12 +93,14 @@ describe('worktree development environment', () => {
       FACTORU_PORT: '9999',
       FACTORU_LOCAL_ENROLLMENT_FILE: '/unsafe/local-enrollment.json',
       FACTORU_REPOSITORY_ROOTS: '["/tmp/disposable-repositories"]',
+      FACTORU_PROJECTS_ROOT: '/tmp/factoru-projects',
     })
     assert.equal(merged.FACTORU_DATA_DIR, dev.dataDir)
     assert.equal(merged.FACTORU_PACK_PATH, dev.env.FACTORU_PACK_PATH)
     assert.equal(merged.FACTORU_PORT, String(dev.serverPort))
     assert.equal(merged.FACTORU_LOCAL_ENROLLMENT_FILE, dev.localEnrollmentFile)
     assert.equal(merged.FACTORU_REPOSITORY_ROOTS, '["/tmp/disposable-repositories"]')
+    assert.equal(merged.FACTORU_PROJECTS_ROOT, '/tmp/factoru-projects')
   })
 })
 

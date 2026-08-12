@@ -69,6 +69,10 @@ export const projectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().nullable(),
+  projectDirectory: z
+    .object({ name: z.string().min(1), managed: z.literal(true) })
+    .nullable()
+    .default(null),
   repository: z.object({ rootId: z.string(), relativePath: z.string(), label: z.string() }),
   defaultBranch: z.string().min(1),
   setupState: projectSetupStateSchema,
@@ -232,7 +236,9 @@ export const localProjectRepositoryInputSchema = z.object({
 })
 export const remoteProjectRepositoryInputSchema = z.object({
   kind: z.literal('remote'),
-  rootId: z.string(),
+  // Kept optional so older Desktop builds can continue sending their former clone-root hint.
+  // Factoru Server owns the managed clone destination.
+  rootId: z.string().optional(),
   url: z.string().trim().min(1).max(2_048),
 })
 export const projectRepositoryInputSchema = z.discriminatedUnion('kind', [

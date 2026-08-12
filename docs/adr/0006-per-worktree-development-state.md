@@ -40,7 +40,7 @@ no coordination file.
 The derivation lives in `scripts/worktree-env.mjs` and is covered by tests. The
 applications themselves read plain environment variables
 (`FACTORU_DATA_DIR`, `FACTORU_HOST`, `FACTORU_PORT`, `FACTORU_SERVER_URL`,
-`FACTORU_RENDERER_PORT`, `FACTORU_LOG_LEVEL`) and fall back to production
+`FACTORU_RENDERER_PORT`, `FACTORU_PROJECTS_ROOT`, `FACTORU_LOG_LEVEL`) and fall back to production
 defaults, so no application depends on the development harness.
 
 `pnpm dev:env` prints the current worktree's values, with `--json` and

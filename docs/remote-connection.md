@@ -69,7 +69,9 @@ pinned releases. It:
   `$HOME/.local/share/factoru` without replacing a system toolchain;
 - downloads checksum-pinned Linux arm64/x64 releases of Gas City, Dolt, and
   Beads into that same user-owned tool directory;
-- installs the frozen workspace and creates `$HOME/factoru-repositories`;
+- installs the frozen workspace, creates `$HOME/factoru-projects` for managed
+  project folders, and creates `$HOME/factoru-repositories` as an optional
+  approved import location;
 - installs the source-preview `factoru-server` operator command under
   `$HOME/.local/share/factoru/bin`; and
 - runs the complete provider-selected preflight.
@@ -142,9 +144,11 @@ Inside it, start the source Server in the foreground:
 factoru-server start
 ```
 
-The source launcher supplies the checkout's isolated state and allows projects
-only below `$HOME/factoru-repositories` unless `FACTORU_REPOSITORY_ROOTS` is
-explicitly set. Wait until Factoru prints its URL and state directory. Detach
+The source launcher supplies the checkout's isolated state and puts every new
+project below `$HOME/factoru-projects`. Remote URLs clone below that project's
+`repositories/` directory. `$HOME/factoru-repositories` is an approved source
+location for importing clean existing checkouts; add other import locations
+with `FACTORU_REPOSITORY_ROOTS`. Wait until Factoru prints its URL and state directory. Detach
 with <kbd>Ctrl-b</kbd>, then <kbd>d</kbd>; do not stop the process.
 
 In another SSH shell, print the actual URL, identity, city, process health, and
@@ -213,9 +217,10 @@ Do not set `FACTORU_TRUST_PROXY` for the SSH path.
 
 ## 5. Prove the full loop
 
-Use a disposable repository under `$HOME/factoru-repositories`, or give Factoru
-an HTTPS/SSH repository URL that the CLI access check accepts. Desktop verifies
-the URL again before the server clones it below that approved root. Then:
+Use a clean disposable repository under `$HOME/factoru-repositories`, or give
+Factoru an HTTPS/SSH repository URL that the CLI access check accepts. Desktop
+verifies the URL again before the server imports or clones it into
+`$HOME/factoru-projects/<project>/repositories/`. Then:
 
 1. Create and open a project.
 2. In **Workers**, configure Project Manager `chat` and `planning`, plus

@@ -94,6 +94,7 @@ export function devEnvFor(worktreeRoot, { portBase } = {}) {
       FACTORU_HOST: DEV_HOST,
       FACTORU_PORT: String(ports.serverPort),
       FACTORU_REPOSITORY_ROOTS: JSON.stringify([worktreeRoot]),
+      FACTORU_PROJECTS_ROOT: path.join(dataDir, 'projects'),
       FACTORU_GAS_CITY_PATH: path.join(dataDir, 'gas-city'),
       FACTORU_PACK_PATH: path.join(worktreeRoot, 'packs', 'factoru-default'),
       FACTORU_SERVER_URL: serverUrl,
@@ -112,6 +113,8 @@ export function processEnvForDevelopment(devEnvironment, parentEnvironment = pro
   const merged = { ...parentEnvironment, ...devEnvironment }
   const repositoryRoots = parentEnvironment.FACTORU_REPOSITORY_ROOTS?.trim()
   if (repositoryRoots) merged.FACTORU_REPOSITORY_ROOTS = repositoryRoots
+  const projectsRoot = parentEnvironment.FACTORU_PROJECTS_ROOT?.trim()
+  if (projectsRoot) merged.FACTORU_PROJECTS_ROOT = projectsRoot
   return merged
 }
 

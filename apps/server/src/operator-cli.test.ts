@@ -50,6 +50,7 @@ base = "builtin:claude"
       serverId: null,
       serverUrl: 'http://127.0.0.1:23456',
       dataDir: '/tmp/factoru',
+      projectsRoot: '/home/test/factoru-projects',
       database: 'missing',
       city: { name: null, state: 'missing' },
       process: 'stopped',
@@ -60,6 +61,7 @@ base = "builtin:claude"
     expect(output).toContain('not initialized')
     expect(output).toContain('stopped')
     expect(output).toContain('http://127.0.0.1:23456')
+    expect(output).toContain('/home/test/factoru-projects')
   })
 
   it('labels sessions as Factoru-correlated activity', () => {

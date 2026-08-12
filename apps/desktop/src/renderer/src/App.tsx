@@ -20,7 +20,6 @@ type RepositoryDraft =
   | {
       id: string
       kind: 'remote'
-      rootId: string
       url: string
       access: RepositoryAccessCheck
     }
@@ -341,7 +340,7 @@ export function App() {
 
   const addRepositoryUrl = async () => {
     const url = repositoryUrl.trim()
-    if (!url || !rootId || !projectFactoryId || checkingRepositoryAccess) return
+    if (!url || !projectFactoryId || checkingRepositoryAccess) return
     if (repositoryDrafts.some((draft) => draft.kind === 'remote' && draft.url === url)) {
       setRepositoryUrl('')
       setRepositoryAccessError(null)
@@ -368,10 +367,7 @@ export function App() {
     setRepositoryDrafts((current) =>
       current.some((draft) => draft.kind === 'remote' && draft.url === url)
         ? current
-        : [
-            ...current,
-            { id: `remote:${url}`, kind: 'remote', rootId, url, access: outcome.result },
-          ],
+        : [...current, { id: `remote:${url}`, kind: 'remote', url, access: outcome.result }],
     )
     if (!projectName) {
       const suggested =
@@ -404,7 +400,6 @@ export function App() {
               }
             : {
                 kind: 'remote' as const,
-                rootId: draft.rootId,
                 url: draft.url,
               },
         ),
@@ -919,6 +914,7 @@ factoru-server providers configure --provider codex`}</code>
             <p className="eyebrow">
               Project Manager
               {activeLocatedProject ? ` · ${activeLocatedProject.factoryName}` : ''}
+              {activeProject?.projectDirectory ? ` · ${activeProject.projectDirectory.name}` : ''}
             </p>
             <h1>{activeProject?.name ?? 'Choose a project'}</h1>
           </div>
@@ -1072,7 +1068,10 @@ factoru-server providers configure --provider codex`}</code>
                 <div className="repository-picker-heading">
                   <div>
                     <strong>Repositories</strong>
-                    <p>Add a Git URL or choose a repository available to {projectFactory?.name}.</p>
+                    <p>
+                      Add a Git URL or import a clean repository available to {projectFactory?.name}
+                      . Factoru keeps every repository in the project’s managed folder.
+                    </p>
                   </div>
                   <span className="repository-count">{repositoryDrafts.length}</span>
                 </div>
@@ -1096,23 +1095,11 @@ factoru-server providers configure --provider codex`}</code>
                     placeholder="https://github.com/organization/repository.git"
                     aria-label="Git repository URL"
                   />
-                  <select
-                    value={rootId}
-                    onChange={(event) => void browse(event.target.value, '')}
-                    aria-label="Clone destination"
-                  >
-                    {roots.map((root) => (
-                      <option key={root.id} value={root.id}>
-                        {root.label}
-                      </option>
-                    ))}
-                  </select>
                   <button
                     type="button"
                     onClick={() => void addRepositoryUrl()}
                     disabled={
                       !repositoryUrl.trim() ||
-                      !rootId ||
                       checkingRepositoryAccess ||
                       projectFactory?.connectionState !== 'connected'
                     }
@@ -1149,20 +1136,24 @@ factoru-server providers configure --provider codex`}</code>
                         ⌘
                       </span>
                       <span>
-                        <strong>Choose repository folder…</strong>
-                        <small>Opens the native folder picker</small>
+                        <strong>Import repository folder…</strong>
+                        <small>Factoru clones its committed state into the project folder</small>
                       </span>
                     </button>
                   </>
                 )}
 
-                <button
-                  className="server-browser-toggle"
-                  type="button"
-                  onClick={() => setShowServerBrowser((current) => !current)}
-                >
-                  {showServerBrowser ? 'Hide server browser' : 'Browse approved server folders'}
-                </button>
+                {roots.length > 0 && (
+                  <button
+                    className="server-browser-toggle"
+                    type="button"
+                    onClick={() => setShowServerBrowser((current) => !current)}
+                  >
+                    {showServerBrowser
+                      ? 'Hide server browser'
+                      : 'Import from approved server folders'}
+                  </button>
+                )}
 
                 {showServerBrowser && (
                   <div className="server-browser">
@@ -1239,7 +1230,7 @@ factoru-server providers configure --provider codex`}</code>
                         </strong>
                         <small>
                           {draft.kind === 'local'
-                            ? `${draft.preview.relativePath || '/'} · ${draft.preview.defaultBranch}`
+                            ? `${draft.preview.relativePath || '/'} · ${draft.preview.defaultBranch} · Will be imported`
                             : `${draft.url} · Access verified via ${draft.access.transport.toUpperCase()} (${draft.access.host})`}
                         </small>
                       </span>
@@ -1266,7 +1257,7 @@ factoru-server providers configure --provider codex`}</code>
                   <p>
                     {repositoryDrafts.length === 0
                       ? 'Add at least one repository to continue.'
-                      : `${repositoryDrafts.length} ${repositoryDrafts.length === 1 ? 'rig' : 'rigs'} will be created.`}
+                      : `${repositoryDrafts.length} ${repositoryDrafts.length === 1 ? 'repository' : 'repositories'} will be placed in one managed project folder.`}
                   </p>
                   {projectCreateError && (
                     <p className="error" role="alert">

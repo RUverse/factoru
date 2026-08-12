@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import path from 'node:path'
 import type { FactoruDatabase, ProjectRecord, TrustedDevice } from '@factoru/database'
 import type { Project, ProjectRepositoryInput, ProjectSnapshot } from '@factoru/protocol'
 import { GasCityError, type RigRegistrar } from '@factoru/gas-city'
@@ -44,6 +45,10 @@ export class ProjectService {
       id: record.id,
       name: record.name,
       description: record.description,
+      projectDirectory:
+        record.managedProjectDirectory && record.projectDirectory
+          ? { name: path.basename(record.projectDirectory), managed: true }
+          : null,
       repository: {
         rootId: record.repositoryRootId,
         relativePath: record.repositoryRelativePath,
@@ -127,14 +132,17 @@ export class ProjectService {
       }
       throw error
     }
+    const projectId = `prj_${randomUUID().replaceAll('-', '')}`
+    const projectDirectory = this.repositories.planProjectDirectory(projectId, params.name)
     const prepared: Array<{
       repository: ResolvedRepository
       sourceUrl: string | null
+      sourceRepositoryRealPath: string | null
       defaultBranch: string
     }> = []
     for (const source of params.repositories) {
       if (source.kind === 'remote') {
-        const planned = this.repositories.planClone(source.url, source.rootId)
+        const planned = this.repositories.planClone(source.url, projectDirectory)
         if (
           prepared.some(
             (candidate) => candidate.repository.realPath === planned.repository.realPath,
@@ -156,6 +164,7 @@ export class ProjectService {
         prepared.push({
           repository: planned.repository,
           sourceUrl: planned.sourceUrl,
+          sourceRepositoryRealPath: null,
           defaultBranch: 'HEAD',
         })
         continue
@@ -174,7 +183,13 @@ export class ProjectService {
           preview.blockedReason ?? 'Repository index is not clean',
         )
       }
-      if (prepared.some((candidate) => candidate.repository.realPath === repository.realPath)) {
+      if (
+        prepared.some(
+          (candidate) =>
+            candidate.sourceRepositoryRealPath === repository.realPath ||
+            candidate.repository.realPath === repository.realPath,
+        )
+      ) {
         throw new ApplicationError(
           'duplicate_project_repository',
           'Each repository can be added to a project only once',
@@ -189,8 +204,9 @@ export class ProjectService {
         )
       }
       prepared.push({
-        repository,
+        repository: this.repositories.planImport(repository, projectDirectory),
         sourceUrl: null,
+        sourceRepositoryRealPath: repository.realPath,
         defaultBranch: preview.defaultBranch,
       })
     }
@@ -200,7 +216,6 @@ export class ProjectService {
       ),
     ]
     await this.#checkRemoteAccess(remoteUrls)
-    const projectId = `prj_${randomUUID().replaceAll('-', '')}`
     const short = projectId.slice(4, 16)
     const repositoryInputs = prepared.map((candidate, index) => {
       const discriminator = index === 0 ? '' : `-${index + 1}`
@@ -208,6 +223,7 @@ export class ProjectService {
         id: `repo_${randomUUID().replaceAll('-', '')}`,
         isPrimary: index === 0,
         sourceUrl: candidate.sourceUrl ?? undefined,
+        sourceRepositoryRealPath: candidate.sourceRepositoryRealPath ?? undefined,
         repositoryRootId: candidate.repository.root.id,
         repositoryRelativePath: candidate.repository.relativePath,
         repositoryRealPath: candidate.repository.realPath,
@@ -227,6 +243,8 @@ export class ProjectService {
           projectId,
           name: params.name,
           description: params.description,
+          projectDirectory: projectDirectory.realPath,
+          managedProjectDirectory: true,
           repositoryRootId: primary.repositoryRootId,
           repositoryRelativePath: primary.repositoryRelativePath,
           repositoryRealPath: primary.repositoryRealPath,
@@ -351,6 +369,7 @@ export class ProjectService {
           const imported = await this.repositories.clone(
             repository.sourceUrl,
             repository.repositoryRootId,
+            repository.repositoryRelativePath,
           )
           const { preview } = await this.repositories.preview(
             imported.repository.root.id,
@@ -362,6 +381,27 @@ export class ProjectService {
               preview.blockedReason ?? 'Cloned repository index is not clean',
             )
           }
+          const materialized = this.database.materializeProjectRepository(
+            project.id,
+            repositoryId,
+            preview.defaultBranch,
+          )
+          repository = materialized.repositories.find((candidate) => candidate.id === repositoryId)!
+        } else if (
+          repository.sourceRepositoryRealPath &&
+          !this.repositories.exists(repository.repositoryRootId, repository.repositoryRelativePath)
+        ) {
+          const repositoryId = repository.id
+          const imported = await this.repositories.importLocal(
+            repository.sourceRepositoryRealPath,
+            repository.repositoryRootId,
+            repository.repositoryRelativePath,
+            repository.defaultBranch,
+          )
+          const { preview } = await this.repositories.preview(
+            imported.root.id,
+            imported.relativePath,
+          )
           const materialized = this.database.materializeProjectRepository(
             project.id,
             repositoryId,
