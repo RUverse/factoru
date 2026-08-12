@@ -15,6 +15,7 @@ import {
   type PlannerProbe,
   type WorkerType,
   type Workspace,
+  type ModelCatalog,
   type Task,
   type ExecutionRun,
 } from '@factoru/protocol'
@@ -26,6 +27,7 @@ import type {
   ProjectRuntimeConfigurator,
   FormulaVariableValue,
   InheritedFormulaCapabilityPolicy,
+  ModelProvider,
 } from '@factoru/gas-city'
 import {
   PROJECT_BLUEPRINTS,
@@ -38,7 +40,22 @@ import {
 import { ApplicationError } from './project-service.js'
 import { CapsuleIntegrationError, type ExecutionCapsuleManager } from './capsule-service.js'
 
+async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('operation_timed_out')), milliseconds)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 export interface ProjectManagerOrchestrator {
+  listModelProviders?(): Promise<ModelProvider[]>
   registerConversationAdapter(accountId: string, displayName: string): Promise<void>
   bindConversation(conversation: ConversationRef, agentName: string): Promise<void>
   sendConversationTurn(
@@ -285,6 +302,36 @@ export class WorkspaceService {
       taskMergeProposals: this.#database.tasks.listMergeProposals(projectId),
       taskRuns: this.#database.tasks.listExecutionRuns(projectId).map(executionProjection),
     })
+  }
+
+  async getWithModelCatalog(projectId: string): Promise<Workspace> {
+    const workspace = this.get(projectId)
+    if (!this.#orchestrator.listModelProviders) return workspace
+
+    try {
+      const providers = await withTimeout(this.#orchestrator.listModelProviders(), 3_000)
+      const modelCatalog: ModelCatalog = {
+        status: 'ready',
+        providers: providers.map((provider) => ({
+          ...provider,
+          models: provider.models.map((model) => ({ ...model })),
+        })),
+        message:
+          providers.length > 0
+            ? null
+            : 'No model-capable providers are configured for this factory.',
+      }
+      return workspaceSchema.parse({ ...workspace, modelCatalog })
+    } catch {
+      return workspaceSchema.parse({
+        ...workspace,
+        modelCatalog: {
+          status: 'unavailable',
+          providers: [],
+          message: 'Provider models could not be loaded from this factory.',
+        },
+      })
+    }
   }
 
   sendMessage(projectId: string, text: string, authorDisplayName: string): ConversationMessage {

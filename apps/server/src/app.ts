@@ -18,6 +18,7 @@ import {
   CAPABILITY_WORKER_TYPES,
   CAPABILITY_PROJECT_BLUEPRINTS,
   CAPABILITY_WORKFLOW_PRESETS,
+  CAPABILITY_MODEL_CATALOG,
   CAPABILITY_TASKS,
   CAPABILITY_QUEUE_RECONCILIATION,
   CAPABILITY_SOFTWARE_DELIVERY,
@@ -151,6 +152,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
                 CAPABILITY_WORKER_TYPES,
                 CAPABILITY_PROJECT_BLUEPRINTS,
                 CAPABILITY_WORKFLOW_PRESETS,
+                CAPABILITY_MODEL_CATALOG,
                 CAPABILITY_SOFTWARE_DELIVERY,
               ]
             : []),
@@ -506,7 +508,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         case 'workspaces.get': {
           if (!workspaces)
             throw new ApplicationError('unavailable', 'Workspace service is unavailable')
-          result = workspaces.get(projectIdParamsSchema.parse(request.params).projectId)
+          result = await workspaces.getWithModelCatalog(
+            projectIdParamsSchema.parse(request.params).projectId,
+          )
           break
         }
         case 'conversations.send': {

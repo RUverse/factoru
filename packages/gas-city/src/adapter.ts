@@ -43,6 +43,17 @@ export interface RigBinding {
   readonly defaultBranch: string | undefined
 }
 
+/** Browser-safe model choices exposed by one configured provider. */
+export interface ModelProvider {
+  readonly id: string
+  readonly name: string
+  readonly defaultModelId: string | null
+  readonly models: readonly {
+    readonly id: string
+    readonly name: string
+  }[]
+}
+
 /** Where one execution of a workflow stands, in Factoru's terms. */
 export type RunStatus =
   | 'pending'
@@ -111,6 +122,7 @@ export interface RunCorrelation {
  */
 const REQUIRED_SUPERVISOR_PATHS: readonly string[] = [
   '/v0/city/{cityName}/provider-readiness',
+  '/v0/city/{cityName}/providers/public',
   '/v0/city/{cityName}/rigs',
   '/v0/city/{cityName}/beads',
   '/v0/city/{cityName}/formulas/{name}/preview',
@@ -288,6 +300,36 @@ const rigListSchema = z.object({
     }),
   ),
   partial: z.boolean().default(false),
+})
+
+// Gas City deliberately removes provider CLI flags and environment details
+// from this public projection. Factoru consumes only configured city entries
+// and the model option's safe value/label pairs.
+const providerPublicListSchema = z.object({
+  items: nullableArray(
+    z.object({
+      name: z.string(),
+      display_name: z.string().default(''),
+      builtin: z.boolean().default(false),
+      city_level: z.boolean().default(false),
+      options_schema: nullableArray(
+        z.object({
+          key: z.string(),
+          label: z.string().default(''),
+          type: z.string().default(''),
+          default: z.string().default(''),
+          choices: nullableArray(
+            z.object({
+              value: z.string(),
+              label: z.string().default(''),
+            }),
+          ),
+        }),
+      ),
+    }),
+  ),
+  total: z.number().int().nonnegative().optional(),
+  next_cursor: z.string().optional(),
 })
 
 /**
@@ -474,6 +516,50 @@ export class GasCityAdapter {
       requiredHarnesses,
     )
     return { ready: isReady(findings), findings }
+  }
+
+  /**
+   * Load the safe model picker metadata for providers declared by this city.
+   *
+   * Built-ins that are merely available in Gas City are excluded: a Team slot
+   * may bind only to an explicitly configured city provider. Provider launch
+   * flags and credentials are intentionally absent from this endpoint.
+   */
+  async listModelProviders(): Promise<ModelProvider[]> {
+    const raw = await this.#client.get(`/city/${this.#cityName}/providers/public`)
+    const providers = providerPublicListSchema.parse(raw).items
+
+    return providers.flatMap((provider) => {
+      if (!provider.city_level) return []
+      const modelOption = provider.options_schema.find(
+        (option) => option.key === 'model' && option.type === 'select',
+      )
+      if (!modelOption) return []
+
+      const models = [
+        ...new Map(
+          modelOption.choices
+            .filter((choice) => choice.value.trim().length > 0)
+            .map((choice) => [
+              choice.value,
+              { id: choice.value, name: choice.label || choice.value },
+            ]),
+        ).values(),
+      ]
+      if (models.length === 0) return []
+      const advertisedDefault = models.some((model) => model.id === modelOption.default)
+        ? modelOption.default
+        : models[0]!.id
+
+      return [
+        {
+          id: provider.name,
+          name: provider.display_name || provider.name,
+          defaultModelId: advertisedDefault,
+          models,
+        },
+      ]
+    })
   }
 
   /**

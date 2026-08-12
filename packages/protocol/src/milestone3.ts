@@ -7,6 +7,7 @@ export const CAPABILITY_CONVERSATIONS = 'conversations-v1'
 export const CAPABILITY_WORKER_TYPES = 'worker-types-v1'
 export const CAPABILITY_PROJECT_BLUEPRINTS = 'project-blueprints-v1'
 export const CAPABILITY_WORKFLOW_PRESETS = 'workflow-presets-v1'
+export const CAPABILITY_MODEL_CATALOG = 'model-catalog-v1'
 
 export const workerTypeKindSchema = z.enum(['project_manager', 'software_engineer'])
 export const modelSlotSchema = z.enum(['chat', 'planning', 'design', 'implementation', 'review'])
@@ -61,6 +62,26 @@ export const modelBindingSchema = z
   .refine((value) => (value.provider === null) === (value.model === null), {
     message: 'provider and model must either both be set or both be null',
   })
+
+export const modelCatalogSchema = z.object({
+  status: z.enum(['ready', 'unavailable']).default('unavailable'),
+  providers: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(80),
+        name: z.string().trim().min(1).max(160),
+        defaultModelId: z.string().trim().min(1).max(160).nullable(),
+        models: z.array(
+          z.object({
+            id: z.string().trim().min(1).max(160),
+            name: z.string().trim().min(1).max(240),
+          }),
+        ),
+      }),
+    )
+    .default([]),
+  message: z.string().trim().min(1).max(500).nullable().default(null),
+})
 
 export const workerTypeSchema = z.object({
   kind: workerTypeKindSchema,
@@ -157,6 +178,11 @@ export const workspaceSchema = z
     }),
     blueprintCatalog: z.array(projectBlueprintSchema).default([]),
     workflowPresets: z.array(workflowPresetSchema).default([]),
+    modelCatalog: modelCatalogSchema.default({
+      status: 'unavailable',
+      providers: [],
+      message: 'Model catalog is not available from this factory.',
+    }),
     team: z.array(workerTypeSchema).default([]),
     // One-version read-only compatibility alias for clients built against Worker Types.
     workerTypes: z.array(workerTypeSchema),
@@ -206,6 +232,7 @@ export type Workspace = z.infer<typeof workspaceSchema>
 export type WorkerType = z.infer<typeof workerTypeSchema>
 export type WorkflowPreset = z.infer<typeof workflowPresetSchema>
 export type ProjectBlueprint = z.infer<typeof projectBlueprintSchema>
+export type ModelCatalog = z.infer<typeof modelCatalogSchema>
 export type Conversation = z.infer<typeof conversationSchema>
 export type ConversationMessage = z.infer<typeof conversationMessageSchema>
 export type MemoryEntry = z.infer<typeof memoryEntrySchema>

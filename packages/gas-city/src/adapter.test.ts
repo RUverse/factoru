@@ -197,6 +197,7 @@ describe('GasCityAdapter.verifySupervisorContract', () => {
         paths: Object.fromEntries(
           [
             '/v0/city/{cityName}/provider-readiness',
+            '/v0/city/{cityName}/providers/public',
             '/v0/city/{cityName}/rigs',
             '/v0/city/{cityName}/beads',
             '/v0/city/{cityName}/formulas/{name}/preview',
@@ -250,6 +251,90 @@ describe('GasCityAdapter.checkProviderReadiness', () => {
     expect(result.ready).toBe(false)
     expect(result.findings.map((finding) => finding.status)).toEqual(['ok', 'needs_attention'])
     expect(calls[0]?.url.pathname).toBe('/v0/city/factoru-spike/provider-readiness')
+  })
+})
+
+describe('GasCityAdapter.listModelProviders', () => {
+  it('loads model choices only from providers configured for the city', async () => {
+    const { fn, calls } = fakeFetch(() => ({
+      body: {
+        items: [
+          {
+            name: 'codex',
+            display_name: 'Codex',
+            builtin: false,
+            city_level: true,
+            options_schema: [
+              {
+                key: 'model',
+                label: 'Model',
+                type: 'select',
+                default: 'gpt-5.5',
+                choices: [
+                  { value: 'gpt-5.5', label: 'GPT-5.5' },
+                  { value: 'gpt-5.4', label: 'GPT-5.4' },
+                ],
+              },
+            ],
+          },
+          {
+            name: 'claude',
+            display_name: 'Claude',
+            builtin: true,
+            city_level: false,
+            options_schema: [
+              {
+                key: 'model',
+                label: 'Model',
+                type: 'select',
+                default: 'sonnet',
+                choices: [{ value: 'sonnet', label: 'Sonnet' }],
+              },
+            ],
+          },
+        ],
+        total: 2,
+      },
+    }))
+
+    await expect(adapterWith(fn).listModelProviders()).resolves.toEqual([
+      {
+        id: 'codex',
+        name: 'Codex',
+        defaultModelId: 'gpt-5.5',
+        models: [
+          { id: 'gpt-5.5', name: 'GPT-5.5' },
+          { id: 'gpt-5.4', name: 'GPT-5.4' },
+        ],
+      },
+    ])
+    expect(calls[0]?.url.pathname).toBe('/v0/city/factoru-spike/providers/public')
+  })
+
+  it('falls back to the first model when a provider default is stale', async () => {
+    const { fn } = fakeFetch(() => ({
+      body: {
+        items: [
+          {
+            name: 'claude',
+            display_name: 'Claude',
+            city_level: true,
+            options_schema: [
+              {
+                key: 'model',
+                type: 'select',
+                default: 'retired-model',
+                choices: [{ value: 'sonnet', label: 'Sonnet' }],
+              },
+            ],
+          },
+        ],
+      },
+    }))
+
+    await expect(adapterWith(fn).listModelProviders()).resolves.toMatchObject([
+      { id: 'claude', defaultModelId: 'sonnet' },
+    ])
   })
 })
 

@@ -224,9 +224,11 @@ verifies the URL again before the server imports or clones it into
 
 1. Create and open a project.
 2. In **Team**, configure Project Manager `chat` and `planning`, plus Software
-   Engineer `design`, `implementation`, and `review`, using the provider/model
-   available on the Linux host. Confirm Standard Build as the project default,
-   or explicitly select Fast Patch for the acceptance task.
+   Engineer `design`, `implementation`, and `review`. Factoru loads the
+   configured providers and their model choices from that Linux factory; choose
+   a provider and its advertised default model is selected automatically.
+   Confirm Standard Build as the project default, or explicitly select Fast
+   Patch for the acceptance task.
 3. Add a small Backlog task and move it to Queue.
 4. Observe Queue planning, `in_progress`, deterministic checks, independent
    review, and the final `needs_you` package.

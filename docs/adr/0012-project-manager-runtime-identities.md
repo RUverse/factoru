@@ -80,5 +80,20 @@ required.
 
 - Gas City supports rig-scoped named external-message identities directly;
 - Factoru supports deleting projects and needs a retention/cleanup policy;
-- the provider option catalog becomes available through a stable supervisor API
-  that can drive a fully curated desktop picker.
+- the supported harness matrix expands beyond the initially verified Codex and
+  Claude providers.
+
+## 2026-08-12 follow-up — safe model catalog projection
+
+Gas City 1.4 exposes a stable browser-safe provider projection at
+`GET /v0/city/{cityName}/providers/public`. Factoru now reads that endpoint
+through `packages/gas-city`, filters to providers explicitly configured by the
+city, and retains only the `model` select option's safe value, label, and
+default. The workspace protocol carries the normalized result so Desktop can
+render linked provider/model selectors and select the advertised default model
+without manual identifiers.
+
+This does not move provider-schema ownership into Factoru. Provider commands,
+flag mappings, environment, credentials, and non-model options remain inside
+Gas City and Factoru Server. Catalog failure is reported as unavailable while
+the rest of the workspace remains readable.

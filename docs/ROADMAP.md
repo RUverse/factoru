@@ -170,7 +170,8 @@ design:
 - **Tasks:** four columns—Needs you, In progress, Queue, and Backlog—with compact
   cards and worker/run indicators.
 - **Team:** Project Manager and Software Engineering profiles with prompt,
-  memory, model-slot, tool, workflow, health, and capacity summaries.
+  memory, provider-backed model-slot pickers, tool, workflow, health, and
+  capacity summaries.
 - **Factory settings:** maximum parallel implementation workers, initially
   locked to one until capsules are proven.
 - **Workflow/run detail:** the selected task can progressively expose its
@@ -283,6 +284,13 @@ For example, a user can configure Claude for `implementation` and Codex for
 `review`. Those are two Gas City agents/sessions coordinated by a formula, not
 one worker process changing models mid-session. Provider credentials remain
 server secrets and are never returned to the renderer.
+
+Factoru automatically loads the configured factory providers and each
+provider's safe model choices from Gas City's public provider catalog. Team
+slots use linked selectors instead of requiring provider/model identifiers to
+be typed manually; choosing a provider preselects its advertised default model.
+Provider commands, flags, environment, and credentials remain inside Gas City
+and Factoru Server.
 
 Memory is layered: project memory, Team-role memory, task/run state in
 Factoru plus beads/artifacts, and per-session transcripts. Pool instances share
@@ -757,6 +765,9 @@ without exposing Gas City or Dolt listeners remotely.
   in Milestone 4.
 - Store provider credentials only on the server and apply Project Manager and
   Software Engineer named model bindings as validated Gas City config.
+- Load configured provider/model choices through the server-side Gas City
+  adapter and present linked Team selectors with provider defaults; never make
+  the renderer maintain a second provider catalog.
 - Persist versioned Team prompt overrides, tool policies, and minimal
   project/role memory with explicit provenance.
 - Show token usage, tool activity, Gas City/session health, errors,
@@ -1018,9 +1029,9 @@ maximizing concurrent agent count. Track from the first executable task:
 - Can the complete Gas City dependency chain run dependably on Raspberry Pi
   class Linux arm64 hardware, and how many representative cloud-model workers
   fit an 8 GB host under measured build and service load?
-- Which Gas City harnesses/models are the supported initial compatibility
-  matrix, and how does Factoru expose discovery without leaking raw option
-  schemas into its domain?
+- Which additional Gas City harnesses should join the initially supported
+  Codex/Claude matrix after their safe public model catalogs and real workflow
+  behavior are verified?
 - Should local setup run the server as a login service, managed child process,
   or container?
 - What packaged remote-access acceptance matrix is sufficient for private HTTPS

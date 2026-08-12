@@ -1575,6 +1575,28 @@ button.danger {
   font-weight: 700;
 }
 
+.model-catalog-card {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  background: var(--factoru-surface);
+  padding: 9px 11px;
+}
+
+.model-catalog-card.ready {
+  border-color: color-mix(in srgb, var(--factoru-success) 45%, var(--factoru-border));
+}
+
+.model-catalog-card strong {
+  font-size: 11px;
+}
+
+.model-catalog-card p {
+  color: var(--factoru-text-muted);
+  font-size: 10px;
+}
+
 .model-row {
   display: grid;
   grid-template-columns: 90px minmax(0, 0.7fr) minmax(0, 1fr) auto;
@@ -1592,6 +1614,7 @@ button.danger {
 }
 
 .model-row input,
+.model-row select,
 .model-row button {
   min-width: 0;
   padding: 6px 7px;

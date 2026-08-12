@@ -42,6 +42,7 @@ export {
   type ConversationRef,
   type GasCityAdapterOptions,
   type InheritedFormulaCapabilityPolicy,
+  type ModelProvider,
   type RigBinding,
   type RunCorrelation,
   type RunSnapshot,

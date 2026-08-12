@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type {
   ProjectPreview,
   RepositoryAccessCheck,
+  ModelCatalog,
   Task,
   TrustedDevice,
   WorkerType,
@@ -34,6 +35,93 @@ const taskColumns = [
 
 function statusLabel(value: string): string {
   return value.replaceAll('_', ' ')
+}
+
+function ModelBindingEditor({
+  binding,
+  catalog,
+  connected,
+  busy,
+  onSave,
+}: {
+  binding: WorkerType['modelBindings'][number]
+  catalog: ModelCatalog
+  connected: boolean
+  busy: boolean
+  onSave: (provider: string | null, model: string | null) => void
+}) {
+  const configuredProviders = catalog.providers
+  const currentProvider = binding.provider
+    ? (configuredProviders.find((provider) => provider.id === binding.provider) ?? {
+        id: binding.provider,
+        name: `${binding.provider} (current)`,
+        defaultModelId: binding.model,
+        models: binding.model ? [{ id: binding.model, name: binding.model }] : [],
+      })
+    : null
+  const providers = currentProvider
+    ? [
+        currentProvider,
+        ...configuredProviders.filter((provider) => provider.id !== currentProvider.id),
+      ]
+    : configuredProviders
+  const initialProviderId = binding.provider ?? (providers.length === 1 ? providers[0]!.id : '')
+  const initialProvider = providers.find((provider) => provider.id === initialProviderId)
+  const [providerId, setProviderId] = useState(initialProviderId)
+  const [modelId, setModelId] = useState(
+    binding.model ?? initialProvider?.defaultModelId ?? initialProvider?.models[0]?.id ?? '',
+  )
+  const selectedProvider = providers.find((provider) => provider.id === providerId)
+  const models = selectedProvider?.models ?? []
+
+  return (
+    <form
+      className="model-row"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (providerId && modelId) onSave(providerId, modelId)
+        if (!providerId && binding.provider) onSave(null, null)
+      }}
+    >
+      <strong>{statusLabel(binding.slot)}</strong>
+      <select
+        name="provider"
+        aria-label={`${binding.slot} provider`}
+        value={providerId}
+        disabled={!connected || providers.length === 0}
+        onChange={(event) => {
+          const nextProviderId = event.currentTarget.value
+          const nextProvider = providers.find((provider) => provider.id === nextProviderId)
+          setProviderId(nextProviderId)
+          setModelId(nextProvider?.defaultModelId ?? nextProvider?.models[0]?.id ?? '')
+        }}
+      >
+        <option value="">Not assigned</option>
+        {providers.map((provider) => (
+          <option value={provider.id} key={provider.id}>
+            {provider.name}
+          </option>
+        ))}
+      </select>
+      <select
+        name="model"
+        aria-label={`${binding.slot} model`}
+        value={modelId}
+        disabled={!connected || !selectedProvider || models.length === 0}
+        onChange={(event) => setModelId(event.currentTarget.value)}
+      >
+        {!modelId && <option value="">Choose model</option>}
+        {models.map((model) => (
+          <option value={model.id} key={model.id}>
+            {model.name}
+          </option>
+        ))}
+      </select>
+      <button disabled={!connected || busy || (providerId ? !modelId : binding.provider === null)}>
+        {!providerId && binding.provider ? 'Clear' : 'Save'}
+      </button>
+    </form>
+  )
 }
 
 export function App() {
@@ -440,22 +528,19 @@ export function App() {
   }
 
   const updateModel = (
-    event: FormEvent<HTMLFormElement>,
     worker: WorkerType,
     slot: WorkerType['modelBindings'][number]['slot'],
+    provider: string | null,
+    model: string | null,
   ) => {
-    event.preventDefault()
     if (!activeProjectRef) return
-    const data = new FormData(event.currentTarget)
-    const provider = String(data.get('provider')).trim()
-    const model = String(data.get('model')).trim()
     void run(() =>
       window.factoru.product.updateModel({
         project: activeProjectRef,
         workerTypeKind: worker.kind,
         slot,
-        provider: provider || null,
-        model: model || null,
+        provider,
+        model,
       }),
     )
   }
@@ -1875,6 +1960,26 @@ factoru-server providers configure --provider codex`}</code>
               </section>
             )}
 
+            <section
+              className={`model-catalog-card ${snapshot.workspace.modelCatalog.status}`}
+              aria-live="polite"
+            >
+              <strong>
+                {snapshot.workspace.modelCatalog.status === 'ready' &&
+                snapshot.workspace.modelCatalog.providers.length > 0
+                  ? `Models loaded from ${snapshot.workspace.modelCatalog.providers.length} configured ${
+                      snapshot.workspace.modelCatalog.providers.length === 1
+                        ? 'provider'
+                        : 'providers'
+                    }`
+                  : 'Provider models unavailable'}
+              </strong>
+              <p>
+                {snapshot.workspace.modelCatalog.message ??
+                  'Choose a provider and Factoru will select its default model automatically.'}
+              </p>
+            </section>
+
             {snapshot.workspace.team.map((worker) => (
               <section className="worker-card" key={worker.kind}>
                 <header>
@@ -1888,28 +1993,16 @@ factoru-server providers configure --provider codex`}</code>
                 <details open>
                   <summary>Model slots</summary>
                   {worker.modelBindings.map((binding) => (
-                    <form
-                      className="model-row"
+                    <ModelBindingEditor
                       key={`${binding.slot}:${binding.version}`}
-                      onSubmit={(event) => updateModel(event, worker, binding.slot)}
-                    >
-                      <strong>{statusLabel(binding.slot)}</strong>
-                      <input
-                        name="provider"
-                        aria-label={`${binding.slot} provider`}
-                        placeholder="Provider adapter"
-                        defaultValue={binding.provider ?? ''}
-                        disabled={!snapshot.connected}
-                      />
-                      <input
-                        name="model"
-                        aria-label={`${binding.slot} model`}
-                        placeholder="Model ID"
-                        defaultValue={binding.model ?? ''}
-                        disabled={!snapshot.connected}
-                      />
-                      <button disabled={!snapshot.connected || busy}>Save</button>
-                    </form>
+                      binding={binding}
+                      catalog={snapshot.workspace!.modelCatalog}
+                      connected={snapshot.connected}
+                      busy={busy}
+                      onSave={(provider, model) =>
+                        updateModel(worker, binding.slot, provider, model)
+                      }
+                    />
                   ))}
                 </details>
                 <details>

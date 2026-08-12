@@ -41,6 +41,17 @@ function fixture() {
 function fakeOrchestrator() {
   let sentMessageId = ''
   const orchestrator: ProjectManagerOrchestrator = {
+    listModelProviders: vi.fn(async () => [
+      {
+        id: 'codex',
+        name: 'Codex',
+        defaultModelId: 'gpt-5.5',
+        models: [
+          { id: 'gpt-5.5', name: 'GPT-5.5' },
+          { id: 'gpt-5.4', name: 'GPT-5.4' },
+        ],
+      },
+    ]),
     registerConversationAdapter: vi.fn(async () => undefined),
     bindConversation: vi.fn(async () => undefined),
     sendConversationTurn: vi.fn(async (_conversation, turn) => {
@@ -95,6 +106,28 @@ afterEach(() => {
 })
 
 describe('WorkspaceService', () => {
+  it('loads configured provider models without making workspace availability depend on Gas City', async () => {
+    const { db, project } = fixture()
+    const orchestrator = fakeOrchestrator()
+    const service = new WorkspaceService(db, orchestrator)
+
+    await expect(service.getWithModelCatalog(project.id)).resolves.toMatchObject({
+      modelCatalog: {
+        status: 'ready',
+        providers: [expect.objectContaining({ id: 'codex', defaultModelId: 'gpt-5.5' })],
+      },
+    })
+
+    vi.mocked(orchestrator.listModelProviders!).mockRejectedValueOnce(
+      new Error('supervisor unavailable'),
+    )
+    await expect(service.getWithModelCatalog(project.id)).resolves.toMatchObject({
+      projectId: project.id,
+      modelCatalog: { status: 'unavailable', providers: [] },
+    })
+    db.close()
+  })
+
   it('projects the built-in Factory and permits only valid named model slots', () => {
     const { db, project } = fixture()
     const service = new WorkspaceService(db, fakeOrchestrator())
