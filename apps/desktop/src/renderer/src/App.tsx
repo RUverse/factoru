@@ -794,7 +794,7 @@ factoru-server providers configure --provider codex`}</code>
                 <p className="install-note">
                   Then run factoru-server start in tmux and use factoru-server pair --ssh-host
                   user@server. Keep Server on loopback. The complete source runbook is
-                  docs/remote-connection.md; packaged installation remains Milestone 7 work.
+                  docs/remote-connection.md; packaged installation remains Milestone 8 work.
                 </p>
               </details>
             </>
@@ -2227,7 +2227,7 @@ factoru-server pair --ssh-host user@server`}</code>
           </pre>
           <p className="muted">
             The complete development instructions are in docs/remote-connection.md. Packaged setup
-            remains Milestone 7 work.
+            remains Milestone 8 work.
           </p>
           <div className="modal-actions">
             <button type="button" onClick={() => completeRemoteFactoryIntro(false)}>

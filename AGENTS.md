@@ -272,7 +272,7 @@ Vitest per package; server integration tests use a real listener and the shared
 protocol client. Development scripts under `scripts/` are plain ESM and use
 Node's built-in test runner.
 
-Packaging commands do not exist yet; they arrive with Milestone 7 as decided in
+Packaging commands do not exist yet; they arrive with Milestone 8 as decided in
 [ADR 0005](./docs/adr/0005-packaging.md).
 
 ## Documentation expectations

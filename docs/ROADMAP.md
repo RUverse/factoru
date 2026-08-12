@@ -1,6 +1,6 @@
 # Factoru Roadmap
 
-> Status: Milestones 0–6 complete; Milestone 7 is next
+> Status: Delivered Foundation complete; Milestone 7 is next
 > Last updated: 2026-08-12
 
 This is the single delivery roadmap for Factoru. It intentionally starts with a
@@ -35,7 +35,7 @@ The initial promise is deliberately narrow:
 
 ## Product vision
 
-The MVP is intentionally serial and constrained, but it must grow toward six
+The MVP is intentionally serial and constrained, but it must grow toward seven
 defining product capabilities:
 
 1. **Automatic orchestration for all tasks.** The user describes a bug, feature,
@@ -45,29 +45,35 @@ defining product capabilities:
    verifies the result, and runs internal multi-agent review before asking the
    user to review anything. The user can inspect and interrupt this process but
    should not have to coordinate it manually.
-2. **Automatic task reconciliation.** Every new request is compared with active
+2. **Live, durable conversation.** Project Manager chat should feel immediate
+   without making transient provider output a second source of truth. Text,
+   structured tool activity, and images stream through resumable, bounded
+   subscriptions; reconnect reconstructs the exact durable turn without missing
+   or duplicating content. Images are the first attachment type on a general
+   server-owned artifact foundation.
+3. **Automatic task reconciliation.** Every new request is compared with active
    and recent work before a task is created. A repeated bug report should merge
    into the existing task as new evidence or scope rather than create a
    duplicate. Uncertain matches are explained and brought to the user instead
    of being merged silently.
-3. **Tiered task-run capsules.** Each concurrently executing task run or
+4. **Tiered task-run capsules.** Each concurrently executing task run or
    independently scheduled Formula unit receives one managed capsule; ephemeral
    agent sessions do not receive competing capsules. Isolation grows from a Git
    worktree and resource leases, to containerized project services, and only
    later to a fully containerized worker where justified. A capsule can own its
    branch, ports, processes, environment, Docker Compose identity, databases,
    logs, artifacts, health checks, and safe cleanup.
-4. **A visual Kanban control surface.** Backlog is a user-editable thought dump:
+5. **A visual Kanban control surface.** Backlog is a user-editable thought dump:
    the user can add rough items without first explaining or structuring them.
    Moving an item to Queue explicitly asks the Project Manager to reconcile,
    clarify, prioritize, plan dependencies, and assign a Team role/Formula Preset.
    The board remains Backlog, Queue, In progress, and Needs you.
-5. **Configurable teams.** A Team role profile owns versioned prompt policy,
+6. **Configurable teams.** A Team role profile owns versioned prompt policy,
    durable role memory, one or more model bindings, scoped Factoru tools, a
    default Formula Preset, and capacity policy. Project Factory settings cap
    parallel implementation workers while the Project Manager decides which
    tasks are logically safe to run together.
-6. **One formula-native experience.** Factoru gives Gas City a coherent product
+7. **One formula-native experience.** Factoru gives Gas City a coherent product
    UX rather than separate simple and advanced modes. Curated Project Blueprints
    and Formula Presets make the product immediately usable; the same interface
    progressively gains Formula selection, run inspection, and safe customization
@@ -196,6 +202,14 @@ Factoru remains opinionated rather than becoming a generic Gas City dashboard:
 native runtime detail is translated into project and task language and disclosed
 where it helps explain or control the current work.
 
+Conversation becomes a live, durable surface in Milestone 7. Assistant text and
+structured tool activity render incrementally, while the final Factoru
+transcript remains authoritative after reconnect. Messages use versioned content
+parts so text and project-scoped artifacts can coexist. The first attachment UX
+supports images selected from the picker, pasted, or dragged into the composer;
+arbitrary files, audio, and video remain later extensions of the same artifact
+boundary.
+
 ### Projects
 
 A Factoru project initially contains:
@@ -314,7 +328,7 @@ than silently appended by a model.
 ```mermaid
 flowchart LR
     D["Factoru Desktop<br/>Electron"]
-    API["Authenticated API<br/>commands + live events"]
+    API["Authenticated API<br/>commands + scoped streams + artifacts"]
     S["Factoru Server"]
     DB["Factoru Database"]
     GC["Gas City Adapter"]
@@ -403,6 +417,12 @@ fact.
   the server.
 - Never expose arbitrary server filesystem access through the renderer.
 - Record important task and execution changes in an audit/event log.
+- Carry live state through authenticated, bounded subscriptions with heartbeat,
+  cursor replay, gap detection, and scoped recovery rather than broad database
+  broadcasts.
+- Authorize every artifact upload and download by factory, project,
+  conversation, and role; never expose server filesystem paths or provider
+  attachment URLs to the renderer.
 
 ### Persistence and source-of-truth boundaries
 
@@ -416,6 +436,8 @@ Factoru Server owns:
 - trusted clients and connection settings;
 - projects and repository configuration;
 - conversations and messages;
+- conversation turns, message content parts, attachment metadata, authorization,
+  hashes, provenance, and retention policy;
 - task identity, status, Queue phase, priority/order, cross-task dependencies,
   resource intent, resolution, and user-facing history;
 - Project Blueprint identity/version, Team prompt/model/tool/memory policies,
@@ -435,9 +457,10 @@ Gas City owns:
 - agent assignment and execution progress;
 - orchestration events and run artifacts represented by Gas City.
 
-Git owns commits, branches, worktree contents, and diffs. The preferred validated
-split gives Gas City worktree lifecycle and Factoru the correlated capsule's
-non-Git leases; the OS/container runtime owns actual live processes and service
+Git owns commits, branches, worktree contents, and diffs. In the connected serial
+path, Factoru owns the task-run worktree/branch and correlated non-Git leases;
+Gas City owns only worktrees it later creates for separately scheduled drain
+units. The OS/container runtime owns actual live processes and service
 resources. Factoru may cache external state, but there must be one authoritative
 owner for every mutable field and lifecycle transition.
 
@@ -452,6 +475,16 @@ errors, and live events. The desktop should be able to:
 - stream Project Manager messages and tool activity;
 - observe task and worker updates;
 - submit clarification, approval, and review decisions.
+
+Milestone 7 evolves the live protocol into bounded subscriptions for the
+factory/project shell, active workspace, conversation, and Formula run. Each
+subscription establishes a snapshot, replays after a monotonic cursor, marks
+the transition to live delivery, and falls back to a scoped snapshot when a gap
+cannot be repaired. Conversation events distinguish assistant start, text
+delta, completion, cancellation, and failure from structured tool activity.
+Binary artifact transfer uses authenticated HTTP upload/download endpoints and
+opaque handles; base64 image payloads do not travel through WebSocket events or
+renderer caches.
 
 The renderer never imports the database or Gas City adapter. All privileged
 operations cross an Electron preload boundary and then the authenticated server
@@ -475,9 +508,11 @@ only product component that talks to it, through `packages/gas-city`.
 | **Session** | One live agent instance. PM chat stays available, PM planning is serialized on demand, and implementer/reviewer pools scale on demand while bead work remains durable. |
 | **Bead** | Gas City's durable execution unit. Formula roots and steps are beads, but Factoru tasks remain separate product entities. |
 | **Formula v2** | A reusable routed work graph. A Factoru Formula Preset configures it; it does not define a Team profile by itself. |
+| **Run** | One materialized Formula execution with stages, transcripts, usage, and related beads. Milestone 9 projects it into Factoru's task/run inspector rather than exposing the raw dashboard. |
 | **Convoy** | A tracked group of beads. Later it can hold decomposed work and feed safe fan-out; it is not the Kanban board. |
 | **Event** | A sequenced immutable observation consumed through SSE for projection, recovery, and diagnostics. |
 | **Order** | A scheduled/event trigger for formulas or trusted exec work. Later useful for maintenance, but not the MVP Queue scheduler. |
+| **Skills, mail, and nudges** | Later role-scoped capabilities and durable coordination signals inside bounded Formula units. They do not create new Factoru workers, bypass Formula dependencies, or expose direct process handles. |
 
 The default topology is:
 
@@ -638,350 +673,217 @@ There is one sequence. Each milestone should leave behind a demonstrable
 vertical slice and automated checks. Do not begin a later milestone merely
 because the earlier UI looks complete.
 
-### Milestone 0 — Walking skeleton
+### Delivered Foundation — former Milestones 0–6
 
-- Create the pnpm monorepo and the intended app/package boundaries.
-- Add formatting, linting, typechecking, unit-test, and CI foundations.
-- Define the first protocol handshake and compatibility response.
-- Start an empty server and connect an empty Electron client to it locally.
-- Give every development worktree a deterministic, collision-free server data
-  directory and derived development ports from the beginning.
-- Record architecture decisions for the server framework, API transport,
-  database library, migrations, and packaging.
+**Status: Complete through the development-from-source serial path
+(2026-08-12).** This milestone consolidates the historical delivery sequence;
+the original milestone names and evidence remain in ADRs and spike reports.
 
-Exit: the desktop displays the health and version of a local Factoru Server
-using shared runtime-validated protocol types, and the same checks run locally
-and in CI.
+- **Implemented:** the pnpm/TypeScript monorepo, Electron/Desktop and Fastify
+  Server boundary, protocol v2, SQLite migrations and transactional outbox,
+  remote pairing/authentication, managed multi-repository projects, guarded Gas
+  City rig provisioning, Project Blueprints, Team model slots, Formula Presets,
+  PM chat/planner identities, four-state tasks, audited role-scoped tools,
+  WIP-one admission, task-run capsules, deterministic checks, independent
+  review, Needs-you evidence, cancellation, and restart recovery.
+- **Verified against real providers:** Fast Patch completed ten disposable
+  benchmark tasks plus one PM-chat-originated task that reached human acceptance
+  across Factoru service reconstruction. The run left source repositories and
+  user worktrees intact and recorded review, checks, usage, and failure evidence.
+- **Implemented with acceptance pending:** the Blueprint-driven catalog,
+  immutable Formula Run snapshot, and attached Standard Build adapter path are
+  connected and automated-test covered, but Standard Build has not completed
+  the pinned-runtime real-provider acceptance matrix.
+- **Partial operational surfaces:** Desktop packaging, managed Server lifecycle,
+  restore/recovery drills, remote-host acceptance, rich streaming conversation,
+  attachment delivery, and concurrency remain future milestones.
 
-### Milestone 1 — Gas City feasibility gate
+Evidence: [Gas City feasibility gate](./spikes/milestone-1-gas-city-gate.md),
+[Milestones 5–6 acceptance](./spikes/milestones-5-6-acceptance.md),
+[Blueprint and Formula Preset boundary](./adr/0019-blueprints-formula-presets-and-project-manager-boundary.md),
+and [current implementation inventory](./ARCHITECTURE.md#current-implementation-inventory).
 
-Prove the core dependency and its vocabulary against a disposable repository
-before designing durable Factoru product behavior around it. Everything in this
-milestone is a thin probe or adapter seam, not a second orchestration runtime.
+### Milestone 7 — Live Conversation and Resilient Client Sync
 
-- Pin a tested Gas City binary/CLI release and the authoritative OpenAPI schema.
-  **Resolved:** pinned to 1.4.0 (`>=1.4.0 <1.5.0`); the authoritative contract is
-  the document the running supervisor serves at `/openapi.json`, which diverges
-  from the documentation site. See
-  [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md) and the
-  [gate record](./spikes/milestone-1-gas-city-gate.md).
-- Add installation/readiness checks for `gc`, Git, tmux, jq, Dolt, Beads, flock,
-  and at least one configured agent harness. Enforce the pinned release's Dolt
-  floor (current Gas City operations documentation requires final Dolt 2.1.0 or
-  newer) rather than accepting any executable on `PATH`.
-- Reuse the machine supervisor safely, provision a dedicated Factoru city under
-  the server data root, verify an unrelated city remains untouched, and report
-  that all host-reachable cities share the supervisor's single-operator trust
-  domain. Keep all Gas City and Dolt listeners host-local.
-- Implement the narrowest useful `packages/gas-city` adapter spike. Record which
-  operations use typed REST/SSE, validated config generation/reload, or—only for
-  a proven API gap—pinned `gc --json`; keep all raw DTOs inside the adapter.
-- Before treating prompts, tools, or Team profiles as stable, prove one minimal
-  authenticated Factoru tool round trip through both initial Claude and Codex
-  harnesses. **Resolved:** both harnesses called a role-scoped probe tool.
-  Gas City catalogues a pack's `mcp/` directory but never delivers it to a live
-  session, so Factoru writes each harness's MCP config itself from
-  `session_setup_script`, with an absolute server path and a per-session
-  credential held by the server rather than the agent —
-  [ADR 0010](./adr/0010-agent-tool-transport.md).
-- Create a provisional `packs/factoru-default` skeleton with the four intended
-  agent roles, doctor checks, and one tiny implement-then-independent-review
-  Formula. Keep queue/task semantics out of this probe.
-- Install the provisional pack through a pinned import/lock and verify config
-  reload and rollback.
-- Register one disposable repository as a rig and document every `.beads/` and
-  Git working-tree change Gas City makes. **Resolved, with a defect:**
-  `gc rig add` creates a git commit in the target repository and captured a
-  user's staged change. The guard that refuses a dirty index and discloses every
-  mutation exists and is tested in `packages/gas-city`; wiring it into an actual
-  project-registration operation lands with projects in Milestone 2 —
-  [ADR 0009](./adr/0009-rig-registration-safety.md).
-- Start a rig-scoped, always-on Project Manager chat named session and complete
-  external-message register/subscribe/send/reconnect through Factoru Server.
-- Cook and run the tiny Formula as real beads, observe implementer-to-reviewer
-  dependency routing, and verify that its worktree behavior matches or disproves
-  the preferred ownership split. **Routing proven; the worktree split is
-  disproven** — Gas City creates worktrees only for `drain` fan-out units, so
-  Factoru owns worktree lifecycle for the single-task loop
-  ([ADR 0008](./adr/0008-worktree-ownership.md)).
-- Every agent Factoru binds to a Formula step must carry Gas City's
-  `gc-role-worker` prompt fragment. Without it an agent completes its work and
-  exits without closing its bead, and the workflow stalls with no error
-  anywhere. This is a permanent constraint on the Team role contract.
-- Consume the city event stream, persist its cursor, restart both processes, and
-  resume without losing or duplicating the observed operation. A temporary
-  probe store is sufficient; durable Factoru persistence begins in Milestone 2.
+#### Transport and synchronization
 
-Exit: Factoru Server can provision a disposable city/rig, chat through a Gas
-City named session, run and observe one real implement/review Formula across a
-restart, and tear down only what it owns. Both initial harnesses call one scoped
-Factoru probe tool, the adapter's transport map and worktree owner are recorded,
-and there is enough evidence to make an explicit go/no-go decision before
-building the product model.
+- Replace generic project-event workspace refetching with one supervised,
+  authenticated connection carrying bounded subscriptions for the
+  factory/project shell, active workspace, conversation, and Formula run.
+- Give every subscription a defined snapshot, monotonic sequence/cursor replay,
+  explicit catch-up-to-live marker, heartbeat, bounded buffers, backpressure,
+  history pagination, gap detection, and scoped snapshot fallback. Reconnect
+  must not hydrate unrelated projects or replay an unbounded event log.
+- Record the transport choice in an ADR after a focused spike compares extending
+  the existing typed WebSocket protocol with the smallest suitable typed
+  streaming RPC. Do not adopt T3 Code's Effect stack by default.
 
-> **Result: pass. The decision is go.** Every criterion was met against a real
-> Gas City 1.4.0 installation, including an authenticated, role-scoped Factoru
-> tool call from both the Claude and Codex harnesses. Gas City's own pack
-> `mcp/` projection turned out never to reach a live session, so Factoru
-> installs each harness's MCP config itself from `session_setup_script`
-> ([ADR 0010](./adr/0010-agent-tool-transport.md)). Several architectural
-> assumptions were disproven — worktree ownership, named-session scoping, and
-> the external-client protocol — and are corrected here and in
-> `ARCHITECTURE.md`. See the [gate record](./spikes/milestone-1-gas-city-gate.md).
+#### Conversation model and Gas City boundary
 
-### Milestone 2 — Persistence, projects, and remote connection
+- Add versioned conversation turns and message content parts. Model assistant
+  start, text delta, completion, cancellation, and failure separately from
+  structured tool start/update/completion events; expose model usage without raw
+  chain-of-thought.
+- Keep the final Factoru transcript authoritative. Partial output is an
+  explicitly replaceable projection that reconciles to the durable completed
+  message after reconnect without missing or duplicating text or tool state.
+- Validate the served Gas City OpenAPI and runtime behavior for output streaming
+  and attachments through both supported Claude and Codex harnesses. If 1.4.0
+  cannot supply a supported path, select the first compatible stable release and
+  upgrade only behind the adapter compatibility suite. Never parse tmux or
+  provider-terminal output and never add a direct provider session runtime.
 
-Build durable Factoru ownership only after the Gas City feasibility gate passes.
+#### Images and chat experience
 
-- Add SQLite connection policy, forward migrations, migration tests, command
-  receipts, domain events, and the transactional outbox foundation.
-- Implement stable server identity, pairing, device tokens, authorization, and
-  revocation.
-- Add local and remote server profiles to first launch; maintain independent
-  connections for all saved profiles, aggregate their cached projects in
-  Desktop, and route commands by compound home-factory/project identity;
-  require TLS outside localhost and expose only the authenticated Factoru API.
-  **Resolved for Milestone 2:** terminate HTTPS through an operator-controlled
-  private overlay or loopback reverse proxy; native certificate management is
-  deferred ([ADR 0011](./adr/0011-milestone-2-remote-access-and-project-onboarding.md)).
-- Persist projects and their Gas City city/repository/rig bindings in SQLite.
-- Add/list/open projects from the desktop.
-- Validate every server-local repository path and default branch before
-  registering or reconciling its rig through the adapter. The initial
-  Milestone 2 slice shipped one rig per project and was later extended through
-  the same durable provisioning boundary.
-- Stream bounded project changes to connected clients and resume from cursors.
-- Reconcile projects, rigs, and connection state idempotently after Desktop,
-  Server, or Gas City restart without making Gas City the source of truth for
-  Factoru projects.
+- Introduce project- and conversation-scoped artifact IDs. Store metadata,
+  content hash, MIME type, dimensions, provenance, authorization, and retention
+  in Factoru while keeping binary content in server artifact storage outside
+  SQLite.
+- Transfer images through authenticated HTTP upload/download endpoints, not
+  base64 WebSocket messages or Desktop caches. Enforce signature/MIME checks,
+  dimension and size limits, project/user quotas, redacted paths, cleanup, and
+  authorization on every read and write.
+- Support picker, paste, drag-and-drop, thumbnails, upload progress, retry,
+  cancellation, accessible previews, text-plus-image, and image-only messages.
+  Project attachment handles reach Gas City only through the adapter and only
+  when the selected model/harness advertises a proven vision capability;
+  unsupported configurations fail before dispatch with a useful action.
+- Render sanitized Markdown, code blocks, tables, lists, links, streaming state,
+  collapsible tool activity, errors, usage, stop/retry controls, stable
+  autoscroll, manual-scroll preservation, unread state, keyboard operation,
+  screen-reader announcements, and reduced motion.
 
-Exit: a Mac desktop securely connects to a server on another test machine,
-creates a durable project around an existing repository, provisions its rig,
-restarts all involved processes, and recovers the same authorized project state
-without exposing Gas City or Dolt listeners remotely.
+T3 Code is a reference for bounded shell/resource subscriptions, cursor replay,
+and message-delta presentation—not a Factoru dependency or provider runtime.
+See [its architecture overview](https://github.com/pingdotgg/t3code/blob/main/docs/internals/overview.md)
+and [orchestration contract](https://github.com/pingdotgg/t3code/blob/main/packages/contracts/src/orchestration.ts).
 
-### Milestone 3 — Product shell and persistent Project Manager
+Exit: local and remote tests disconnect during a provider response and recover
+the exact text/tool state without gaps or duplicates; bounded catch-up does not
+refetch the whole active workspace; image upload, cancellation, rejection,
+authorization, retention, and delivery pass through every supported Claude and
+Codex configuration; chat remains responsive while planning or execution runs.
 
-- Build the project sidebar, center conversation, and right Tasks/Team pane.
-- Establish Factoru's visual tokens rather than copying T3 Code's UI.
-- Maintain the shipped frameless native-control shell, responsive resizable
-  panes, system themes, controlled prompt composer, and shared accessible React
-  primitives described by [ADR 0020](./adr/0020-desktop-shell-and-ui-foundation.md).
-- Promote the provisional pack's agent definitions into versioned Project
-  Manager chat/planner and Software Engineer implementer/reviewer contracts.
-- Create the built-in `templates/software-project` project manifest (now the
-  Standard Software Project Blueprint) and persist its initial Team profiles,
-  named model slots, prompt/tool/memory policies, capacity defaults, and Formula
-  binding points.
-- Bind each Factoru conversation to the isolated Gas City Project Manager
-  session using a stable conversation ID.
-- Persist user/assistant messages in Factoru and resume both Factoru and Gas City
-  SSE streams from cursors.
-- Route a durable planner probe to the separate serialized PM planner while the
-  named chat session remains responsive; production Queue reconciliation lands
-  in Milestone 4.
-- Store provider credentials only on the server and apply Project Manager and
-  Software Engineer named model bindings as validated Gas City config.
-- Load configured provider/model choices through the server-side Gas City
-  adapter and present linked Team selectors with effective provider defaults;
-  never make the renderer maintain a second provider catalog.
-- Persist versioned Team prompt overrides, tool policies, and minimal
-  project/role memory with explicit provenance.
-- Show token usage, tool activity, Gas City/session health, errors,
-  cancellation, and reconnect behavior without exposing Gas City credentials.
-- Establish progressive disclosure inside the same workspace so later Formula,
-  bead, and capsule detail extends these surfaces instead of creating another
-  product mode.
+### Milestone 8 — Packaging and Dependable Operation
 
-Exit: the user can hold a persistent Project Manager conversation while a
-separate planning bead runs, configure implementation/review models, and retain
-bounded project/role memory without exposing credentials or losing history.
+- Ship a signed and notarized macOS Desktop, Server native archives and a
+  container for supported macOS/Linux targets, the existing operator CLI, the
+  RUverse Homebrew formula, and explicit service installation/removal paths.
+- Make Desktop-managed local setup and authenticated private HTTPS/SSH remote
+  setup use the same Server artifact, protocol, migration, and recovery model.
+- Add negotiated application/protocol upgrade policy, rollback boundaries,
+  packaged logs and diagnostics, service-account repository credentials,
+  secret-store integration, audited command policy, and artifact retention.
+- Complete packaged SQLite backup/restore plus Gas City/Dolt recovery drills.
+  Monitor store/backup growth per run, free-space and compaction headroom,
+  quarantine, last successful maintenance, and full-GC scratch-space needs.
+- Complete the pinned-runtime real-provider Standard Build matrix before release;
+  do not treat static/adapter validation as production acceptance.
+- Revalidate tool bootstrap, authentication, remote proxying, migrations,
+  cancellation, restart adoption, and rich conversation from packaged installs.
 
-### Milestone 4 — Project Manager and four-state tasks
+Exit: a non-author machine installs a supported Server and Desktop, completes
+rich chat with an image and a serial Standard Build task, restarts services,
+restores a backup, upgrades compatibly, and produces a redacted diagnostic
+bundle without exposing Gas City, Dolt, repository, or provider secrets.
 
-- Add the task schema, status invariants, terminal resolutions, event log, and
-  task-run correlation records.
-- Add the production `queue-reconcile` Formula to `factoru-default` and bind it
-  as the Project Manager Team profile's planning workflow.
-- Let the user create/edit rough Backlog cards directly and move them to Queue.
-- Make every Queue transition/edit create or coalesce one idempotent
-  `queue-reconcile` planning bead; show its Queue phase on the card.
-- Render the four-column board from Factoru state; do not project raw bead
-  statuses as columns.
-- Expose project-scoped Project Manager tools to search, create, update, move,
-  queue, merge/propose-merge, and resolve tasks.
-- Authenticate every agent-tool call by project and role and record it in the
-  Factoru audit trail.
-- Add simple candidate matching so the Project Manager can recognize likely
-  duplicate requests before creating a task.
-- Require explicit user confirmation for ambiguous merges initially.
-- Add Queue capacity policy with an execution WIP limit of one.
+### Milestone 9 — Gas City-Native Orchestration Depth
 
-Exit: both chat and direct Backlog capture create persistent tasks; Queueing
-triggers one serialized PM planning pass that can merge/split, prioritize, set
-dependencies, and choose an allowed Formula Preset without blocking chat or
-duplicating/crossing project state.
+- Extend `packages/gas-city` to consume served run, Formula preview, bead,
+  convoy, agent/session stream, structured transcript, stage, usage, and cost
+  surfaces. Prefer typed API state to inferred logs; keep raw Gas City DTOs and
+  configuration behind the adapter.
+- Add a progressively disclosed run inspector inside Tasks/Team showing the
+  Formula stage ladder, dependencies, sessions, checks, artifacts, review
+  evidence, token/cost totals, failures, retry budgets, cancellation, and
+  recovery. It is a Factoru projection, not an embedded raw Gas City dashboard.
+- Extend Standard Build to durable task decomposition through a convoy and
+  bounded same-capsule Formula units while global autonomous WIP remains one.
+  Handoffs use schema-validated artifacts and durable bead dependencies.
+- Add curated, bounded read-only specialist review lanes, synthesis,
+  deterministic checks, and at most the configured correction budget. No model
+  may create an unbounded review/correction loop.
+- Improve PM reconciliation with deliberate splitting, dependency/resource
+  intent, semantic duplicate candidates requiring confirmation when uncertain,
+  and bounded project/role memory retrieval with provenance and poisoning
+  defenses.
+- Preserve ownership: Factoru owns projects, Queue intent, cross-task
+  dependencies before materialization, Team profiles, capacity, authorization,
+  and product presentation; Gas City owns the materialized run, readiness, and
+  concrete session assignment.
 
-### Milestone 5 — `software-delivery` Formula v2 operational spike
+The implementation should use the proven capabilities exposed by the served
+runtime, guided by the [Gas City API](https://docs.gascity.com/reference/api),
+[Formula guide](https://docs.gascity.com/guides/understanding-formulas), and
+[runtime model](https://docs.gascity.com/getting-started/how-gas-city-works).
 
-**Status: Complete (2026-08-06).** The production candidate completed 10/10
-provider-backed disposable-repository tasks without operator changes. See
-[the acceptance report](./spikes/milestones-5-6-acceptance.md).
+Exit: one nontrivial task is reconciled and decomposed into multiple durable
+units, independently reviewed and synthesized, and survives restart,
+cancellation, and bounded retry with every useful state visible through Factoru
+and no raw Gas City configuration required from the user.
 
-Run the real `software-delivery` workflow from the `factoru-default` pack against
-at least ten small tasks in disposable test repositories before coupling it to
-the production board loop.
+### Milestone 10 — Safe Concurrency and Capsules
 
-- Replace the Milestone 1 probe Formula with the versioned production candidate
-  and bind it to the Software Engineer Team profile in the built-in project
-  manifest.
-- Validate formula variables, routes, compiler requirements, pack/formula
-  version capture, and workflow-root correlation before dispatch.
-- Add Factoru-side semantic validation for the pinned Formula v2 release:
-  enforce variable types, reject inert `until`/gate/waits-for behavior, prefer
-  `drain` over deprecated fan-out, enforce drain limits, refuse v2 converge, and
-  cook/sling rig-scoped work in the target rig's store.
-- Materialize and observe implementation, deterministic checks, independent
-  review, one bounded correction, and workflow finalization as beads with real
-  `needs` edges.
-- Verify that engineer/reviewer sessions can die or be adopted without losing
-  bead progress.
-- Exercise API duplicate requests, event replay, cancellation, process restart,
-  config reload, transient retry, exhausted budgets, and partial failure.
-- Run each task in a clean worktree using the ownership split proven in
-  Milestone 1 and recorded by ADR 0008: Factoru owns Git worktree lifecycle,
-  correlated capsule identity, and non-Git resource leases because an ordinary
-  Formula v2 run creates no worktree; Gas City owns only worktrees it creates
-  for later `drain` units with `context = "separate"`.
-- Measure acceptance quality, human review time, model cost, review usefulness,
-  test outcomes, and merge/conflict failures.
-- Test macOS arm64 and Linux arm64/x86_64 where available.
+- Raise cross-task WIP only after Milestone 9 is dependable, first to two and
+  then three independently admitted workflows. Gas City chooses concrete
+  agents/pool sessions; prompts and users never name instances such as `SE 1`.
+- Preserve one Factoru-owned worktree/capsule per task run for the first
+  cross-task concurrency. Resolve separate-context drain Git/worktree ownership
+  in one explicit ADR before enabling intra-task fan-out; no worktree or cleanup
+  operation may have two owners.
+- Complete tier-one leases for ports, environment, processes, logs, health,
+  locks, artifacts, and retention. Add tier-two task-specific Compose services,
+  networks, volumes/database namespaces, limits, and cleanup only for projects
+  whose runtime services need isolation.
+- Keep Factoru task dependencies and resource locks authoritative until an
+  admitted run snapshots them into Gas City `needs` edges/convoys. Never expose
+  two independently editable dependency graphs.
+- Reserve rig/workspace capacity for PM chat, planning, review, integration, and
+  recovery. Reduce effective capacity under CPU, memory, storage, I/O, provider,
+  or review-pressure limits even when the configured ceiling is higher.
+- Serialize integration/rebase/final checks and test port/database collisions,
+  conflicting files, cancellation, restart, partial failure, exhausted
+  resources, cleanup, and review routing at each capacity step.
+- Benchmark one through four cloud-model sessions on a representative 8 GB
+  Linux arm64 host with builds and services. Four is a measurement target, not
+  a support guarantee.
 
-Exit: at least 6 of 10 representative tasks are accepted with no or minor user
-changes, median user review takes under 10 minutes, no repository is damaged,
-review feedback is meaningfully useful, and cost is visible. If the result is
-poor, refine the pack or integration boundary before adding parallelism.
-
-### Milestone 6 — Single-task production loop
-
-**Status: Complete (2026-08-06).** A PM-chat-originated task traveled through
-planning, serial admission, implementation, checks, independent review, and
-human acceptance while the server application service was reconstructed
-mid-run. See [the acceptance report](./spikes/milestones-5-6-acceptance.md).
-
-- Admit one PM-planned ready task from Queue to In progress when Factoru policy,
-  dependencies, and capacity allow.
-- Sling it through the validated Gas City adapter and selected Formula v2.
-- Persist city, rig, formula/pack version, workflow root, request ID, and event
-  cursor on the task run.
-- Create one worktree-level capsule identity for the task run and keep its
-  implementer and reviewer steps correlated to that same capsule.
-- Stream stage, logs, checks, cost, and failure state into the task card while
-  keeping raw step beads in a run-details view.
-- Build a Needs you review package containing the request, plan, diff, commits,
-  checks, internal review, unresolved risks, and model usage.
-- Support approve, request changes, retry, cancel, and archive.
-- Serialize integration: update against the latest target branch, report or
-  resolve conflicts, rerun checks, and only then request human approval.
-- Apply backpressure while Needs you already contains unresolved review work.
-
-Exit: one real task travels from conversation to reviewed diff without manual
-board management and safely survives desktop, server, supervisor, and agent
-restarts.
-
-### Blueprint-driven Formula catalog
-
-**Status: Implemented (2026-08-12); live provider acceptance pending.** Protocol
-v2, migration 0007, Desktop controls, Team model slots, immutable run snapshots,
-and attached/standalone adapter contracts implement the catalog described above.
-Legacy active `software-delivery` runs remain Fast Patch snapshots; unlocked
-queued work migrates to Standard Build. Automated tests cover defaults,
-user-locks, PM selection, migration, both launch modes, restart, cancellation,
-capability rejection, and capsule routing. Real-provider Standard Build
-acceptance remains required before its production behavior is called validated;
-the host used for this change did not have the pinned `gc` executable. The
-default precedence, Formula launch split, and Factoru Project Manager versus
-upstream Mayor boundary are recorded in
-[ADR 0019](./adr/0019-blueprints-formula-presets-and-project-manager-boundary.md).
-
-### Milestone 7 — Packaging and dependable operation
-
-- Ship a signed/notarized macOS desktop build.
-- Package the server for macOS and Linux with a pinned Gas City compatibility
-  range and documented dependency installation.
-- Ship one `factoru-server` operator CLI in those artifacts and the RUverse
-  Homebrew tap. Its source-preview form already covers start/version, host
-  doctor, provider/city setup and readiness, status, Factoru-correlated active
-  work, repository-access diagnostics, pairing/SSH-forward details, and verified
-  SQLite backup; packaged lifecycle, explicit service-account Git credential
-  handling, logs, restore, and service management remain in this milestone.
-- Add backup/restore for Factoru SQLite plus documented Gas City/Dolt recovery,
-  migrations, diagnostics, logs, update policy, and health reporting.
-- Monitor Dolt and Beads backup growth, free-space headroom, compaction status,
-  quarantine, and store growth per task. Validate the pinned Dolt pack's
-  maintenance order and a recovery drill that stops writers and budgets enough
-  scratch space for full GC.
-- Harden authentication, external-message token storage, agent-tool scoping,
-  pack trust, secret storage, command policy, and audit history.
-- Provide a clear local-server installation path from first launch.
-
-Exit: a non-author machine can install the server on supported hardware,
-connect the desktop, and complete the single-task production loop.
-
-### Milestone 8 — Carefully add concurrency
-
-- Complete tier-one capsules: Gas City-owned worktree/branch plus
-  Factoru-owned ports, environment, process supervision, logs, health, locks,
-  and cleanup/retention policy.
-- Add tier-two isolation for projects that need it: keep the agent harness on
-  the host while running task-specific application services under a unique
-  Docker Compose project, database namespace/volume, and explicit resource
-  limits.
-- Treat a fully containerized worker as optional tier three. Validate provider
-  authentication, hooks, caches, tool transport, filesystem ownership, and
-  security before enabling it; do not require one container per agent session.
-- Ensure Gas City and Factoru never manage the same worktree, container, port,
-  process, or database lifecycle operation.
-- Add explicit Factoru task dependencies/resource locks and correlate them to
-  Gas City `needs` edges/convoys without creating two editable graphs.
-- Enable `max_parallel_implementation_workers` in project Factory settings;
-  map it to the implementer agent cap while reserving rig/workspace capacity for
-  PM, planner, reviewer, and control sessions.
-- Increase from one to two and then three independent tasks only after each
-  level passes collision, recovery, and review-load checks.
-- Keep integration serialized and rerun verification after rebasing.
-- Display dependency, convoy, session, and capsule state without asking the user
-  to schedule it.
-- Compare throughput against accumulated Needs you time; parallelism is useful
-  only if it reduces total user effort.
-- On Linux arm64, benchmark an 8 GB Raspberry Pi-class host from one through
-  four cloud-model implementation sessions with representative builds and
-  services. Measure Dolt/backup growth per task and compaction cost as well as
-  CPU, memory, and I/O. Four is a target measurement, not a support guarantee;
-  admission must reduce effective capacity under CPU, memory, storage, or
-  provider pressure.
-
-Exit: setting the tested cap to three allows three eligible independent tasks to
-run concurrently, while dependent/conflicting tasks remain gated, without
-resource collision, context leakage, double scheduling, or increased review
+Exit: a tested cap of three runs three eligible independent tasks concurrently
+while dependencies and conflicts remain gated, without resource collision,
+context leakage, double scheduling, unsafe cleanup, or increased review
 confusion.
+
+### Milestone 11 — Adaptive Workflows and Trusted Extensibility
+
+- After capsule ownership is proven, add intra-task fan-out through
+  convoys/drain with one capsule per independently scheduled Formula unit and an
+  explicit owner for its branch, integration, cancellation, and cleanup.
+- Add curated specialist Team profiles and model slots with role-scoped prompts,
+  memory, skills, and tools. Use durable beads, artifacts, mail, and nudges for
+  coordination rather than direct process/session handles.
+- Support built-in, cloned, and project Formula Presets with schema validation,
+  bounded parameters, pinned versions, preview/diff, capability disclosure, and
+  rollback. Preserve the immutable selection on every active run.
+- Permit third-party packs only as explicitly trusted executable code with
+  provenance, review, pinning, upgrade diff, capability disclosure, and safe
+  rollback. Never assemble Formula, pack, MCP, or exec configuration from task
+  text.
+- Use Orders only for opt-in maintenance, health, and patrol workflows; never
+  make them a hidden second scheduler for the Factoru Queue.
+- Progress from run inspection to authoring only after repeated real workflows
+  satisfy the activation criteria in
+  [the deferred graph note](./future/graph-orchestration.md). Keep one product
+  experience with progressive disclosure rather than simple/advanced modes.
+
+Exit: an operator can preview and run a trusted custom preset with bounded
+fan-out/review, inspect every durable unit and capability, and roll back its
+version; an explicitly enabled maintenance Order runs without changing Factoru
+task or Queue ownership.
 
 ## Later roadmap
 
-After the core loop proves useful:
+After Milestone 11 proves the extensibility boundary:
 
-- richer task reconciliation and automatic duplicate merging;
-- additional Team roles, specialist model slots, and multi-lane reviewers;
-- task decomposition and dependency planning;
-- a Formula v2 catalog with built-in, cloned, user-authored, and project-specific
-  workflows, validation, parameterization, version pinning, run-time selection,
-  and rollback in the same Factoru interface;
-- explicitly trusted third-party pack imports only after provenance, review, and
-  capability disclosure exist;
-- Gas City Orders for opt-in maintenance/event automation, never as a hidden
-  second owner of the Factoru Queue;
-- progressively richer graph/run inspection and eventually visual Formula
-  authoring inside the existing task and Worker experience;
 - Linux Electron desktop distribution;
 - terminal, file, and source-control conveniences inspired by T3 Code;
 - trust policies for automatic low-risk integration;
@@ -998,8 +900,8 @@ After the core loop proves useful:
 - visual graph editor
 - formula marketplace
 - unlimited autonomous correction loops
-- multiple simultaneous implementation workers
-- Docker/database/port capsule automation before concurrency
+- multiple simultaneous implementation workers before Milestone 10 gates pass
+- Docker/database/port capsule automation before Milestone 10 requires it
 - one full container per ephemeral agent session as the default isolation model
 - automatic merging without review policy
 - mobile and web clients
@@ -1020,6 +922,12 @@ maximizing concurrent agent count. Track from the first executable task:
 - duplicate-task and reconciliation decisions;
 - Queue-to-plan latency, coalesced versus duplicate planning passes, and chat
   responsiveness while planning runs;
+- time to first visible assistant output and sustained stream-delivery latency;
+- conversation replay gaps, duplicate deltas, scoped-snapshot fallbacks, and
+  whole-workspace refetches per reconnect;
+- attachment upload/delivery latency, rejection accuracy, orphan cleanup, and
+  unauthorized-read prevention;
+- tool-activity freshness and message-history pagination cost;
 - useful versus stale/incorrect memory retrievals and permanent-memory changes;
 - requested versus effective implementation capacity and idle/blocked reasons;
 - worktree, integration, and merge-conflict failures;
@@ -1028,12 +936,22 @@ maximizing concurrent agent count. Track from the first executable task:
 ## Remaining open decisions
 
 - How should the server discover, install, pin, and upgrade Gas City?
+- Does the served Gas City contract provide supported text deltas and image
+  delivery for both initial harnesses, or must Factoru upgrade to a later stable
+  release before Milestone 7 can exit?
+- Can the existing typed WebSocket surface gain bounded resource subscriptions
+  cleanly, or does a small typed streaming RPC layer materially reduce protocol
+  and recovery risk?
+- What image size, dimension, project quota, retention, and orphan-cleanup
+  defaults are safe for a personal server and understandable in Desktop?
 - Should Factoru require a dedicated OS user/supervisor when the host also runs
   unrelated cities whose contents must not be readable by Factoru agents?
 - Which facts belong in project memory versus role memory, and what approval,
   provenance, retention, and poisoning defenses govern permanent updates?
 - How should implementation, review, and total rig/workspace caps reserve enough
   capacity to keep PM chat and review responsive?
+- Who owns Git worktree lifecycle for separately scheduled
+  `drain context = "separate"` units once intra-task fan-out is activated?
 - What packaged backup/restore and Gas City/Dolt recovery workflow is safe and
   understandable for a single operator?
 - Which macOS and Linux installation/service mechanisms provide dependable
@@ -1083,5 +1001,7 @@ expanding the roadmap.
 - [Docker resource constraints](https://docs.docker.com/engine/containers/resource_constraints/)
 - [Docker storage and copy-on-write](https://docs.docker.com/engine/storage/drivers/)
 - [T3 Code repository](https://github.com/pingdotgg/t3code)
+- [T3 Code architecture overview](https://github.com/pingdotgg/t3code/blob/main/docs/internals/overview.md)
+- [T3 Code orchestration contract](https://github.com/pingdotgg/t3code/blob/main/packages/contracts/src/orchestration.ts)
 - [Factoru living architecture](./ARCHITECTURE.md)
 - [Future graph orchestration](./future/graph-orchestration.md)

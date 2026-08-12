@@ -1,6 +1,6 @@
 # 0005 — Packaging and distribution
 
-**Status:** Accepted; source-preview CLI partial, packaged artifacts pending Milestone 7
+**Status:** Accepted; source-preview CLI partial, packaged artifacts pending Milestone 8
 **Date:** 2026-08-04
 
 ## Context
@@ -25,7 +25,7 @@ that Milestone 0's build layout does not have to be redone later.
   production dependencies and are externalized for electron-builder to package.
   In particular, bundling `ws` converts its optional `bufferutil` probe into a
   hard unresolved import and prevents Electron main from starting.
-- Milestone 7 adds electron-builder with a signed and notarized macOS build.
+- Milestone 8 adds electron-builder with a signed and notarized macOS build.
   Linux desktop packaging stays a later item, so no Linux-only Electron APIs may
   be introduced in the meantime.
 - Electron 43 no longer installs its runtime through a lifecycle script, so

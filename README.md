@@ -9,12 +9,13 @@ connected together and present one project catalog. See
 [docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the living system map.
 
-> **Status: Milestones 0–6 complete; Milestone 7 is next.** The development app
+> **Status: Delivered Foundation complete; Milestone 7 is next.** The development app
 > connects durable projects and Project Manager chat to the four-state task
 > board, serialized Queue reconciliation, one-at-a-time software delivery,
 > independent review, and human acceptance. The real provider path completed
 > ten benchmark tasks plus one conversation-originated task across a server
-> restart. Packaging and dependable-operation work remain.
+> restart. Live conversation/resilient sync is next; packaging and
+> dependable-operation follow in Milestone 8.
 
 ## Requirements
 
@@ -151,10 +152,13 @@ checks, independent review, risks, and model usage.
 
 ## Current limitations
 
+- Project Manager replies currently arrive as complete plain-text messages;
+  resumable deltas, rich rendering, structured tool activity, and image
+  attachments arrive in Milestone 7.
 - Development-from-source is the supported path; signed/notarized Desktop and
-  packaged Server distributions arrive in Milestone 7.
+  packaged Server distributions arrive in Milestone 8.
 - The serial execution limit is one. Parallel capsules and service-container
-  isolation are deferred to Milestone 8.
+  isolation are deferred to Milestone 10.
 - Remote access relies on an operator-controlled private HTTPS overlay or
   loopback reverse proxy, or the documented manual SSH developer-preview
   tunnel; packaged remote acceptance remains.

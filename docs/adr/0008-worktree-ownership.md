@@ -55,12 +55,12 @@ Concretely:
   a Factoru lease with no shared transaction.
 - Factoru must validate that a repository path is inside a registered project
   root before any worktree operation, since it is now performing them.
-- When Milestone 8 introduces real parallelism through `drain` with
+- Before Milestone 10 permits separate-context parallelism through `drain` with
   `context = "separate"`, this decision must be re-examined: at that point Gas
   City *would* create worktrees, and having both systems create them is exactly
-  the dual ownership the architecture forbids. The likely resolution is that
-  drain-based fan-out is adopted together with Gas City worktree ownership, as
-  one change, rather than incrementally.
+  the dual ownership the architecture forbids. Factoru must spike and adopt one
+  owner for drain-unit creation, integration, retention, and cleanup as one
+  change rather than assuming the current task-run owner can coexist with it.
 - `bd init` already commits to the registered repository (see
   [ADR 0009](./0009-rig-registration-safety.md)). Factoru performing worktree
   operations in the same repository makes the "preserve user work" obligation
@@ -68,6 +68,7 @@ Concretely:
 
 ## Revisit when
 
-- Milestone 8 adopts `drain` fan-out for parallel task runs.
+- Milestone 10 evaluates separate-context `drain` ownership before Milestone 11
+  may adopt intra-task fan-out.
 - Gas City exposes worktree lifecycle as a first-class, addressable operation
   for non-drain workflow runs.

@@ -33,7 +33,7 @@ file path never cross preload into renderer state.
 
 Development harnesses give Server and Desktop the same per-worktree enrollment
 file path. Packaged local service discovery and lifecycle management remain a
-Milestone 7 responsibility; this decision defines the authentication mechanism
+Milestone 8 responsibility; this decision defines the authentication mechanism
 that lifecycle will use.
 
 ## Consequences

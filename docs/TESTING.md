@@ -1,7 +1,7 @@
 # Factoru development and testing
 
-This guide covers the development-from-source path through Milestone 6. The
-packaged installation and recovery matrix belongs to Milestone 7.
+This guide covers the Delivered Foundation development-from-source path. The
+packaged installation and recovery matrix belongs to Milestone 8.
 
 ## 1. Verify the toolchain
 
@@ -167,7 +167,7 @@ FACTORU_REPOSITORY_ROOTS='["/absolute/path/to/disposable-repositories"]' \
 FACTORU_PROJECTS_ROOT='/absolute/path/to/factoru-projects' pnpm dev
 ```
 
-Verify the connected Milestone 6 path:
+Verify the connected Delivered Foundation path:
 
 1. Connect Desktop and confirm server and Gas City health.
 2. Add a clean repository-backed project and inspect the disclosed registration
