@@ -767,6 +767,14 @@ describe('GasCityAdapter conversation delivery', () => {
     })
   })
 
+  it('closes the provider session when Factoru starts a fresh context', async () => {
+    const { fn, calls } = fakeFetch(() => ({ body: {} }))
+    await adapterWith(fn).resetConversationContext('session-chat-1')
+
+    expect(calls[0]?.url.pathname).toBe('/v0/city/factoru-spike/session/session-chat-1/close')
+    expect(calls[0]?.init.method).toBe('POST')
+  })
+
   it('surfaces the named-session requirement rather than silently doing nothing', async () => {
     // 1.4.0 rejects an agent binding when the agent has no configured named
     // session. Factoru must see that as a configuration error it can report.

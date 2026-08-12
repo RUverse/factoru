@@ -23,6 +23,11 @@ Date: 2026-08-12
   tools, usage, stop/retry, autoscroll/unread behavior, and picker/paste/drop
   composition with previews, upload state, retry, cancellation, mixed, and
   image-only turns.
+- Project Manager context can be reset without deleting the Factoru transcript:
+  the server closes the last provider session, rotates the Gas City external
+  conversation identity/cursor, stamps subsequent messages with a durable
+  revision, and Desktop opens a clean current chat while loading prior chats
+  read-only from dated, independently paginated history entries.
 
 ## Automated evidence
 
@@ -31,6 +36,18 @@ transactional turn lifecycle and late-frame cancellation protection, image
 signature/dimension/scoped-grant behavior, recorded Gas City 1.4.0 structured
 transcript and attachment shapes, Desktop live-event routing, and shared UI
 composer semantics. The full repository entry point is `pnpm check`.
+
+Computer Use exercised the rebuilt Desktop on 2026-08-12 against an isolated
+local project. It verified capability-gated control visibility, confirmation
+copy, server-side revision/identity/cursor rotation, the visible fresh-context
+state, Escape dismissal, and focus restoration. It then submitted and cancelled
+a disposable turn, started another fresh context, verified that the current chat
+was clean, opened the prior dated chat from Chat history, confirmed the preserved
+message and read-only composer replacement, and returned to the current composer.
+The local Gas City project could not create a provider session because the
+development city pack was not initialized, so closing a real prior provider
+session remains part of the provider-backed matrix below; the adapter close call
+and service ordering are covered by automated tests.
 
 ## Operational acceptance attempt
 

@@ -25,6 +25,7 @@ import {
   CAPABILITY_SCOPED_STREAMS,
   CAPABILITY_RICH_CONVERSATIONS,
   CAPABILITY_IMAGE_ARTIFACTS,
+  CAPABILITY_CONVERSATION_CONTEXT_RESET,
   CONNECTION_TICKET_PATH,
   HANDSHAKE_PATH,
   HEALTH_PATH,
@@ -38,6 +39,7 @@ import {
   descriptorFromHealth,
   deviceRevokeParamsSchema,
   conversationSendParamsSchema,
+  conversationResetContextParamsSchema,
   handshakeRequestSchema,
   handshakeResponseSchema,
   healthResponseSchema,
@@ -174,6 +176,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
                 CAPABILITY_SOFTWARE_DELIVERY,
                 CAPABILITY_SCOPED_STREAMS,
                 CAPABILITY_RICH_CONVERSATIONS,
+                CAPABILITY_CONVERSATION_CONTEXT_RESET,
                 ...(artifacts ? [CAPABILITY_IMAGE_ARTIFACTS] : []),
               ]
             : []),
@@ -800,6 +803,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'conversations.history': 'projects:read',
       'conversations.cancel': 'projects:write',
       'conversations.retry': 'projects:write',
+      'conversations.resetContext': 'projects:write',
       'team.updateModelBinding': 'projects:write',
       'workers.updateModelBinding': 'projects:write',
       'projects.updateWorkflowDefault': 'projects:write',
@@ -956,6 +960,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
             params.conversationId,
             params.before,
             params.limit,
+            params.contextRevision,
           )
           break
         }
@@ -1006,6 +1011,27 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
                 currentDevice.name,
               ),
           )
+          break
+        }
+        case 'conversations.resetContext': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = conversationResetContextParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Starting a fresh context requires commandId',
+            )
+          const replay = database.replayCommand(request.commandId, request.method, params)
+          result =
+            replay ??
+            database.recordCommand(
+              request.commandId,
+              currentDevice.id,
+              request.method,
+              params,
+              await workspaces.resetConversationContext(params.projectId, params.conversationId),
+            )
           break
         }
         case 'team.updateModelBinding':

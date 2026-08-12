@@ -5,6 +5,7 @@ import { projectLiveEventSchema, projectSchema } from './milestone2.js'
 export const CAPABILITY_SCOPED_STREAMS = 'scoped-streams-v1'
 export const CAPABILITY_RICH_CONVERSATIONS = 'rich-conversations-v1'
 export const CAPABILITY_IMAGE_ARTIFACTS = 'image-artifacts-v1'
+export const CAPABILITY_CONVERSATION_CONTEXT_RESET = 'conversation-context-reset-v1'
 
 export const ARTIFACT_UPLOAD_PATH =
   '/api/v1/projects/:projectId/conversations/:conversationId/artifacts'
@@ -81,6 +82,7 @@ export const conversationTurnSchema = z.object({
 
 export const conversationHistoryPageSchema = z.object({
   conversationId: z.string().min(1),
+  contextRevision: z.number().int().positive(),
   messages: z.array(z.unknown()),
   nextBefore: z.string().nullable(),
   hasMore: z.boolean(),
@@ -148,7 +150,16 @@ export const conversationHistoryParamsSchema = z.object({
   projectId: z.string().min(1),
   conversationId: z.string().min(1),
   before: z.string().min(1).optional(),
+  contextRevision: z.number().int().positive().optional(),
   limit: z.number().int().min(1).max(100).default(50),
+})
+
+export const conversationContextSchema = z.object({
+  revision: z.number().int().positive(),
+  startedAt: z.iso.datetime(),
+  messageCount: z.number().int().nonnegative(),
+  preview: z.string().max(240).nullable(),
+  current: z.boolean(),
 })
 
 export const conversationCancelParamsSchema = z.object({
@@ -161,11 +172,17 @@ export const conversationRetryParamsSchema = conversationCancelParamsSchema
   .omit({ turnId: true })
   .extend({ messageId: z.string().min(1) })
 
+export const conversationResetContextParamsSchema = conversationCancelParamsSchema.omit({
+  turnId: true,
+})
+
 export const shellStreamSnapshotSchema = z.object({ projects: z.array(projectSchema) })
 export const runStreamSnapshotSchema = z.object({ run: executionRunSchema })
 
 export type Artifact = z.infer<typeof artifactSchema>
 export type MessageContentPart = z.infer<typeof messageContentPartSchema>
 export type ConversationTurn = z.infer<typeof conversationTurnSchema>
+export type ConversationContext = z.infer<typeof conversationContextSchema>
+export type ConversationHistoryPage = z.infer<typeof conversationHistoryPageSchema>
 export type StreamResource = z.infer<typeof streamResourceSchema>
 export type ScopedStreamEvent = z.infer<typeof scopedStreamEventSchema>

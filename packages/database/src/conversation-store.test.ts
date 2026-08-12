@@ -134,4 +134,64 @@ describe('ConversationStore', () => {
     expect(db.conversations.getTurn(created.turn.id)?.state).toBe('cancelled')
     db.close()
   })
+
+  it('rotates provider context without deleting the durable transcript', () => {
+    const { db, conversation } = fixture()
+    const first = db.conversations.addUserTurn({
+      conversationId: conversation.id,
+      text: 'Remember this only in the old context.',
+      artifactIds: [],
+      authorDisplayName: 'Owner',
+    })
+    db.conversations.markUserDelivered(first.message.id, 1)
+    db.conversations.attachSession(first.turn.id, 'session-old')
+    db.conversations.finishCancellation(first.turn.id)
+
+    expect(db.conversations.latestSessionId(conversation.id)).toBe('session-old')
+    expect(db.conversations.resetContext(conversation.id)).toEqual({
+      contextRevision: 2,
+      contextStartedAt: '2026-08-12T10:00:00.000Z',
+    })
+    const reset = db.product.getConversation(conversation.projectId)!
+    expect(reset).toMatchObject({
+      gasCityConversationId: `${conversation.id}:context:2`,
+      transcriptCursor: 0,
+      contextRevision: 2,
+    })
+    expect(db.conversations.getMessage(first.message.id)).toMatchObject({ contextRevision: 1 })
+    expect(db.conversations.listMessages(conversation.id, { contextRevision: 2 }).messages).toEqual(
+      [],
+    )
+    expect(db.conversations.listContexts(conversation.id)).toEqual([
+      expect.objectContaining({ revision: 2, messageCount: 0, preview: null, current: true }),
+      expect.objectContaining({
+        revision: 1,
+        messageCount: 1,
+        preview: 'Remember this only in the old context.',
+        current: false,
+      }),
+    ])
+    expect(db.conversations.latestSessionId(conversation.id)).toBeNull()
+
+    const second = db.conversations.addUserTurn({
+      conversationId: conversation.id,
+      text: 'This is the fresh context.',
+      artifactIds: [],
+      authorDisplayName: 'Owner',
+    })
+    expect(() => db.conversations.markUserDelivered(second.message.id, 1)).not.toThrow()
+    expect(second.turn.contextRevision).toBe(2)
+    expect(second.message.contextRevision).toBe(2)
+    expect(db.conversations.listMessages(conversation.id, { contextRevision: 1 }).messages).toEqual(
+      [expect.objectContaining({ id: first.message.id })],
+    )
+    expect(db.conversations.listMessages(conversation.id, { contextRevision: 2 }).messages).toEqual(
+      [expect.objectContaining({ id: second.message.id })],
+    )
+    expect(
+      db.conversations.streamEventsAfter(conversation.id, 0).map((event) => event.type),
+    ).toContain('context.reset')
+    expect(() => db.conversations.resetContext(conversation.id)).toThrow('conversation_turn_active')
+    db.close()
+  })
 })

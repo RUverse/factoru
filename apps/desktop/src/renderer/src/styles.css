@@ -702,6 +702,14 @@ html[data-platform='darwin'][data-fullscreen='false'] .sidebar-brand {
   gap: 6px;
 }
 
+.context-reset-trigger {
+  -webkit-app-region: no-drag;
+  border-color: var(--factoru-border);
+  background: transparent;
+  color: var(--factoru-text-muted);
+  font-size: 10px;
+}
+
 .pane-toggle {
   flex: 0 0 auto;
 }
@@ -846,6 +854,44 @@ html[data-platform='linux'] .workspace-shell.project-setup-open .pane-header {
   padding: 18px clamp(16px, 4vw, 48px);
 }
 
+.chat-history-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--factoru-border);
+  padding: 6px clamp(16px, 4vw, 48px);
+  color: var(--factoru-text-muted);
+  font-size: 10px;
+}
+
+.chat-history-toolbar label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-history-toolbar select {
+  min-width: 180px;
+  max-width: min(520px, 55vw);
+  border: 1px solid var(--factoru-border);
+  border-radius: 7px;
+  background: var(--factoru-panel);
+  padding: 5px 24px 5px 8px;
+  color: var(--factoru-text);
+  font: inherit;
+}
+
+.read-only-badge {
+  border-radius: 999px;
+  background: var(--factoru-accent-soft);
+  padding: 3px 7px;
+  color: var(--factoru-accent);
+  font-weight: 700;
+}
+
 .load-history {
   display: block;
   margin: 0 auto 8px;
@@ -890,6 +936,42 @@ html[data-platform='linux'] .workspace-shell.project-setup-open .pane-header {
   gap: 5px;
   border-bottom: 1px solid var(--factoru-border);
   padding: 16px 0;
+}
+
+.context-boundary {
+  display: grid;
+  max-width: 760px;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 2px;
+  color: var(--factoru-text-faint);
+  font-size: 10px;
+}
+
+.context-boundary::before,
+.context-boundary::after {
+  content: '';
+  height: 1px;
+  background: var(--factoru-border);
+}
+
+.context-boundary::before {
+  display: none;
+}
+
+.context-boundary strong {
+  color: var(--factoru-accent);
+  font-size: 10px;
+}
+
+.context-boundary span {
+  min-width: 0;
+}
+
+.context-reset-dialog p {
+  color: var(--factoru-text-muted);
+  line-height: 1.55;
 }
 
 .message.user {
@@ -995,6 +1077,29 @@ html[data-platform='linux'] .workspace-shell.project-setup-open .pane-header {
   flex: 0 0 auto;
   border-top: 1px solid var(--factoru-border);
   padding: 12px clamp(14px, 4vw, 42px) 14px;
+}
+
+.archived-chat-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--factoru-border);
+  background: var(--factoru-surface-subtle);
+  padding: 12px clamp(14px, 4vw, 42px) 14px;
+  color: var(--factoru-text-muted);
+  font-size: 11px;
+}
+
+.archived-chat-footer button {
+  flex: 0 0 auto;
+  border: 1px solid var(--factoru-border);
+  border-radius: 8px;
+  background: var(--factoru-panel);
+  padding: 7px 10px;
+  color: var(--factoru-text);
+  cursor: pointer;
 }
 
 .composer > .fui-prompt-composer {

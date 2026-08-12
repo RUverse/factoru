@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { conversationSendParamsSchema } from './milestone3.js'
 import {
   artifactSchema,
+  conversationHistoryPageSchema,
+  conversationHistoryParamsSchema,
+  conversationResetContextParamsSchema,
   scopedStreamEventSchema,
   streamSubscribeParamsSchema,
 } from './milestone7.js'
@@ -55,5 +58,31 @@ describe('Milestone 7 protocol', () => {
         cursor: 15,
       }),
     ).toMatchObject({ type: 'stream.live', cursor: 15 })
+  })
+
+  it('scopes context reset to one project conversation', () => {
+    expect(
+      conversationResetContextParamsSchema.parse({ projectId: 'p', conversationId: 'c' }),
+    ).toEqual({ projectId: 'p', conversationId: 'c' })
+    expect(conversationResetContextParamsSchema.safeParse({ projectId: 'p' }).success).toBe(false)
+  })
+
+  it('pages one durable chat context at a time', () => {
+    expect(
+      conversationHistoryParamsSchema.parse({
+        projectId: 'p',
+        conversationId: 'c',
+        contextRevision: 2,
+      }),
+    ).toMatchObject({ contextRevision: 2, limit: 50 })
+    expect(
+      conversationHistoryPageSchema.parse({
+        conversationId: 'c',
+        contextRevision: 2,
+        messages: [],
+        nextBefore: null,
+        hasMore: false,
+      }),
+    ).toMatchObject({ contextRevision: 2 })
   })
 })

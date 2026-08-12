@@ -37,6 +37,8 @@ export interface ConversationRecord {
   gasCityConversationId: string
   agentName: string
   transcriptCursor: number
+  contextRevision: number
+  contextStartedAt: string | null
   status: 'connecting' | 'ready' | 'offline' | 'needs_attention'
   errorCode: string | null
   errorMessage: string | null
@@ -114,6 +116,8 @@ interface ConversationRow {
   gas_city_conversation_id: string
   agent_name: string
   transcript_cursor: number
+  context_revision: number
+  context_started_at: string | null
   status: ConversationRecord['status']
   last_error_code: string | null
   last_error_message: string | null
@@ -220,8 +224,8 @@ export function initializeProjectProductModel(
   db.prepare(
     `INSERT INTO conversations(
        id, project_id, kind, gas_city_account_id, gas_city_conversation_id, agent_name,
-       created_at, updated_at
-     ) VALUES (?, ?, 'project_manager', 'factoru-server', ?, ?, ?, ?)`,
+       context_started_at, created_at, updated_at
+     ) VALUES (?, ?, 'project_manager', 'factoru-server', ?, ?, ?, ?, ?)`,
   ).run(
     conversationId,
     projectId,
@@ -229,7 +233,12 @@ export function initializeProjectProductModel(
     `project-manager-chat-${suffix.slice(0, 12)}`,
     createdAt,
     createdAt,
+    createdAt,
   )
+  db.prepare(
+    `INSERT INTO conversation_contexts(conversation_id, revision, started_at)
+     VALUES (?, 1, ?)`,
+  ).run(conversationId, createdAt)
 }
 
 function conversationFromRow(row: ConversationRow): ConversationRecord {
@@ -240,6 +249,8 @@ function conversationFromRow(row: ConversationRow): ConversationRecord {
     gasCityConversationId: row.gas_city_conversation_id,
     agentName: row.agent_name,
     transcriptCursor: row.transcript_cursor,
+    contextRevision: row.context_revision,
+    contextStartedAt: row.context_started_at,
     status: row.status,
     errorCode: row.last_error_code,
     errorMessage: row.last_error_message,

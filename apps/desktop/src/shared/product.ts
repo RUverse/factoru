@@ -13,6 +13,7 @@ import type {
   RepositoryAccessCheck,
   RepositoryAccessErrorCode,
   Artifact,
+  ConversationHistoryPage,
 } from '@factoru/protocol'
 
 export interface ServerProfileSummary {
@@ -52,6 +53,10 @@ export interface ProductSnapshot {
   remoteFactoryIntroComplete: boolean
 }
 
+export type ConversationHistoryResult = Omit<ConversationHistoryPage, 'messages'> & {
+  messages: ConversationMessage[]
+}
+
 export type RepositoryAccessOutcome =
   | { ok: true; result: RepositoryAccessCheck }
   | {
@@ -84,7 +89,9 @@ export const IPC_PRODUCT_LOAD_IMAGE = 'factoru:product:load-image'
 export const IPC_PRODUCT_REMOVE_IMAGE = 'factoru:product:remove-image'
 export const IPC_PRODUCT_CANCEL_CONVERSATION = 'factoru:product:cancel-conversation'
 export const IPC_PRODUCT_RETRY_CONVERSATION = 'factoru:product:retry-conversation'
+export const IPC_PRODUCT_RESET_CONVERSATION_CONTEXT = 'factoru:product:reset-conversation-context'
 export const IPC_PRODUCT_LOAD_CONVERSATION_HISTORY = 'factoru:product:load-conversation-history'
+export const IPC_PRODUCT_READ_CONVERSATION_CONTEXT = 'factoru:product:read-conversation-context'
 export const IPC_PRODUCT_UPDATE_MODEL = 'factoru:product:update-model'
 export const IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT = 'factoru:product:update-workflow-default'
 export const IPC_PRODUCT_ADD_MEMORY = 'factoru:product:add-memory'
@@ -180,11 +187,21 @@ export interface ProductBridge {
     conversationId: string,
     messageId: string,
   ): Promise<ConversationMessage>
+  resetConversationContext(
+    project: ProjectRef,
+    conversationId: string,
+  ): Promise<Workspace['conversation']>
   loadConversationHistory(
     project: ProjectRef,
     conversationId: string,
     before?: string,
   ): Promise<ProductSnapshot>
+  readConversationContext(
+    project: ProjectRef,
+    conversationId: string,
+    contextRevision: number,
+    before?: string,
+  ): Promise<ConversationHistoryResult>
   updateModel(input: {
     project: ProjectRef
     workerTypeKind: WorkerType['kind']

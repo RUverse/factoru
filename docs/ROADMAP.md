@@ -711,7 +711,10 @@ and [current implementation inventory](./ARCHITECTURE.md#current-implementation-
 migration, lifecycle, adapter, HTTP, Desktop, and component tests. The existing
 authenticated WebSocket was selected in
 [ADR 0021](./adr/0021-scoped-streams-over-existing-websocket.md). Operational
-exit evidence remains pending for mid-response remote reconnect and real image
+chat-context reset follows
+[ADR 0022](./adr/0022-conversation-context-reset-preserves-transcript.md): the
+transcript remains durable while the Gas City session and external conversation
+context rotate. Operational exit evidence remains pending for mid-response remote reconnect and real image
 delivery through both Claude and Codex. The 2026-08-12 local acceptance attempt
 found Claude unauthenticated and the Homebrew Gas City dependency set
 (`dolt 2.2.3`, `bd 1.2.1`) unable to initialize a fresh Gas City 1.4.0 city due
@@ -740,6 +743,10 @@ that failed environment.
 - Keep the final Factoru transcript authoritative. Partial output is an
   explicitly replaceable projection that reconciles to the durable completed
   message after reconnect without missing or duplicating text or tool state.
+- Let the user start a fresh Project Manager context without deleting prior
+  talks or durable project/role memory. Close the prior Gas City session, rotate
+  the external conversation identity, stamp subsequent turns with a new context
+  revision, and show the boundary in the same transcript.
 - Validate the served Gas City OpenAPI and runtime behavior for output streaming
   and attachments through both supported Claude and Codex harnesses. If 1.4.0
   cannot supply a supported path, select the first compatible stable release and
@@ -765,6 +772,10 @@ that failed environment.
   collapsible tool activity, errors, usage, stop/retry controls, stable
   autoscroll, manual-scroll preservation, unread state, keyboard operation,
   screen-reader announcements, and reduced motion.
+- Confirm context reset in the UI, disable it during an active response, retain
+  each prior context as a dated, read-only, independently paginated chat-history
+  entry, open a clean current chat, and restore keyboard focus to the initiating
+  control.
 
 T3 Code is a reference for bounded shell/resource subscriptions, cursor replay,
 and message-delta presentation—not a Factoru dependency or provider runtime.

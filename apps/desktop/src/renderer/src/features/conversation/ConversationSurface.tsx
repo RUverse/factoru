@@ -1,7 +1,7 @@
 import { PromptComposer } from '@factoru/ui'
 import type { Artifact, ConversationMessage, Workspace } from '@factoru/protocol'
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
-import type { ProjectRef } from '../../../../shared/product'
+import type { ConversationHistoryResult, ProjectRef } from '../../../../shared/product'
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -173,6 +173,7 @@ export function ConversationSurface({
   onStop,
   onRetry,
   onLoadHistory,
+  onLoadContext,
 }: {
   project: ProjectRef
   conversation: Workspace['conversation']
@@ -185,6 +186,7 @@ export function ConversationSurface({
   onStop: (turnId: string) => Promise<unknown>
   onRetry: (messageId: string) => Promise<unknown>
   onLoadHistory: (before?: string) => Promise<unknown>
+  onLoadContext: (contextRevision: number, before?: string) => Promise<ConversationHistoryResult>
 }): ReactElement {
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
@@ -194,7 +196,27 @@ export function ConversationSurface({
   const [images, setImages] = useState<PendingImage[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [archivedPage, setArchivedPage] = useState<ConversationHistoryResult | null>(null)
+  const [loadingContext, setLoadingContext] = useState(false)
   const active = Boolean(conversation.activeTurnId)
+  const viewingArchived = archivedPage !== null
+  const displayedMessages = archivedPage?.messages ?? messages
+  const hasMoreHistory = archivedPage?.hasMore ?? conversation.hasMoreHistory
+  const contexts = conversation.contexts?.length
+    ? conversation.contexts
+    : [
+        {
+          revision: conversation.contextRevision,
+          startedAt: conversation.contextStartedAt ?? conversation.updatedAt,
+          messageCount: messages.length,
+          preview: messages.find((message) => message.role === 'user')?.text.slice(0, 240) ?? null,
+          current: true,
+        },
+      ]
+
+  useEffect(() => {
+    setArchivedPage(null)
+  }, [conversation.id, conversation.contextRevision])
 
   useEffect(() => {
     const element = list.current
@@ -210,7 +232,47 @@ export function ConversationSurface({
         behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
       })
     else setUnread((value) => value + 1)
-  }, [messages])
+  }, [displayedMessages])
+
+  async function selectContext(revision: number): Promise<void> {
+    if (revision === conversation.contextRevision) {
+      setArchivedPage(null)
+      return
+    }
+    setLoadingContext(true)
+    try {
+      setArchivedPage(await onLoadContext(revision))
+    } finally {
+      setLoadingContext(false)
+    }
+  }
+
+  async function loadEarlierMessages(): Promise<void> {
+    historyHeight.current = list.current?.scrollHeight ?? null
+    setLoadingHistory(true)
+    try {
+      if (archivedPage) {
+        const page = await onLoadContext(
+          archivedPage.contextRevision,
+          archivedPage.nextBefore ?? undefined,
+        )
+        const merged = new Map(
+          [...page.messages, ...archivedPage.messages].map((message) => [message.id, message]),
+        )
+        setArchivedPage({
+          ...page,
+          messages: [...merged.values()].sort(
+            (left, right) =>
+              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          ),
+        })
+      } else {
+        await onLoadHistory(messages[0]?.id)
+      }
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
 
   useEffect(
     () =>
@@ -312,6 +374,27 @@ export function ConversationSurface({
 
   return (
     <>
+      <div className="chat-history-toolbar">
+        <label>
+          <span>Chat history</span>
+          <select
+            aria-label="Chat history"
+            value={archivedPage?.contextRevision ?? conversation.contextRevision}
+            disabled={loadingContext}
+            onChange={(event) => void selectContext(Number(event.currentTarget.value))}
+          >
+            {contexts.map((context) => (
+              <option key={context.revision} value={context.revision}>
+                {context.current
+                  ? `Current chat${context.preview ? ` — ${context.preview}` : ''}`
+                  : `${new Date(context.startedAt).toLocaleString()} — ${context.preview ?? 'Empty chat'} (${context.messageCount})`}
+              </option>
+            ))}
+          </select>
+        </label>
+        {loadingContext && <span role="status">Opening chat…</span>}
+        {viewingArchived && <span className="read-only-badge">Read-only</span>}
+      </div>
       <div
         ref={list}
         className="message-list"
@@ -322,22 +405,28 @@ export function ConversationSurface({
           if (pinned.current) setUnread(0)
         }}
       >
-        {conversation.hasMoreHistory && (
+        {hasMoreHistory && (
           <button
             className="load-history"
             type="button"
             disabled={loadingHistory}
-            onClick={() => {
-              historyHeight.current = list.current?.scrollHeight ?? null
-              setLoadingHistory(true)
-              void onLoadHistory(messages[0]?.id).finally(() => setLoadingHistory(false))
-            }}
+            onClick={() => void loadEarlierMessages()}
           >
             {loadingHistory ? 'Loading earlier messages…' : 'Load earlier messages'}
           </button>
         )}
-        {messages.length === 0 ? (
+        {displayedMessages.length === 0 ? (
           <section className="conversation-empty">
+            {!viewingArchived && conversation.contextRevision > 1 && (
+              <div className="context-boundary current" role="separator">
+                <strong>Fresh context started</strong>
+                <span>
+                  Earlier chats remain available in Chat history but are not in the agent’s context.
+                  {conversation.contextStartedAt &&
+                    ` · ${new Date(conversation.contextStartedAt).toLocaleTimeString()}`}
+                </span>
+              </div>
+            )}
             <span className="avatar">PM</span>
             <h2>What should we work on?</h2>
             <p>
@@ -345,7 +434,7 @@ export function ConversationSurface({
             </p>
           </section>
         ) : (
-          messages.map((message) => (
+          displayedMessages.map((message) => (
             <article
               key={message.id}
               className={`message ${message.role}`}
@@ -381,7 +470,7 @@ export function ConversationSurface({
                   : message.state.replaceAll('_', ' ')}
                 {message.tokenUsage &&
                   ` · ${message.tokenUsage.input + message.tokenUsage.output} tokens`}
-                {['failed', 'cancelled'].includes(message.state) && (
+                {!viewingArchived && ['failed', 'cancelled'].includes(message.state) && (
                   <button type="button" onClick={() => void onRetry(message.id)}>
                     Retry
                   </button>
@@ -404,97 +493,106 @@ export function ConversationSurface({
           </button>
         )}
       </div>
-      <div
-        className="composer"
-        onPaste={(event) => {
-          const files = Array.from(event.clipboardData.files).filter((file) =>
-            IMAGE_TYPES.has(file.type),
-          )
-          if (files.length) {
-            event.preventDefault()
-            addFiles(files, 'paste')
-          }
-        }}
-        onDragOver={(event) => {
-          event.preventDefault()
-          event.dataTransfer.dropEffect = 'copy'
-        }}
-        onDrop={(event) => {
-          event.preventDefault()
-          addFiles(event.dataTransfer.files, 'drop')
-        }}
-      >
-        <input
-          ref={input}
-          hidden
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
-          multiple
-          onChange={(event) => {
-            if (event.currentTarget.files) addFiles(event.currentTarget.files, 'picker')
-            event.currentTarget.value = ''
+      {viewingArchived ? (
+        <div className="archived-chat-footer">
+          <p>This chat is preserved for reference and is no longer sent to the Project Manager.</p>
+          <button type="button" onClick={() => setArchivedPage(null)}>
+            Back to current chat
+          </button>
+        </div>
+      ) : (
+        <div
+          className="composer"
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.files).filter((file) =>
+              IMAGE_TYPES.has(file.type),
+            )
+            if (files.length) {
+              event.preventDefault()
+              addFiles(files, 'paste')
+            }
           }}
-        />
-        {images.length > 0 && (
-          <div className="attachment-tray" aria-live="polite">
-            {images.map((image) => (
-              <div className="attachment-preview" key={image.uploadId} data-state={image.state}>
-                <img src={image.previewUrl} alt="" />
-                <span>
-                  {image.file.name || 'Pasted image'} ·{' '}
-                  {image.state === 'uploading'
-                    ? `Uploading ${image.progress}%…`
-                    : image.state === 'failed'
-                      ? image.error
-                      : 'Ready'}
-                </span>
-                {image.state === 'failed' && (
+          onDragOver={(event) => {
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'copy'
+          }}
+          onDrop={(event) => {
+            event.preventDefault()
+            addFiles(event.dataTransfer.files, 'drop')
+          }}
+        >
+          <input
+            ref={input}
+            hidden
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            onChange={(event) => {
+              if (event.currentTarget.files) addFiles(event.currentTarget.files, 'picker')
+              event.currentTarget.value = ''
+            }}
+          />
+          {images.length > 0 && (
+            <div className="attachment-tray" aria-live="polite">
+              {images.map((image) => (
+                <div className="attachment-preview" key={image.uploadId} data-state={image.state}>
+                  <img src={image.previewUrl} alt="" />
+                  <span>
+                    {image.file.name || 'Pasted image'} ·{' '}
+                    {image.state === 'uploading'
+                      ? `Uploading ${image.progress}%…`
+                      : image.state === 'failed'
+                        ? image.error
+                        : 'Ready'}
+                  </span>
+                  {image.state === 'failed' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImages((current) =>
+                          current.map((candidate) =>
+                            candidate.uploadId === image.uploadId
+                              ? { ...candidate, state: 'uploading', progress: 0, error: undefined }
+                              : candidate,
+                          ),
+                        )
+                        void upload(image)
+                      }}
+                    >
+                      Retry
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => {
-                      setImages((current) =>
-                        current.map((candidate) =>
-                          candidate.uploadId === image.uploadId
-                            ? { ...candidate, state: 'uploading', progress: 0, error: undefined }
-                            : candidate,
-                        ),
-                      )
-                      void upload(image)
-                    }}
+                    aria-label={`Remove ${image.file.name || 'image'}`}
+                    onClick={() => void removeImage(image)}
                   >
-                    Retry
+                    ×
                   </button>
-                )}
-                <button
-                  type="button"
-                  aria-label={`Remove ${image.file.name || 'image'}`}
-                  onClick={() => void removeImage(image)}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        {attachmentError && (
-          <p className="attachment-error" role="alert">
-            {attachmentError}
-          </p>
-        )}
-        <PromptComposer
-          value={draft}
-          onValueChange={onDraftChange}
-          onSubmit={(value) => void submit(value)}
-          maxLength={32_000}
-          disabled={!connected || images.some((image) => image.state !== 'ready')}
-          busy={busy || active}
-          onAttach={() => input.current?.click()}
-          onStop={
-            conversation.activeTurnId ? () => void onStop(conversation.activeTurnId!) : undefined
-          }
-          canSubmitEmpty={images.some((image) => image.state === 'ready')}
-        />
-      </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {attachmentError && (
+            <p className="attachment-error" role="alert">
+              {attachmentError}
+            </p>
+          )}
+          <PromptComposer
+            value={draft}
+            onValueChange={onDraftChange}
+            onSubmit={(value) => void submit(value)}
+            maxLength={32_000}
+            disabled={!connected || images.some((image) => image.state !== 'ready')}
+            busy={busy || active}
+            onAttach={() => input.current?.click()}
+            onStop={
+              conversation.activeTurnId ? () => void onStop(conversation.activeTurnId!) : undefined
+            }
+            canSubmitEmpty={images.some((image) => image.state === 'ready')}
+          />
+        </div>
+      )}
     </>
   )
 }

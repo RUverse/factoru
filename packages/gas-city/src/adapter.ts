@@ -793,6 +793,11 @@ export class GasCityAdapter {
     )
   }
 
+  /** Close the provider session so the next inbound turn starts with clean context. */
+  async resetConversationContext(sessionId: string): Promise<void> {
+    await this.cancelConversationTurn(sessionId)
+  }
+
   /**
    * Read conversation messages after a sequence.
    *

@@ -15,7 +15,8 @@ connected together and present one project catalog. See
 > independent review, and human acceptance. The real provider path completed
 > ten benchmark tasks plus one conversation-originated task across a server
 > restart. Scoped resilient streams, rich conversation turns, and image
-> artifacts are connected; their remote reconnect and live Claude/Codex image
+> artifacts are connected, including an auditable fresh-context control that
+> opens a clean chat and preserves prior talks as read-only history while rotating the agent session; remote reconnect and live Claude/Codex image
 > acceptance matrix remains pending alongside Milestone 8 packaging work.
 
 ## Requirements

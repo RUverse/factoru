@@ -79,6 +79,7 @@ export interface ProjectManagerOrchestrator {
   ): Promise<ConversationDelivery | void>
   readConversationProjection?(sessionId: string): Promise<ConversationProjection | null>
   cancelConversationTurn?(sessionId: string): Promise<void>
+  resetConversationContext?(sessionId: string): Promise<void>
   readConversation(
     conversation: ConversationRef,
     afterSequence: number,
@@ -138,6 +139,7 @@ function messageProjection(record: RichMessageRecord): ConversationMessage {
     turnId: record.turnId,
     state: record.state,
     contentVersion: record.contentVersion,
+    contextRevision: record.contextRevision,
     parts: record.parts.map((part) => {
       if (part.kind === 'text') {
         return { version: 1 as const, id: part.id, type: 'text' as const, text: part.text }
@@ -443,12 +445,35 @@ export class WorkspaceService {
     }
   }
 
-  conversationHistory(projectId: string, conversationId: string, before?: string, limit = 50) {
+  conversationHistory(
+    projectId: string,
+    conversationId: string,
+    before?: string,
+    limit = 50,
+    contextRevision?: number,
+  ) {
     const conversation = this.#requireConversation(projectId)
     if (conversation.id !== conversationId)
       throw new ApplicationError('not_found', 'Conversation not found')
-    const page = this.#database.conversations.listMessages(conversationId, { before, limit })
-    return { ...page, conversationId, messages: page.messages.map(messageProjection) }
+    const revision = contextRevision ?? conversation.contextRevision
+    if (
+      !this.#database.conversations
+        .listContexts(conversationId)
+        .some((context) => context.revision === revision)
+    ) {
+      throw new ApplicationError('not_found', 'Conversation context not found')
+    }
+    const page = this.#database.conversations.listMessages(conversationId, {
+      before,
+      limit,
+      contextRevision: revision,
+    })
+    return {
+      ...page,
+      conversationId,
+      contextRevision: revision,
+      messages: page.messages.map(messageProjection),
+    }
   }
 
   async cancelConversation(projectId: string, conversationId: string, turnId: string) {
@@ -492,6 +517,31 @@ export class WorkspaceService {
         authorDisplayName: author,
       }).message,
     )
+  }
+
+  async resetConversationContext(projectId: string, conversationId: string) {
+    const conversation = this.#requireConversation(projectId)
+    if (conversation.id !== conversationId) {
+      throw new ApplicationError('not_found', 'Conversation not found')
+    }
+    if (this.#database.conversations.activeTurn(conversationId)) {
+      throw new ApplicationError(
+        'conversation_turn_active',
+        'Stop the current Project Manager response before starting a fresh context',
+      )
+    }
+    const sessionId = this.#database.conversations.latestSessionId(conversationId)
+    if (sessionId) {
+      if (!this.#orchestrator.resetConversationContext) {
+        throw new ApplicationError(
+          'context_reset_unavailable',
+          'This factory cannot reset the Project Manager context safely',
+        )
+      }
+      await this.#orchestrator.resetConversationContext(sessionId)
+    }
+    this.#database.conversations.resetContext(conversationId)
+    return this.#conversationProjection(this.#requireConversation(projectId))
   }
 
   updateModelBinding(input: {
@@ -1202,7 +1252,10 @@ export class WorkspaceService {
   }
 
   #conversationProjection(record: ConversationRecord) {
-    const page = this.#database.conversations.listMessages(record.id, { limit: 50 })
+    const page = this.#database.conversations.listMessages(record.id, {
+      limit: 50,
+      contextRevision: record.contextRevision,
+    })
     const activeTurn = this.#database.conversations.activeTurn(record.id)
     return {
       id: record.id,
@@ -1216,6 +1269,10 @@ export class WorkspaceService {
       streamCursor: this.#database.conversations.currentStreamCursor(record.id),
       hasMoreHistory: page.hasMore,
       activeTurnId: activeTurn?.id ?? null,
+      contextRevision: record.contextRevision,
+      contextStartedAt: record.contextStartedAt,
+      canResetContext: Boolean(this.#orchestrator.resetConversationContext),
+      contexts: this.#database.conversations.listContexts(record.id),
       updatedAt: record.updatedAt,
     }
   }

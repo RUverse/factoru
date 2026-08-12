@@ -1,7 +1,11 @@
 import { z } from 'zod'
 import { queueReconciliationSchema, taskMergeProposalSchema, taskSchema } from './milestone4.js'
 import { executionRunSchema } from './milestone5.js'
-import { artifactSchema, messageContentPartSchema } from './milestone7.js'
+import {
+  artifactSchema,
+  conversationContextSchema,
+  messageContentPartSchema,
+} from './milestone7.js'
 
 export const CAPABILITY_WORKSPACES = 'workspaces-v1'
 export const CAPABILITY_CONVERSATIONS = 'conversations-v1'
@@ -133,6 +137,7 @@ export const conversationMessageSchema = z.object({
     .enum(['pending', 'streaming', 'completed', 'cancelling', 'cancelled', 'failed'])
     .default('completed'),
   contentVersion: z.number().int().positive().default(1),
+  contextRevision: z.number().int().positive().default(1),
   parts: z.array(messageContentPartSchema).default([]),
   createdAt: z.iso.datetime(),
 })
@@ -146,6 +151,10 @@ export const conversationSchema = z.object({
   streamCursor: z.number().int().nonnegative().default(0),
   hasMoreHistory: z.boolean().default(false),
   activeTurnId: z.string().nullable().default(null),
+  contextRevision: z.number().int().positive().default(1),
+  contextStartedAt: z.iso.datetime().nullable().default(null),
+  canResetContext: z.boolean().default(false),
+  contexts: z.array(conversationContextSchema).default([]),
   updatedAt: z.iso.datetime(),
 })
 

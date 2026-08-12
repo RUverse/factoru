@@ -29,6 +29,7 @@ the historical reasoning behind one decision.
 | [0019](./0019-blueprints-formula-presets-and-project-manager-boundary.md) | Project Blueprints, selectable Formula Presets, and the Factoru Project Manager boundary | Accepted, implemented; Standard Build acceptance pending |
 | [0020](./0020-desktop-shell-and-ui-foundation.md) | Frameless native-control Desktop shell, responsive panes, and shared React UI foundation | Accepted, implemented |
 | [0021](./0021-scoped-streams-over-existing-websocket.md) | Bounded resource subscriptions over the existing authenticated WebSocket | Accepted, implemented |
+| [0022](./0022-conversation-context-reset-preserves-transcript.md) | Reset provider context while preserving the durable Factoru transcript | Accepted, implemented |
 
 ## Writing a new ADR
 

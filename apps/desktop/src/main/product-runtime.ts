@@ -679,6 +679,25 @@ export class ProductRuntime {
     )
   }
 
+  async resetConversationContext(project: ProjectRef, conversationId: string) {
+    const conversation = conversationSchema.parse(
+      await this.request(
+        project.factoryId,
+        'conversations.resetContext',
+        { projectId: project.projectId, conversationId },
+        `cmd_${randomUUID()}`,
+      ),
+    )
+    const profile = this.#profiles.get(project.factoryId)
+    const workspace = profile?.workspaces[project.projectId]
+    if (profile && workspace && workspace.conversation.id === conversationId) {
+      profile.workspaces[project.projectId] = { ...workspace, conversation }
+      this.#profiles.update(profile)
+      this.#updateFromStore()
+    }
+    return conversation
+  }
+
   async loadConversationHistory(
     project: ProjectRef,
     conversationId: string,
@@ -714,6 +733,24 @@ export class ProductRuntime {
     }
     this.#profiles.update(profile)
     return this.#updateFromStore()
+  }
+
+  async readConversationContext(
+    project: ProjectRef,
+    conversationId: string,
+    contextRevision: number,
+    before?: string,
+  ) {
+    const page = conversationHistoryPageSchema.parse(
+      await this.request(project.factoryId, 'conversations.history', {
+        projectId: project.projectId,
+        conversationId,
+        contextRevision,
+        ...(before ? { before } : {}),
+        limit: 50,
+      }),
+    )
+    return { ...page, messages: conversationMessageSchema.array().parse(page.messages) }
   }
 
   async updateModel(input: {

@@ -4,6 +4,7 @@ Factoru's server-only orchestration port over the pinned Gas City 1.4 runtime.
 It owns compatibility/readiness checks, configured-provider model discovery,
 project runtime configuration, rig registration, Project Manager external
 messaging and provider-neutral structured transcript projection,
+provider-session closure for auditable Factoru context reset,
 Formula validation and launch, run observation/cancellation, event cursors, and
 usage folding.
 

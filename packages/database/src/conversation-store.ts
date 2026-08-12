@@ -50,6 +50,7 @@ export interface RichMessageRecord {
   deliveryState: 'pending' | 'delivered' | 'failed'
   state: ConversationLifecycleState
   contentVersion: number
+  contextRevision: number
   tokenInput: number | null
   tokenOutput: number | null
   parts: ContentPartRecord[]
@@ -63,6 +64,7 @@ export interface ConversationTurnRecord {
   userMessageId: string
   assistantMessageId: string | null
   gasCitySessionId: string | null
+  contextRevision: number
   state: ConversationLifecycleState
   errorCode: string | null
   errorMessage: string | null
@@ -83,6 +85,14 @@ export interface ConversationStreamEventRecord {
   occurredAt: string
 }
 
+export interface ConversationContextRecord {
+  revision: number
+  startedAt: string
+  messageCount: number
+  preview: string | null
+  current: boolean
+}
+
 interface MessageRow {
   id: string
   conversation_id: string
@@ -95,6 +105,7 @@ interface MessageRow {
   delivery_state: 'pending' | 'delivered' | 'failed'
   state: ConversationLifecycleState
   content_version: number
+  context_revision: number
   token_input: number | null
   token_output: number | null
   created_at: string
@@ -107,6 +118,7 @@ interface TurnRow {
   user_message_id: string
   assistant_message_id: string | null
   gas_city_session_id: string | null
+  context_revision: number
   state: ConversationLifecycleState
   error_code: string | null
   error_message: string | null
@@ -142,6 +154,7 @@ function turnFromRow(row: TurnRow): ConversationTurnRecord {
     userMessageId: row.user_message_id,
     assistantMessageId: row.assistant_message_id,
     gasCitySessionId: row.gas_city_session_id,
+    contextRevision: row.context_revision,
     state: row.state,
     errorCode: row.error_code,
     errorMessage: row.error_message,
@@ -184,26 +197,36 @@ export class ConversationStore {
 
   listMessages(
     conversationId: string,
-    options: { limit?: number; before?: string } = {},
+    options: { limit?: number; before?: string; contextRevision?: number } = {},
   ): { messages: RichMessageRecord[]; nextBefore: string | null; hasMore: boolean } {
     const limit = Math.max(1, Math.min(options.limit ?? 50, 100))
     const before = options.before
       ? (this.#db
           .prepare(
-            'SELECT created_at, id FROM conversation_messages WHERE conversation_id = ? AND id = ?',
+            `SELECT created_at, id FROM conversation_messages
+             WHERE conversation_id = ? AND id = ?
+               AND (? IS NULL OR context_revision = ?)`,
           )
-          .get(conversationId, options.before) as { created_at: string; id: string } | undefined)
+          .get(
+            conversationId,
+            options.before,
+            options.contextRevision ?? null,
+            options.contextRevision ?? null,
+          ) as { created_at: string; id: string } | undefined)
       : undefined
     if (options.before && !before) throw new Error('message_cursor_not_found')
     const rows = this.#db
       .prepare(
         `SELECT * FROM conversation_messages
          WHERE conversation_id = ?
+           AND (? IS NULL OR context_revision = ?)
            AND (? IS NULL OR created_at < ? OR (created_at = ? AND id < ?))
          ORDER BY created_at DESC, id DESC LIMIT ?`,
       )
       .all(
         conversationId,
+        options.contextRevision ?? null,
+        options.contextRevision ?? null,
         before?.created_at ?? null,
         before?.created_at ?? null,
         before?.created_at ?? null,
@@ -217,6 +240,44 @@ export class ConversationStore {
       nextBefore: hasMore ? (page[0]?.id ?? null) : null,
       hasMore,
     }
+  }
+
+  listContexts(conversationId: string): ConversationContextRecord[] {
+    const conversation = this.#db
+      .prepare('SELECT context_revision FROM conversations WHERE id = ?')
+      .get(conversationId) as { context_revision: number } | undefined
+    if (!conversation) throw new Error('conversation_not_found')
+    const rows = this.#db
+      .prepare(
+        `SELECT c.revision, c.started_at,
+                COUNT(m.id) AS message_count,
+                (
+                  SELECT candidate.text FROM conversation_messages candidate
+                  WHERE candidate.conversation_id = c.conversation_id
+                    AND candidate.context_revision = c.revision
+                    AND candidate.role = 'user' AND length(trim(candidate.text)) > 0
+                  ORDER BY candidate.created_at, candidate.id LIMIT 1
+                ) AS preview
+         FROM conversation_contexts c
+         LEFT JOIN conversation_messages m
+           ON m.conversation_id = c.conversation_id AND m.context_revision = c.revision
+         WHERE c.conversation_id = ?
+         GROUP BY c.conversation_id, c.revision, c.started_at
+         ORDER BY c.revision DESC`,
+      )
+      .all(conversationId) as Array<{
+      revision: number
+      started_at: string
+      message_count: number
+      preview: string | null
+    }>
+    return rows.map((row) => ({
+      revision: row.revision,
+      startedAt: row.started_at,
+      messageCount: row.message_count,
+      preview: row.preview ? row.preview.slice(0, 240) : null,
+      current: row.revision === conversation.context_revision,
+    }))
   }
 
   getMessage(messageId: string): RichMessageRecord | null {
@@ -242,6 +303,61 @@ export class ConversationStore {
     return row ? turnFromRow(row) : null
   }
 
+  latestSessionId(conversationId: string): string | null {
+    const row = this.#db
+      .prepare(
+        `SELECT turn.gas_city_session_id FROM conversation_turns turn
+         INNER JOIN conversations conversation ON conversation.id = turn.conversation_id
+         WHERE turn.conversation_id = ? AND turn.gas_city_session_id IS NOT NULL
+           AND turn.context_revision = conversation.context_revision
+         ORDER BY turn.created_at DESC, turn.id DESC LIMIT 1`,
+      )
+      .get(conversationId) as { gas_city_session_id: string } | undefined
+    return row?.gas_city_session_id ?? null
+  }
+
+  resetContext(conversationId: string): { contextRevision: number; contextStartedAt: string } {
+    if (this.activeTurn(conversationId)) throw new Error('conversation_turn_active')
+    return this.#db.transaction(() => {
+      const current = this.#db
+        .prepare('SELECT project_id, context_revision FROM conversations WHERE id = ?')
+        .get(conversationId) as { project_id: string; context_revision: number } | undefined
+      if (!current) throw new Error('conversation_not_found')
+      const contextRevision = current.context_revision + 1
+      const contextStartedAt = this.#now().toISOString()
+      this.#db
+        .prepare(
+          `UPDATE conversations
+           SET gas_city_conversation_id = ?, transcript_cursor = 0,
+               context_revision = ?, context_started_at = ?, status = 'ready',
+               last_error_code = NULL, last_error_message = NULL, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(
+          `${conversationId}:context:${contextRevision}`,
+          contextRevision,
+          contextStartedAt,
+          contextStartedAt,
+          conversationId,
+        )
+      this.#db
+        .prepare(
+          `INSERT INTO conversation_contexts(conversation_id, revision, started_at)
+           VALUES (?, ?, ?)`,
+        )
+        .run(conversationId, contextRevision, contextStartedAt)
+      this.#appendDomainEvent('conversation.context_reset', current.project_id, {
+        conversationId,
+        contextRevision,
+      })
+      this.#appendStreamEvent(conversationId, 'context.reset', {
+        contextRevision,
+        contextStartedAt,
+      })
+      return { contextRevision, contextStartedAt }
+    })()
+  }
+
   addUserTurn(input: {
     conversationId: string
     text: string
@@ -252,8 +368,8 @@ export class ConversationStore {
     if (!text && input.artifactIds.length === 0) throw new Error('empty_message')
     if (this.activeTurn(input.conversationId)) throw new Error('conversation_turn_active')
     const scope = this.#db
-      .prepare('SELECT project_id FROM conversations WHERE id = ?')
-      .get(input.conversationId) as { project_id: string } | undefined
+      .prepare('SELECT project_id, context_revision FROM conversations WHERE id = ?')
+      .get(input.conversationId) as { project_id: string; context_revision: number } | undefined
     if (!scope) throw new Error('conversation_not_found')
     const artifacts = input.artifactIds.map((id) => {
       const row = this.#db
@@ -272,18 +388,27 @@ export class ConversationStore {
       this.#db
         .prepare(
           `INSERT INTO conversation_turns(
-             id, conversation_id, user_message_id, state, created_at, updated_at
-           ) VALUES (?, ?, ?, 'pending', ?, ?)`,
+             id, conversation_id, user_message_id, state, context_revision, created_at, updated_at
+           ) VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
         )
-        .run(turnId, input.conversationId, messageId, now, now)
+        .run(turnId, input.conversationId, messageId, scope.context_revision, now, now)
       this.#db
         .prepare(
           `INSERT INTO conversation_messages(
              id, conversation_id, turn_id, role, text, author_display_name,
-             delivery_state, state, created_at, updated_at
-           ) VALUES (?, ?, ?, 'user', ?, ?, 'pending', 'pending', ?, ?)`,
+             delivery_state, state, context_revision, created_at, updated_at
+           ) VALUES (?, ?, ?, 'user', ?, ?, 'pending', 'pending', ?, ?, ?)`,
         )
-        .run(messageId, input.conversationId, turnId, text, input.authorDisplayName, now, now)
+        .run(
+          messageId,
+          input.conversationId,
+          turnId,
+          text,
+          input.authorDisplayName,
+          scope.context_revision,
+          now,
+          now,
+        )
       let ordinal = 0
       if (text) this.#insertTextPart(messageId, ordinal++, text, now)
       for (const artifact of artifacts)
@@ -399,8 +524,8 @@ export class ConversationStore {
             `INSERT INTO conversation_messages(
                id, conversation_id, turn_id, role, text, author_display_name,
                in_reply_to_message_id, delivery_state, state, token_input, token_output,
-               created_at, updated_at
-             ) VALUES (?, ?, ?, 'assistant', ?, 'Project Manager', ?, 'pending', 'streaming', ?, ?, ?, ?)`,
+               context_revision, created_at, updated_at
+             ) VALUES (?, ?, ?, 'assistant', ?, 'Project Manager', ?, 'pending', 'streaming', ?, ?, ?, ?, ?)`,
           )
           .run(
             messageId,
@@ -410,6 +535,7 @@ export class ConversationStore {
             turn.userMessageId,
             input.tokenInput ?? null,
             input.tokenOutput ?? null,
+            turn.contextRevision,
             input.createdAt ?? now,
             now,
           )
@@ -840,6 +966,7 @@ export class ConversationStore {
       deliveryState: row.delivery_state,
       state: row.state,
       contentVersion: row.content_version,
+      contextRevision: row.context_revision,
       tokenInput: row.token_input,
       tokenOutput: row.token_output,
       parts: parts.map((part) => {

@@ -56,7 +56,9 @@ function fakeOrchestrator() {
     bindConversation: vi.fn(async () => undefined),
     sendConversationTurn: vi.fn(async (_conversation, turn) => {
       sentMessageId = turn.messageId
+      return { sessionId: 'session-chat' }
     }),
+    resetConversationContext: vi.fn(async () => undefined),
     readConversation: vi.fn(async (_conversation, afterSequence) =>
       afterSequence === 0 && sentMessageId
         ? [
@@ -222,6 +224,44 @@ describe('WorkspaceService', () => {
       expect.objectContaining({ scopeId: 'factoru-rig' }),
       'project-manager-chat-111111111111',
     )
+    db.close()
+  })
+
+  it('starts a fresh provider context while retaining prior messages', async () => {
+    const { db, project } = fixture()
+    const orchestrator = fakeOrchestrator()
+    const service = new WorkspaceService(db, orchestrator)
+    service.sendMessage(project.id, 'Old context.', 'Owner’s Mac')
+    await service.process()
+    const conversationId = service.get(project.id).conversation.id
+
+    await expect(
+      service.resetConversationContext(project.id, conversationId),
+    ).resolves.toMatchObject({
+      contextRevision: 2,
+      canResetContext: true,
+      messages: [],
+      contexts: [
+        expect.objectContaining({ revision: 2, messageCount: 0, current: true }),
+        expect.objectContaining({ revision: 1, preview: 'Old context.', current: false }),
+      ],
+    })
+    expect(orchestrator.resetConversationContext).toHaveBeenCalledWith('session-chat')
+    expect(service.conversationHistory(project.id, conversationId, undefined, 50, 1)).toMatchObject(
+      {
+        contextRevision: 1,
+        messages: expect.arrayContaining([expect.objectContaining({ contextRevision: 1 })]),
+      },
+    )
+
+    service.sendMessage(project.id, 'Fresh context.', 'Owner’s Mac')
+    await service.process()
+    const lastConversationRef = vi.mocked(orchestrator.sendConversationTurn).mock.calls.at(-1)?.[0]
+    expect(lastConversationRef?.conversationId).toBe(`${conversationId}:context:2`)
+    expect(service.get(project.id).conversation.messages.at(-2)).toMatchObject({
+      role: 'user',
+      contextRevision: 2,
+    })
     db.close()
   })
 

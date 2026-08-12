@@ -171,6 +171,7 @@ export const liveMethodSchema = z.enum([
   'conversations.history',
   'conversations.cancel',
   'conversations.retry',
+  'conversations.resetContext',
   'team.updateModelBinding',
   // Protocol-v2 command alias for protocol-v1 Desktop builds.
   'workers.updateModelBinding',

@@ -34,7 +34,9 @@ import {
   IPC_PRODUCT_REMOVE_IMAGE,
   IPC_PRODUCT_CANCEL_CONVERSATION,
   IPC_PRODUCT_RETRY_CONVERSATION,
+  IPC_PRODUCT_RESET_CONVERSATION_CONTEXT,
   IPC_PRODUCT_LOAD_CONVERSATION_HISTORY,
+  IPC_PRODUCT_READ_CONVERSATION_CONTEXT,
   IPC_PRODUCT_START_PLANNER,
   IPC_PRODUCT_UPDATE_MODEL,
   IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT,
@@ -96,8 +98,18 @@ const product: ProductBridge = {
     ipcRenderer.invoke(IPC_PRODUCT_CANCEL_CONVERSATION, project, conversationId, turnId),
   retryConversation: (project, conversationId, messageId) =>
     ipcRenderer.invoke(IPC_PRODUCT_RETRY_CONVERSATION, project, conversationId, messageId),
+  resetConversationContext: (project, conversationId) =>
+    ipcRenderer.invoke(IPC_PRODUCT_RESET_CONVERSATION_CONTEXT, project, conversationId),
   loadConversationHistory: (project, conversationId, before) =>
     ipcRenderer.invoke(IPC_PRODUCT_LOAD_CONVERSATION_HISTORY, project, conversationId, before),
+  readConversationContext: (project, conversationId, contextRevision, before) =>
+    ipcRenderer.invoke(
+      IPC_PRODUCT_READ_CONVERSATION_CONTEXT,
+      project,
+      conversationId,
+      contextRevision,
+      before,
+    ),
   updateModel: (input) => ipcRenderer.invoke(IPC_PRODUCT_UPDATE_MODEL, input),
   updateWorkflowDefault: (project, workflowPresetId) =>
     ipcRenderer.invoke(IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT, project, workflowPresetId),

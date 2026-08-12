@@ -53,7 +53,9 @@ import {
   IPC_PRODUCT_REMOVE_IMAGE,
   IPC_PRODUCT_CANCEL_CONVERSATION,
   IPC_PRODUCT_RETRY_CONVERSATION,
+  IPC_PRODUCT_RESET_CONVERSATION_CONTEXT,
   IPC_PRODUCT_LOAD_CONVERSATION_HISTORY,
+  IPC_PRODUCT_READ_CONVERSATION_CONTEXT,
   IPC_PRODUCT_START_PLANNER,
   IPC_PRODUCT_UPDATE_MODEL,
   IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT,
@@ -264,9 +266,24 @@ function registerIpc(): void {
       product.retryConversation(project, conversationId, messageId),
   )
   ipcMain.handle(
+    IPC_PRODUCT_RESET_CONVERSATION_CONTEXT,
+    (_event, project: ProjectRef, conversationId: string) =>
+      product.resetConversationContext(project, conversationId),
+  )
+  ipcMain.handle(
     IPC_PRODUCT_LOAD_CONVERSATION_HISTORY,
     (_event, project: ProjectRef, conversationId: string, before?: string) =>
       product.loadConversationHistory(project, conversationId, before),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_READ_CONVERSATION_CONTEXT,
+    (
+      _event,
+      project: ProjectRef,
+      conversationId: string,
+      contextRevision: number,
+      before?: string,
+    ) => product.readConversationContext(project, conversationId, contextRevision, before),
   )
   ipcMain.handle(
     IPC_PRODUCT_UPDATE_MODEL,

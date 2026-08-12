@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   Dialog,
   Drawer,
@@ -195,6 +195,8 @@ export function App() {
   const [showDevices, setShowDevices] = useState(false)
   const [deviceFactoryId, setDeviceFactoryId] = useState<string | null>(null)
   const [messageDraft, setMessageDraft] = useState('')
+  const [showContextReset, setShowContextReset] = useState(false)
+  const contextResetTrigger = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     let active = true
@@ -262,6 +264,11 @@ export function App() {
     } finally {
       setBusy(false)
     }
+  }
+
+  const closeContextReset = () => {
+    setShowContextReset(false)
+    window.requestAnimationFrame(() => contextResetTrigger.current?.focus())
   }
 
   const pair = (event: FormEvent<HTMLFormElement>) => {
@@ -1118,6 +1125,21 @@ factoru-server providers configure --provider codex`}</code>
             <h1>{activeProject?.name ?? 'Choose a project'}</h1>
           </div>
           <div className="pane-header-actions">
+            {snapshot.workspace?.conversation.canResetContext && (
+              <button
+                ref={contextResetTrigger}
+                type="button"
+                className="context-reset-trigger"
+                disabled={
+                  !snapshot.connected ||
+                  busy ||
+                  Boolean(snapshot.workspace.conversation.activeTurnId)
+                }
+                onClick={() => setShowContextReset(true)}
+              >
+                New context
+              </button>
+            )}
             {snapshot.workspace && (
               <span className={`health-pill ${snapshot.workspace.conversation.status}`}>
                 {statusLabel(snapshot.workspace.conversation.status)}
@@ -1560,6 +1582,14 @@ factoru-server providers configure --provider codex`}</code>
               window.factoru.product.loadConversationHistory(
                 activeProjectRef!,
                 snapshot.workspace!.conversation.id,
+                before,
+              )
+            }
+            onLoadContext={(contextRevision, before) =>
+              window.factoru.product.readConversationContext(
+                activeProjectRef!,
+                snapshot.workspace!.conversation.id,
+                contextRevision,
                 before,
               )
             }
@@ -2265,6 +2295,42 @@ factoru-server pair --ssh-host user@server`}</code>
               onClick={() => completeRemoteFactoryIntro(true)}
             >
               Add remote factory
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {showContextReset && snapshot.workspace && activeProjectRef && (
+        <Dialog
+          open
+          onOpenChange={(open) => (open ? setShowContextReset(true) : closeContextReset())}
+          title="Start a fresh Project Manager context?"
+          description="The agent will stop using earlier chat turns as active context."
+          className="context-reset-dialog"
+        >
+          <p>
+            Factoru moves this chat into read-only Chat history. The next message starts a new Gas
+            City session with no prior chat context; project memory and tasks are not changed.
+          </p>
+          <div className="modal-actions">
+            <button type="button" onClick={closeContextReset}>
+              Keep current context
+            </button>
+            <button
+              type="button"
+              className="primary"
+              autoFocus
+              disabled={busy}
+              onClick={() => {
+                void run(() =>
+                  window.factoru.product.resetConversationContext(
+                    activeProjectRef,
+                    snapshot.workspace!.conversation.id,
+                  ),
+                ).then((value) => value && closeContextReset())
+              }}
+            >
+              {busy ? 'Starting…' : 'Start fresh context'}
             </button>
           </div>
         </Dialog>
