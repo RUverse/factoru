@@ -890,8 +890,9 @@ of pnpm's per-package working directory. It can initialize this topology only af
 explicitly supplies one or more provider names. It uses pinned Gas City 1.4.0
 commands to create the city without starting it, adds the local
 `factoru-default` pack as a pinned import, and on later starts replaces only
-that Factoru-owned binding so the city follows the current trusted server
-deployment instead of retaining an older commit pin. It then installs imports
+the Factoru-owned root and registered-rig bindings, removing rig pins first so
+Gas City's combined lock graph never mixes deployment SHAs. The city and its
+rigs therefore follow the current trusted server deployment instead of retaining an older commit pin. It then installs imports
 and registers the city with `--no-auto-restart` so it never restarts a drifting machine-wide
 supervisor that may host unrelated cities. This is a testing path, not a decision
 about the production first-run provider experience.

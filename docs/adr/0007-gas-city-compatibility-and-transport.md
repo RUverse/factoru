@@ -65,10 +65,11 @@ API.
 Human-readable CLI output is never parsed. Where the CLI is used it is for
 operations that genuinely have no API surface, and every `gc` subcommand
 supports `--json` and `--json-schema` when structured output is needed.
-On server start, city bootstrap replaces only the Factoru-owned import binding
-before `import install`, ensuring its promoted Git SHA follows the current
-trusted server deployment while preserving unrelated city imports and provider
-configuration.
+On server start, city bootstrap replaces only the Factoru-owned root and
+registered-rig import bindings before `import install`. Rig bindings are removed
+first because Gas City validates the combined lock graph during each add. This
+ensures every promoted Git SHA follows the current trusted server deployment
+while preserving unrelated city imports and provider configuration.
 
 ### Conversation delivery is a durable cursor, not an SSE subscription
 

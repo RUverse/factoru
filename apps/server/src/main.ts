@@ -143,9 +143,24 @@ async function main(): Promise<void> {
     return
   }
 
-  if (command.kind === 'start') await reconcileFactoruPack(config)
-
   const database = new FactoruDatabase(config.databaseFile, serverId)
+
+  if (command.kind === 'start') {
+    const rigs = database
+      .listProjects()
+      .flatMap((project) => project.repositories)
+      .filter((repository) => repository.rig.registrationState === 'ready')
+      .map((repository) => ({
+        name: repository.rig.rigName,
+        repositoryPath: repository.repositoryRealPath,
+      }))
+    try {
+      await reconcileFactoruPack(config, rigs)
+    } catch (error) {
+      database.close()
+      throw error
+    }
+  }
 
   if (command.kind === 'pair') {
     const code = pairingCode()
