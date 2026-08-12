@@ -11,6 +11,8 @@ export interface RegisterProjectRigRequest {
   rigName: string
   beadPrefix: string
   defaultBranch: string
+  /** Permit recovery only for Factoru-owned managed clones after a prior partial attempt. */
+  recoverPartialManagedSetup?: boolean
 }
 
 export interface RigRegistrar {
@@ -41,12 +43,21 @@ export class GasCityRigRegistrar implements RigRegistrar {
   constructor(readonly executor: CommandExecutor = defaultExecutor) {}
 
   async register(request: RegisterProjectRigRequest): Promise<void> {
-    const status = await exec('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
-      cwd: request.repositoryPath,
-      encoding: 'buffer',
-      maxBuffer: 1024 * 1024,
-    })
-    const preview = previewRigRegistration(parsePorcelainStatusZ(status.stdout as Buffer))
+    let preview = await this.#preview(request.repositoryPath)
+    if (
+      !preview.safe &&
+      request.recoverPartialManagedSetup &&
+      preview.stagedPaths.every(
+        (candidate) => candidate === '.gitignore' || candidate.startsWith('.beads/'),
+      )
+    ) {
+      await exec('git', ['reset', '--quiet', 'HEAD', '--', ...preview.stagedPaths], {
+        cwd: request.repositoryPath,
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+      })
+      preview = await this.#preview(request.repositoryPath)
+    }
     if (!preview.safe) {
       throw new GasCityError(preview.blockedReason ?? 'Repository index is not clean', {
         kind: 'invalid_request',
@@ -90,5 +101,14 @@ export class GasCityRigRegistrar implements RigRegistrar {
         cause,
       })
     }
+  }
+
+  async #preview(repositoryPath: string) {
+    const status = await exec('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
+      cwd: repositoryPath,
+      encoding: 'buffer',
+      maxBuffer: 1024 * 1024,
+    })
+    return previewRigRegistration(parsePorcelainStatusZ(status.stdout as Buffer))
   }
 }

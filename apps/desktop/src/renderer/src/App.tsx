@@ -12,6 +12,7 @@ import {
   factoryAggregateStatus,
   factoryStatusLabel,
 } from '../../shared/factory'
+import { provisioningHeading, provisioningMessage } from './provisioning'
 
 type Root = { id: string; label: string }
 type Entry = { name: string; relativePath: string; kind: 'directory' | 'repository' }
@@ -936,16 +937,12 @@ factoru-server providers configure --provider codex`}</code>
           >
             <div>
               <p className="eyebrow">Repository setup</p>
-              <h2>
-                {activeProject.setupState === 'setting_up'
-                  ? 'Preparing project repositories…'
-                  : 'Repository setup needs attention'}
-              </h2>
+              <h2>{provisioningHeading(activeProject)}</h2>
               <p>
-                {activeProject.setupState === 'setting_up'
-                  ? `${activeLocatedProject?.factoryName ?? 'The home factory'} is cloning remote sources and registering execution rigs.`
-                  : (activeProject.setupError?.message ??
-                    'Fix the repository setup on the home factory, then retry.')}
+                {provisioningMessage(
+                  activeProject,
+                  activeLocatedProject?.factoryName ?? 'The home factory',
+                )}
               </p>
               {activeProject.setupState === 'needs_attention' &&
                 activeProject.repositories.some((repository) =>
@@ -970,9 +967,17 @@ factoru-server providers configure --provider codex`}</code>
                       {(repository.sourceUrl ?? repository.repository.relativePath) || 'Repository'}
                     </strong>
                     <small>
-                      {statusLabel(repository.rig.registrationState)}
-                      {repository.rig.error ? ` · ${repository.rig.error.message}` : ''}
+                      {repository.rig.retry
+                        ? `Attempt ${repository.rig.retry.attemptCount} failed · retrying at ${new Date(
+                            repository.rig.retry.nextAttemptAt,
+                          ).toLocaleTimeString()}`
+                        : statusLabel(repository.rig.registrationState)}
                     </small>
+                    {repository.rig.error && (
+                      <small className="provisioning-retry-error">
+                        {repository.rig.error.message}
+                      </small>
+                    )}
                   </span>
                 </li>
               ))}

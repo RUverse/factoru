@@ -97,7 +97,31 @@ describe('FactoruDatabase', () => {
     expect(db.currentSequence()).toBe(1)
     expect(db.claimDueOutbox()).toHaveLength(1)
     expect(db.recoverUnfinishedOutbox()).toBe(1)
-    expect(db.claimDueOutbox()).toHaveLength(1)
+    const [retrying] = db.claimDueOutbox()
+    expect(retrying).toBeDefined()
+    const retryProjection = db.failProvisioning(
+      retrying!.id,
+      input.projectId,
+      retrying!.attemptCount,
+      'gas_city_registration_failed',
+      'Gas City setup was interrupted.',
+      retrying!.repositoryId,
+    )
+    expect(retryProjection).toMatchObject({
+      setupState: 'setting_up',
+      setupErrorCode: 'gas_city_registration_failed',
+      repositories: [
+        {
+          retry: { attemptCount: 2, nextAttemptAt: expect.any(String) },
+          rig: {
+            registrationState: 'pending',
+            lastErrorCode: 'gas_city_registration_failed',
+            lastErrorMessage: 'Gas City setup was interrupted.',
+          },
+        },
+      ],
+    })
+    expect(db.eventsAfter(0).at(-1)?.type).toBe('project.setup_retry_scheduled')
     expect(() => db.createProject({ ...input, requestHash: 'different' })).toThrow(
       'command_id_conflict',
     )

@@ -58,12 +58,17 @@ export const connectionTicketResponseSchema = z.object({
 })
 
 export const projectSetupStateSchema = z.enum(['setting_up', 'ready', 'needs_attention'])
+export const provisioningRetrySchema = z.object({
+  attemptCount: z.number().int().positive(),
+  nextAttemptAt: z.iso.datetime(),
+})
 export const rigSummarySchema = z.object({
   rigName: z.string().min(1),
   beadPrefix: z.string().min(1),
   registrationState: z.enum(['pending', 'ready', 'failed']),
   lastReconciledAt: z.iso.datetime().nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
+  retry: provisioningRetrySchema.nullable().default(null),
 })
 export const projectSchema = z.object({
   id: z.string().min(1),

@@ -234,6 +234,12 @@ verifies the URL again before the server imports or clones it into
 This successful journey is required before Linux arm64 or Raspberry Pi support
 can be promoted from `Validate`.
 
+During repository setup, Desktop shows the latest actionable failure, completed
+attempt count, and next automatic retry time. A partial Gas City initialization
+inside a managed project clone is recovered automatically only when every
+staged path is `.gitignore` or below `.beads/`; any unrelated staged change
+requires operator review and remains blocked.
+
 ## 6. Verify the trust boundary
 
 On the Linux host, inspect listeners:

@@ -57,7 +57,13 @@ export interface ProjectRepositoryRecord {
   repositoryRelativePath: string
   repositoryRealPath: string
   defaultBranch: string
+  retry: ProvisioningRetryRecord | null
   rig: RigBindingRecord
+}
+
+export interface ProvisioningRetryRecord {
+  attemptCount: number
+  nextAttemptAt: string
 }
 
 export interface RigBindingRecord {
@@ -204,7 +210,10 @@ function deviceFromRow(row: DeviceRow): TrustedDevice {
   }
 }
 
-function repositoryFromRow(row: ProjectRepositoryRow): ProjectRepositoryRecord {
+function repositoryFromRow(
+  row: ProjectRepositoryRow,
+  retry: ProvisioningRetryRecord | null,
+): ProjectRepositoryRecord {
   return {
     id: row.id,
     projectId: row.project_id,
@@ -215,6 +224,7 @@ function repositoryFromRow(row: ProjectRepositoryRow): ProjectRepositoryRecord {
     repositoryRelativePath: row.repository_relative_path,
     repositoryRealPath: row.repository_real_path,
     defaultBranch: row.default_branch,
+    retry,
     rig: {
       cityName: row.city_name,
       rigName: row.rig_name,
@@ -464,6 +474,29 @@ export class FactoruDatabase {
   }
 
   #repositoriesFor(projectId: string): ProjectRepositoryRecord[] {
+    const retries = new Map<string, ProvisioningRetryRecord>()
+    const outbox = this.connection
+      .prepare(
+        `SELECT payload_json, attempt_count, available_at
+         FROM outbox_items
+         WHERE aggregate_id = ? AND kind = 'project.provision_rig'
+           AND status = 'pending'
+         ORDER BY created_at DESC`,
+      )
+      .all(projectId) as Array<{
+      payload_json: string
+      attempt_count: number
+      available_at: string
+    }>
+    for (const item of outbox) {
+      const repositoryId = (JSON.parse(item.payload_json) as { repositoryId?: string }).repositoryId
+      if (repositoryId && !retries.has(repositoryId) && item.attempt_count > 0) {
+        retries.set(repositoryId, {
+          attemptCount: item.attempt_count,
+          nextAttemptAt: item.available_at,
+        })
+      }
+    }
     return (
       this.connection
         .prepare(
@@ -471,7 +504,7 @@ export class FactoruDatabase {
            ORDER BY is_primary DESC, created_at, id`,
         )
         .all(projectId) as ProjectRepositoryRow[]
-    ).map(repositoryFromRow)
+    ).map((row) => repositoryFromRow(row, retries.get(row.id) ?? null))
   }
 
   replayProjectCommand(
@@ -860,6 +893,12 @@ export class FactoruDatabase {
   ): ProjectRecord {
     return this.connection.transaction(() => {
       const now = this.#now()
+      const current = this.getProject(projectId)
+      if (!current) throw new Error('not_found')
+      const repository = repositoryId
+        ? current.repositories.find((candidate) => candidate.id === repositoryId)
+        : current.repositories.find((candidate) => candidate.isPrimary)
+      if (!repository) throw new Error('repository_not_found')
       if (attemptCount < 6) {
         const delays = [1, 5, 30, 120, 600, 1_800]
         const available = new Date(now.getTime() + delays[attemptCount - 1]! * 1_000).toISOString()
@@ -869,14 +908,36 @@ export class FactoruDatabase {
              last_error = ?, updated_at = ? WHERE id = ?`,
           )
           .run(available, message, now.toISOString(), outboxId)
-        return this.getProject(projectId)!
+        this.connection
+          .prepare(
+            `UPDATE projects SET setup_error_code = ?, setup_error_message = ?,
+               version = version + 1, updated_at = ? WHERE id = ?`,
+          )
+          .run(code, message, now.toISOString(), projectId)
+        this.connection
+          .prepare(
+            `UPDATE project_repositories SET last_reconciled_at = ?, last_error_code = ?,
+               last_error_message = ?, updated_at = ? WHERE id = ? AND project_id = ?`,
+          )
+          .run(now.toISOString(), code, message, now.toISOString(), repository.id, projectId)
+        if (repository.isPrimary) {
+          this.connection
+            .prepare(
+              `UPDATE project_rig_bindings SET last_reconciled_at = ?, last_error_code = ?,
+                 last_error_message = ? WHERE project_id = ?`,
+            )
+            .run(now.toISOString(), code, message, projectId)
+        }
+        const project = this.getProject(projectId)!
+        this.#appendEvent(
+          'project.setup_retry_scheduled',
+          projectId,
+          project.version,
+          { repositoryId: repository.id, attemptCount, nextAttemptAt: available, code, message },
+          null,
+        )
+        return project
       }
-      const current = this.getProject(projectId)
-      if (!current) throw new Error('not_found')
-      const repository = repositoryId
-        ? current.repositories.find((candidate) => candidate.id === repositoryId)
-        : current.repositories.find((candidate) => candidate.isPrimary)
-      if (!repository) throw new Error('repository_not_found')
       this.connection
         .prepare(
           `UPDATE projects SET setup_state = 'needs_attention', setup_error_code = ?,

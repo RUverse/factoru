@@ -39,6 +39,10 @@ ownership and would make source-preview installation surprising.
   automatically.
 - SQLite stores canonical absolute paths for server use. The protocol exposes
   only the managed project folder name, never the absolute host path.
+- A retry after partial Gas City initialization may unstage `.gitignore` and
+  staged files below `.beads/` in a managed clone, without deleting their
+  contents. Recovery is refused if any other staged path exists. Each failed
+  attempt is projected with its error and next retry time.
 
 ## Consequences
 
@@ -52,6 +56,9 @@ ownership and would make source-preview installation surprising.
   longer determine where a remote repository is cloned.
 - Existing projects remain safe and usable but do not gain a managed project
   directory until a separately designed migration flow exists.
+- Operators no longer need to repair the index when Gas City leaves its own
+  known initialization files staged, and Desktop does not present retry backoff
+  as an unexplained pending state.
 
 ## Revisit when
 

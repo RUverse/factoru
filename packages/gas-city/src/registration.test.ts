@@ -80,4 +80,54 @@ describe('GasCityRigRegistrar', () => {
     ).rejects.toThrow(/staged change/)
     expect(calls).toEqual([])
   })
+
+  it('unstages only known Gas City files when recovering a managed clone', async () => {
+    const calls: string[][] = []
+    const target = repository()
+    fs.mkdirSync(path.join(target, '.beads'))
+    fs.writeFileSync(path.join(target, '.beads', 'config.yaml'), 'database: partial\n')
+    fs.appendFileSync(path.join(target, '.gitignore'), '.beads/*\n!.beads/config.yaml\n')
+    execFileSync('git', ['add', '.beads/config.yaml', '.gitignore'], { cwd: target })
+
+    await new GasCityRigRegistrar({
+      async run(executable, args) {
+        calls.push([executable, ...args])
+        return { stdout: '', stderr: '' }
+      },
+    }).register({
+      cityPath: '/factoru/city',
+      repositoryPath: target,
+      rigName: 'factoru-project',
+      beadPrefix: 'f1234567',
+      defaultBranch: 'dev',
+      recoverPartialManagedSetup: true,
+    })
+
+    expect(
+      execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: target, encoding: 'utf8' }),
+    ).toBe('')
+    expect(calls[0]?.slice(0, 3)).toEqual(['gc', 'rig', 'add'])
+  })
+
+  it('never unstages unrelated user work during managed recovery', async () => {
+    const target = repository()
+    fs.mkdirSync(path.join(target, '.beads'))
+    fs.writeFileSync(path.join(target, '.beads', 'config.yaml'), 'database: partial\n')
+    fs.writeFileSync(path.join(target, 'user-work.txt'), 'keep staged\n')
+    execFileSync('git', ['add', '.beads/config.yaml', 'user-work.txt'], { cwd: target })
+
+    await expect(
+      new GasCityRigRegistrar({ run: async () => ({ stdout: '', stderr: '' }) }).register({
+        cityPath: '/factoru/city',
+        repositoryPath: target,
+        rigName: 'factoru-project',
+        beadPrefix: 'f1234567',
+        defaultBranch: 'dev',
+        recoverPartialManagedSetup: true,
+      }),
+    ).rejects.toThrow(/staged change/)
+    expect(
+      execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: target, encoding: 'utf8' }),
+    ).toContain('user-work.txt')
+  })
 })

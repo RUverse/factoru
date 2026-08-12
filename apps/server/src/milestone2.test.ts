@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FactoruDatabase } from '@factoru/database'
 import { parseServerId } from '@factoru/domain'
-import type { RigRegistrar } from '@factoru/gas-city'
+import { GasCityRigRegistrar, type RigRegistrar } from '@factoru/gas-city'
 import {
   CAPABILITY_LOCAL_ENROLLMENT,
   CAPABILITY_REPOSITORY_ACCESS_CHECK,
@@ -275,6 +275,90 @@ describe('Milestone 2 server slice', () => {
     expect(database.claimDueOutbox()).toHaveLength(1)
     database.close()
   })
+
+  it('recovers a managed remote clone after Gas City leaves its own files staged', async () => {
+    const { root, repository: source } = repositoryFixture()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    const sourceUrl = 'https://example.com/org/repository.git'
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
+      async (args, options) => {
+        if (args[0] === 'ls-remote') {
+          return { stdout: 'ref: refs/heads/dev\tHEAD\n', stderr: '' }
+        }
+        if (args[0] === 'clone') {
+          const destination = args.at(-1)!
+          execFileSync('git', ['clone', '--', source, destination], { cwd: options.cwd })
+          execFileSync('git', ['remote', 'set-url', 'origin', sourceUrl], { cwd: destination })
+          return { stdout: '', stderr: '' }
+        }
+        throw new Error(`Unexpected Git command: ${args.join(' ')}`)
+      },
+    )
+    let registrationAttempts = 0
+    const registrar = new GasCityRigRegistrar({
+      async run(executable, args) {
+        if (executable === 'gc' && args[0] === 'rig' && args[1] === 'add') {
+          registrationAttempts += 1
+          if (registrationAttempts === 1) {
+            const target = args[2]!
+            fs.mkdirSync(path.join(target, '.beads'))
+            fs.writeFileSync(path.join(target, '.beads', 'config.yaml'), 'partial: true\n')
+            fs.writeFileSync(path.join(target, '.gitignore'), '.beads/*\n')
+            execFileSync('git', ['add', '-f', '.beads/config.yaml', '.gitignore'], { cwd: target })
+            throw new Error('simulated interrupted registration')
+          }
+        }
+        return { stdout: '', stderr: '' }
+      },
+    })
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar,
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+    const project = await service.createProject(device, 'cmd_partial_remote', {
+      name: 'Partial remote',
+      repositories: [{ kind: 'remote', url: sourceUrl }],
+    })
+
+    await service.processOutbox()
+    expect(service.getProject(project.id)).toMatchObject({
+      setupState: 'setting_up',
+      repositories: [
+        {
+          rig: {
+            error: { code: 'gas_city_registration_failed' },
+            retry: { attemptCount: 1 },
+          },
+        },
+      ],
+    })
+    database.connection
+      .prepare("UPDATE outbox_items SET available_at = '2000-01-01T00:00:00.000Z'")
+      .run()
+
+    await service.processOutbox()
+    const ready = service.getProject(project.id)
+    expect(ready.setupState).toBe('ready')
+    expect(registrationAttempts).toBe(2)
+    const target = path.join(root, 'managed-projects', ready.projectDirectory!.name, 'repositories')
+    const [managedRepository] = fs.readdirSync(target).map((name) => path.join(target, name))
+    expect(
+      execFileSync('git', ['diff', '--cached', '--name-only'], {
+        cwd: managedRepository,
+        encoding: 'utf8',
+      }),
+    ).toBe('')
+    database.close()
+  }, 15_000)
 
   it('persists nothing when any remote repository is inaccessible', async () => {
     const root = fixtureDirectory()

@@ -217,6 +217,11 @@ unprivileged server account's standard OpenSSH configuration, agent, known
 hosts, or HTTPS credential helper; Factoru diagnoses that setup but never
 stores Git keys or tokens.
 
+Repository provisioning reports each failed attempt with its actionable error
+and next automatic retry time. Partial Gas City initialization in a managed
+project clone is recoverable only when the staged paths are known
+Factoru/Gas City setup files; unrelated staged work remains protected.
+
 ### Task lifecycle
 
 The user or Project Manager may create and edit Backlog items. The user may move

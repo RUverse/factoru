@@ -739,6 +739,14 @@ code {
   font-size: 10px;
 }
 
+.project-provisioning li .provisioning-retry-error {
+  overflow: visible;
+  margin-top: 2px;
+  color: var(--factoru-warn);
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .project-provisioning > button {
   justify-self: start;
 }

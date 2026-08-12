@@ -41,6 +41,7 @@ export class ProjectService {
   }
 
   publicProject(record: ProjectRecord): Project {
+    const primaryRepository = record.repositories.find((repository) => repository.isPrimary)
     return {
       id: record.id,
       name: record.name,
@@ -72,6 +73,7 @@ export class ProjectService {
           record.rig.lastErrorCode && record.rig.lastErrorMessage
             ? { code: record.rig.lastErrorCode, message: record.rig.lastErrorMessage }
             : null,
+        retry: primaryRepository?.retry ?? null,
       },
       repositories: record.repositories.map((repository) => ({
         id: repository.id,
@@ -95,6 +97,7 @@ export class ProjectService {
                   message: repository.rig.lastErrorMessage,
                 }
               : null,
+          retry: repository.retry,
         },
       })),
     }
@@ -371,22 +374,26 @@ export class ProjectService {
             repository.repositoryRootId,
             repository.repositoryRelativePath,
           )
-          const { preview } = await this.repositories.preview(
-            imported.repository.root.id,
-            imported.repository.relativePath,
-          )
-          if (!preview.safe) {
-            throw new RepositoryError(
-              'repository_index_dirty',
-              preview.blockedReason ?? 'Cloned repository index is not clean',
+          if (repository.defaultBranch === 'HEAD') {
+            const { preview } = await this.repositories.preview(
+              imported.repository.root.id,
+              imported.repository.relativePath,
             )
+            if (!preview.safe) {
+              throw new RepositoryError(
+                'repository_index_dirty',
+                preview.blockedReason ?? 'Cloned repository index is not clean',
+              )
+            }
+            const materialized = this.database.materializeProjectRepository(
+              project.id,
+              repositoryId,
+              preview.defaultBranch,
+            )
+            repository = materialized.repositories.find(
+              (candidate) => candidate.id === repositoryId,
+            )!
           }
-          const materialized = this.database.materializeProjectRepository(
-            project.id,
-            repositoryId,
-            preview.defaultBranch,
-          )
-          repository = materialized.repositories.find((candidate) => candidate.id === repositoryId)!
         } else if (
           repository.sourceRepositoryRealPath &&
           !this.repositories.exists(repository.repositoryRootId, repository.repositoryRelativePath)
@@ -415,6 +422,7 @@ export class ProjectService {
           rigName: repository.rig.rigName,
           beadPrefix: repository.rig.beadPrefix,
           defaultBranch: repository.defaultBranch,
+          recoverPartialManagedSetup: project.managedProjectDirectory && item.attemptCount > 1,
         })
         changed.push(
           this.publicProject(
@@ -423,13 +431,19 @@ export class ProjectService {
         )
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
+        const code =
+          error instanceof RepositoryError
+            ? error.code
+            : error instanceof GasCityError
+              ? (error.code ?? 'gas_city_registration_failed')
+              : 'gas_city_registration_failed'
         changed.push(
           this.publicProject(
             this.database.failProvisioning(
               item.id,
               project.id,
               error instanceof GasCityError && !error.retryable ? 6 : item.attemptCount,
-              error instanceof RepositoryError ? error.code : 'gas_city_registration_failed',
+              code,
               message,
               repository.id,
             ),

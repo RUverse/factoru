@@ -53,6 +53,7 @@ function cachedProject(id: string, name: string): Project {
       registrationState: 'ready',
       lastReconciledAt: '2026-08-11T12:00:00.000Z',
       error: null,
+      retry: null,
     },
     repositories: [
       {
@@ -67,6 +68,7 @@ function cachedProject(id: string, name: string): Project {
           registrationState: 'ready',
           lastReconciledAt: '2026-08-11T12:00:00.000Z',
           error: null,
+          retry: null,
         },
       },
     ],
