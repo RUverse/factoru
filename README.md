@@ -17,7 +17,7 @@ connected together and present one project catalog. See
 > restart. Scoped resilient streams, rich conversation turns, and image
 > artifacts are connected, including an auditable fresh-context control that
 > opens a clean chat and preserves prior talks as read-only history while rotating the agent session; remote reconnect and live Claude/Codex image
-> acceptance matrix remains pending alongside Milestone 8 packaging work.
+> acceptance matrix remains pending alongside Milestone 9 packaging work.
 
 ## Requirements
 
@@ -158,7 +158,7 @@ checks, independent review, risks, and model usage.
   delivery through both Claude and Codex and remote mid-response reconnect still
   require an acceptance host with the pinned compatible Gas City dependency set.
 - Development-from-source is the supported path; signed/notarized Desktop and
-  packaged Server distributions arrive in Milestone 8.
+  packaged Server distributions arrive in Milestone 9.
 - The serial execution limit is one. Parallel capsules and service-container
   isolation are deferred to Milestone 10.
 - Remote access relies on an operator-controlled private HTTPS overlay or

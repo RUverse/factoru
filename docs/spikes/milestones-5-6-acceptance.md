@@ -39,7 +39,7 @@ Strict Formula validation, replay/deduplication, cancellation state,
 transient-dispatch retry, bounded failure/retry, exhausted-run recovery, dirty
 capsules, and conflicts also have deterministic regression coverage. The live
 benchmark exercised the successful provider path and restart/adoption path;
-Linux and packaged-host coverage remains a Milestone 8 acceptance item.
+Linux and packaged-host coverage remains a Milestone 9 acceptance item.
 
 ## Milestone 6 result
 
@@ -62,4 +62,4 @@ restart adoption. Full Electron process launch, supervisor-wide restart, and
 agent-process fault injection are not repeated here because they would disturb
 the shared development supervisor; their protocol/state behavior remains
 covered at the narrow layers, while packaged lifecycle drills belong to
-Milestone 8.
+Milestone 9.

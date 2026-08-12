@@ -364,7 +364,7 @@ reconnect the tunnel. The same projects should reappear.
 
 Factoru migrations are forward-only. Although the SQLite backup is verified at
 creation time, packaged restore and coordinated Gas City/Dolt recovery are
-unfinished Milestone 8 work. Do not assume that checking out an older commit is
+unfinished Milestone 9 work. Do not assume that checking out an older commit is
 a safe rollback after a migration; keep this preview on disposable state.
 
 ## HTTPS alternative

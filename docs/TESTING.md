@@ -1,7 +1,7 @@
 # Factoru development and testing
 
 This guide covers the Delivered Foundation development-from-source path. The
-packaged installation and recovery matrix belongs to Milestone 8.
+packaged installation and recovery matrix belongs to Milestone 9.
 
 ## 1. Verify the toolchain
 

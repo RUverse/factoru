@@ -6,7 +6,7 @@
 ## Context
 
 Factoru Server remains loopback-bound and packaged remote installation is
-Milestone 8 work. ADR 0011 selected operator-controlled HTTPS termination for
+Milestone 9 work. ADR 0011 selected operator-controlled HTTPS termination for
 the first remote product topology, but developers also need a narrow way to run
 the current source checkout on a separate Linux machine—including an unvalidated
 Raspberry Pi—and connect Desktop without exposing a new listener or managing a
@@ -68,7 +68,7 @@ encrypting and authenticating the network leg.
   Gas City dependency chain, provider harnesses, storage growth, and complete
   task loop still require Linux arm64 acceptance.
 - Persistent remote operation should continue to use the ADR 0011 HTTPS path
-  until Milestone 8 chooses packaged lifecycle and access mechanisms.
+  until Milestone 9 chooses packaged lifecycle and access mechanisms.
 
 ## Revisit when
 

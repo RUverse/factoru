@@ -508,7 +508,7 @@ only product component that talks to it, through `packages/gas-city`.
 | **Session** | One live agent instance. PM chat stays available, PM planning is serialized on demand, and implementer/reviewer pools scale on demand while bead work remains durable. |
 | **Bead** | Gas City's durable execution unit. Formula roots and steps are beads, but Factoru tasks remain separate product entities. |
 | **Formula v2** | A reusable routed work graph. A Factoru Formula Preset configures it; it does not define a Team profile by itself. |
-| **Run** | One materialized Formula execution with stages, transcripts, usage, and related beads. Milestone 9 projects it into Factoru's task/run inspector rather than exposing the raw dashboard. |
+| **Run** | One materialized Formula execution with stages, transcripts, usage, and related beads. Milestone 8 projects it into Factoru's task/run inspector rather than exposing the raw dashboard. |
 | **Convoy** | A tracked group of beads. Later it can hold decomposed work and feed safe fan-out; it is not the Kanban board. |
 | **Event** | A sequenced immutable observation consumed through SSE for projection, recovery, and diagnostics. |
 | **Order** | A scheduled/event trigger for formulas or trusted exec work. Later useful for maintenance, but not the MVP Queue scheduler. |
@@ -788,30 +788,7 @@ refetch the whole active workspace; image upload, cancellation, rejection,
 authorization, retention, and delivery pass through every supported Claude and
 Codex configuration; chat remains responsive while planning or execution runs.
 
-### Milestone 8 — Packaging and Dependable Operation
-
-- Ship a signed and notarized macOS Desktop, Server native archives and a
-  container for supported macOS/Linux targets, the existing operator CLI, the
-  RUverse Homebrew formula, and explicit service installation/removal paths.
-- Make Desktop-managed local setup and authenticated private HTTPS/SSH remote
-  setup use the same Server artifact, protocol, migration, and recovery model.
-- Add negotiated application/protocol upgrade policy, rollback boundaries,
-  packaged logs and diagnostics, service-account repository credentials,
-  secret-store integration, audited command policy, and artifact retention.
-- Complete packaged SQLite backup/restore plus Gas City/Dolt recovery drills.
-  Monitor store/backup growth per run, free-space and compaction headroom,
-  quarantine, last successful maintenance, and full-GC scratch-space needs.
-- Complete the pinned-runtime real-provider Standard Build matrix before release;
-  do not treat static/adapter validation as production acceptance.
-- Revalidate tool bootstrap, authentication, remote proxying, migrations,
-  cancellation, restart adoption, and rich conversation from packaged installs.
-
-Exit: a non-author machine installs a supported Server and Desktop, completes
-rich chat with an image and a serial Standard Build task, restarts services,
-restores a backup, upgrades compatibly, and produces a redacted diagnostic
-bundle without exposing Gas City, Dolt, repository, or provider secrets.
-
-### Milestone 9 — Gas City-Native Orchestration Depth
+### Milestone 8 — Gas City-Native Orchestration Depth
 
 - Extend `packages/gas-city` to consume served run, Formula preview, bead,
   convoy, agent/session stream, structured transcript, stage, usage, and cost
@@ -846,10 +823,33 @@ units, independently reviewed and synthesized, and survives restart,
 cancellation, and bounded retry with every useful state visible through Factoru
 and no raw Gas City configuration required from the user.
 
+### Milestone 9 — Packaging and Dependable Operation
+
+- Ship a signed and notarized macOS Desktop, Server native archives and a
+  container for supported macOS/Linux targets, the existing operator CLI, the
+  RUverse Homebrew formula, and explicit service installation/removal paths.
+- Make Desktop-managed local setup and authenticated private HTTPS/SSH remote
+  setup use the same Server artifact, protocol, migration, and recovery model.
+- Add negotiated application/protocol upgrade policy, rollback boundaries,
+  packaged logs and diagnostics, service-account repository credentials,
+  secret-store integration, audited command policy, and artifact retention.
+- Complete packaged SQLite backup/restore plus Gas City/Dolt recovery drills.
+  Monitor store/backup growth per run, free-space and compaction headroom,
+  quarantine, last successful maintenance, and full-GC scratch-space needs.
+- Complete the pinned-runtime real-provider Standard Build matrix before release;
+  do not treat static/adapter validation as production acceptance.
+- Revalidate tool bootstrap, authentication, remote proxying, migrations,
+  cancellation, restart adoption, and rich conversation from packaged installs.
+
+Exit: a non-author machine installs a supported Server and Desktop, completes
+rich chat with an image and a serial Standard Build task, restarts services,
+restores a backup, upgrades compatibly, and produces a redacted diagnostic
+bundle without exposing Gas City, Dolt, repository, or provider secrets.
+
 ### Milestone 10 — Safe Concurrency and Capsules
 
-- Raise cross-task WIP only after Milestone 9 is dependable, first to two and
-  then three independently admitted workflows. Gas City chooses concrete
+- Raise cross-task WIP only after Milestones 8 and 9 are dependable, first to
+  two and then three independently admitted workflows. Gas City chooses concrete
   agents/pool sessions; prompts and users never name instances such as `SE 1`.
 - Preserve one Factoru-owned worktree/capsule per task run for the first
   cross-task concurrency. Resolve separate-context drain Git/worktree ownership
