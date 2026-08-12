@@ -89,9 +89,9 @@ Gas City 1.4 exposes a stable browser-safe provider projection at
 `GET /v0/city/{cityName}/providers/public`. Factoru now reads that endpoint
 through `packages/gas-city`, filters to providers explicitly configured by the
 city, and retains only the `model` select option's safe value, label, and
-default. The workspace protocol carries the normalized result so Desktop can
-render linked provider/model selectors and select the advertised default model
-without manual identifiers.
+effective configured default. The workspace protocol carries the normalized
+result so Desktop can render linked provider/model selectors and select that
+default without manual identifiers.
 
 This does not move provider-schema ownership into Factoru. Provider commands,
 flag mappings, environment, credentials, and non-model options remain inside

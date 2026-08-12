@@ -264,15 +264,17 @@ describe('GasCityAdapter.listModelProviders', () => {
             display_name: 'Codex',
             builtin: false,
             city_level: true,
+            effective_defaults: { model: 'gpt-5.5' },
             options_schema: [
               {
                 key: 'model',
                 label: 'Model',
                 type: 'select',
-                default: 'gpt-5.5',
+                default: '',
                 choices: [
+                  { value: '', label: 'Default' },
+                  { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
                   { value: 'gpt-5.5', label: 'GPT-5.5' },
-                  { value: 'gpt-5.4', label: 'GPT-5.4' },
                 ],
               },
             ],
@@ -303,8 +305,8 @@ describe('GasCityAdapter.listModelProviders', () => {
         name: 'Codex',
         defaultModelId: 'gpt-5.5',
         models: [
+          { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
           { id: 'gpt-5.5', name: 'GPT-5.5' },
-          { id: 'gpt-5.4', name: 'GPT-5.4' },
         ],
       },
     ])

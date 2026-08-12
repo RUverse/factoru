@@ -288,7 +288,7 @@ server secrets and are never returned to the renderer.
 Factoru automatically loads the configured factory providers and each
 provider's safe model choices from Gas City's public provider catalog. Team
 slots use linked selectors instead of requiring provider/model identifiers to
-be typed manually; choosing a provider preselects its advertised default model.
+be typed manually; choosing a provider preselects its effective configured default.
 Provider commands, flags, environment, and credentials remain inside Gas City
 and Factoru Server.
 
@@ -766,8 +766,8 @@ without exposing Gas City or Dolt listeners remotely.
 - Store provider credentials only on the server and apply Project Manager and
   Software Engineer named model bindings as validated Gas City config.
 - Load configured provider/model choices through the server-side Gas City
-  adapter and present linked Team selectors with provider defaults; never make
-  the renderer maintain a second provider catalog.
+  adapter and present linked Team selectors with effective provider defaults;
+  never make the renderer maintain a second provider catalog.
 - Persist versioned Team prompt overrides, tool policies, and minimal
   project/role memory with explicit provenance.
 - Show token usage, tool activity, Gas City/session health, errors,

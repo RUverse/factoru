@@ -226,7 +226,7 @@ verifies the URL again before the server imports or clones it into
 2. In **Team**, configure Project Manager `chat` and `planning`, plus Software
    Engineer `design`, `implementation`, and `review`. Factoru loads the
    configured providers and their model choices from that Linux factory; choose
-   a provider and its advertised default model is selected automatically.
+   a provider and its effective configured default is selected automatically.
    Confirm Standard Build as the project default, or explicitly select Fast
    Patch for the acceptance task.
 3. Add a small Backlog task and move it to Queue.

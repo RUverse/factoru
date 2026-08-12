@@ -304,7 +304,7 @@ const rigListSchema = z.object({
 
 // Gas City deliberately removes provider CLI flags and environment details
 // from this public projection. Factoru consumes only configured city entries
-// and the model option's safe value/label pairs.
+// and the model option's safe value/label pairs plus effective default.
 const providerPublicListSchema = z.object({
   items: nullableArray(
     z.object({
@@ -312,6 +312,7 @@ const providerPublicListSchema = z.object({
       display_name: z.string().default(''),
       builtin: z.boolean().default(false),
       city_level: z.boolean().default(false),
+      effective_defaults: z.record(z.string(), z.string()).default({}),
       options_schema: nullableArray(
         z.object({
           key: z.string(),
@@ -547,15 +548,16 @@ export class GasCityAdapter {
         ).values(),
       ]
       if (models.length === 0) return []
-      const advertisedDefault = models.some((model) => model.id === modelOption.default)
-        ? modelOption.default
+      const configuredDefault = provider.effective_defaults.model || modelOption.default
+      const effectiveDefault = models.some((model) => model.id === configuredDefault)
+        ? configuredDefault
         : models[0]!.id
 
       return [
         {
           id: provider.name,
           name: provider.display_name || provider.name,
-          defaultModelId: advertisedDefault,
+          defaultModelId: effectiveDefault,
           models,
         },
       ]
