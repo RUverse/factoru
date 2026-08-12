@@ -59,7 +59,7 @@ API.
 | Run observation | REST `/runs/{id}/steps`, `/workflow/{id}` | Carries `gc.formula_hash` and per-step routing |
 | Cancellation | REST `POST /runs/{id}/cancel` | Terminal state confirmed by observation, never assumed from the response |
 | Events | REST `GET /events` with `after_seq`, and `/events/stream` (SSE) | `seq` is a durable cursor |
-| Conversation delivery | REST `extmsg/adapters`, `bind`, `inbound`, `transcript`, `transcript/ack` | See below |
+| Conversation delivery | REST `extmsg/adapters`, `bind`, `inbound`, `outbound`, `transcript`, `transcript/ack` | See below |
 | Cost and usage | REST `GET /v0/city/{city}/usage` | Model cost observable from the first run |
 
 Human-readable CLI output is never parsed. Where the CLI is used it is for
@@ -76,15 +76,20 @@ replies from `extmsg/transcript` using `after_sequence`, acknowledging with
 `transcript/ack`.
 
 Factoru adopts the transcript cursor as the authoritative delivery mechanism and
-treats an adapter `callback_url` as a latency optimisation only. A cursor that
-both sides persist is the better fit for a product whose requirement is that a
-desktop disconnect and a server restart never lose a conversation turn.
+treats the adapter `callback_url` as the host-local acceptance boundary for
+assistant replies. The Project Manager calls the pack-defined
+`gc factoru reply-current` command, which posts to `extmsg/outbound`; Gas City
+calls the Factoru callback and records the accepted reply in the transcript.
+Factoru still advances product state only from the durable transcript cursor. A
+cursor that both sides persist is the better fit for a product whose requirement
+is that a desktop disconnect and a server restart never lose a conversation
+turn.
 
-**Verification still owed.** Gas City documents an agent-name binding as
-surviving session restarts and cold-waking a session at delivery time; the gate
-mapped the endpoints without driving a conversation through them. This is
-accepted design intent, not an observed property, and Milestone 3 must prove it
-before Project Manager chat is treated as durable.
+**Verified in Milestone 3 and revalidated on Linux arm64.** Agent-name binding,
+cold delivery, callback-backed outbound publishing, transcript correlation, and
+strict cursor resume have completed real provider-backed round trips. The
+callback returns a stable provider message ID for idempotent retries and never
+writes Factoru transcript state directly.
 
 ### Event cursors persist `seq`, not the opaque token
 

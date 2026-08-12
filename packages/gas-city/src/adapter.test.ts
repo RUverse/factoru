@@ -211,6 +211,7 @@ describe('GasCityAdapter.verifySupervisorContract', () => {
             '/v0/city/{cityName}/extmsg/adapters',
             '/v0/city/{cityName}/extmsg/bind',
             '/v0/city/{cityName}/extmsg/inbound',
+            '/v0/city/{cityName}/extmsg/outbound',
             '/v0/city/{cityName}/extmsg/transcript',
             '/v0/city/{cityName}/extmsg/transcript/ack',
           ].map((p) => [p, {}]),
@@ -613,14 +614,30 @@ describe('GasCityAdapter conversation delivery', () => {
     // the conversation across two providers.
     const { fn, calls } = fakeFetch(() => ({ body: { status: 'registered' } }))
 
-    await adapterWith(fn).registerConversationAdapter('factoru-server-1', 'Factoru Server')
+    await adapterWith(fn).registerConversationAdapter(
+      'factoru-server-1',
+      'Factoru Server',
+      'http://127.0.0.1:8787/internal/v1/gas-city/extmsg/callback/publish',
+    )
 
     const headers = calls[0]?.init.headers as Record<string, string>
-    expect(headers['Idempotency-Key']).toBe('factoru-adapter-factoru-server-1')
+    expect(headers['Idempotency-Key']).toMatch(/^factoru-adapter-factoru-server-1-[a-f0-9]{16}$/)
     expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
       provider: 'factoru',
       account_id: 'factoru-server-1',
+      callback_url: 'http://127.0.0.1:8787/internal/v1/gas-city/extmsg/callback/publish',
     })
+  })
+
+  it('rejects a non-loopback conversation callback', async () => {
+    const { fn } = fakeFetch(() => ({ body: { status: 'registered' } }))
+    await expect(
+      adapterWith(fn).registerConversationAdapter(
+        'factoru-server-1',
+        'Factoru Server',
+        'https://factoru.example.com/callback',
+      ),
+    ).rejects.toMatchObject({ kind: 'invalid_request' })
   })
 
   it('sends every conversation field, including the kind that a 500 depends on', async () => {

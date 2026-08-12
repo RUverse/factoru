@@ -38,12 +38,18 @@ function projectedServerUrl(cityPath) {
     throw new Error('Factoru Server projection must be a private regular file')
   }
   const value = JSON.parse(fs.readFileSync(projection, 'utf8'))
-  if (
-    !value ||
-    value.version !== 1 ||
-    typeof value.serverUrl !== 'string' ||
-    Object.keys(value).some((key) => key !== 'version' && key !== 'serverUrl')
-  ) {
+  const keys = Object.keys(value ?? {})
+  const legacy =
+    value?.version === 1 &&
+    typeof value.serverUrl === 'string' &&
+    keys.every((key) => key === 'version' || key === 'serverUrl')
+  const current =
+    value?.version === 2 &&
+    typeof value.serverUrl === 'string' &&
+    typeof value.gasCitySupervisorUrl === 'string' &&
+    typeof value.cityName === 'string' &&
+    keys.every((key) => ['version', 'serverUrl', 'gasCitySupervisorUrl', 'cityName'].includes(key))
+  if (!legacy && !current) {
     throw new Error('Factoru Server projection has an unsupported schema')
   }
   return normalizeLoopbackUrl(value.serverUrl)

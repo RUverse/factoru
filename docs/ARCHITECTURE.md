@@ -757,6 +757,7 @@ transcript cursor:
 | `POST /v0/city/{city}/extmsg/adapters` | Register an adapter; optional `callback_url` and `Idempotency-Key` |
 | `POST /v0/city/{city}/extmsg/bind` | Bind a conversation to an `agent_name` or `session_id` |
 | `POST /v0/city/{city}/extmsg/inbound` | Deliver one user turn |
+| `POST /v0/city/{city}/extmsg/outbound` | Publish one session-owned assistant reply through the registered adapter |
 | `GET /v0/city/{city}/extmsg/transcript` | Read replies with `after_sequence` and `limit` |
 | `POST /v0/city/{city}/extmsg/transcript/ack` | Acknowledge consumption |
 
@@ -764,9 +765,16 @@ Factoru binds to an **agent name** rather than a session ID so the identity is
 stable while Gas City replaces sessions. Accepted user messages, bounded
 delivery attempts, assistant messages, delivery state, and transcript sequence
 are persisted in Factoru SQLite. The reactor resumes reads after that sequence,
-deduplicates replay, publishes product events, and treats callback delivery only
-as a future latency optimization. The desktop never receives a Gas City address
-or token. The generated identity/config decision is in
+deduplicates replay, and publishes product events. The generated chat identity
+carries only its own Factoru conversation reference. Its versioned
+`gc factoru reply-current` pack command resolves the latest delivered inbound
+turn, posts the answer to `extmsg/outbound`, and uses a stable per-turn/body
+idempotency key. Gas City then calls Factoru's host-local callback, records the
+accepted reply in its durable transcript, and the ordinary cursor sync makes it
+visible to the desktop. The callback validates the exact Factoru account,
+conversation, and rig and never lets the agent write SQLite directly. The
+desktop never receives a Gas City address or token. The generated
+identity/config decision is in
 [ADR 0012](./adr/0012-project-manager-runtime-identities.md); the transport is in
 [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md).
 
@@ -868,9 +876,9 @@ The integration deliberately preserves Gas City's three configuration layers:
 
 | Layer | Factoru location/ownership | Contents |
 | --- | --- | --- |
-| Portable pack | Versioned `packs/factoru-default` source and pinned deployed import | Agents, prompts, formulas, tool metadata/harness wiring assets, commands, doctor checks, and reusable assets |
+| Portable pack | Versioned `packs/factoru-default` source and pinned deployed import | Agents, prompts, formulas, tool metadata/harness wiring assets, the idempotent PM reply command, doctor checks, and reusable assets |
 | City deployment | Factoru-managed city root | Root `pack.toml`, `city.toml`, rig declarations, provider/harness registrations, runtime policy, and import lock |
-| Machine-local site/runtime | City `.gc/` and Gas City-managed runtime directories | Rig path bindings, caches, sockets, logs, sessions, generated state, Gas City worktrees, and Factoru's recoverable private loopback-origin projection |
+| Machine-local site/runtime | City `.gc/` and Gas City-managed runtime directories | Rig path bindings, caches, sockets, logs, sessions, generated state, Gas City worktrees, and Factoru's recoverable private projection of the Factoru origin, Gas City origin, and city name |
 
 The development harness projects the absolute versioned pack path independently
 of pnpm's per-package working directory. It can initialize this topology only after the tester

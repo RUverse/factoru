@@ -81,6 +81,11 @@ import {
   agentToolSessionRequestSchema,
   type AgentToolService,
 } from './agent-tool-service.js'
+import {
+  GAS_CITY_CALLBACK_PATH,
+  gasCityCallbackMessageId,
+  gasCityOutboundCallbackSchema,
+} from './gas-city-callback.js'
 
 export interface BuildServerOptions {
   serverId: ServerId
@@ -211,6 +216,41 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   }
 
   app.get(HEALTH_PATH, async (_request, reply) => reply.code(200).send(currentHealth()))
+
+  if (database) {
+    app.post(GAS_CITY_CALLBACK_PATH, async (request, reply) => {
+      if (!isLoopbackIp(request.ip) || !request.headers['x-gc-request']) {
+        return reply.code(403).send(problem('forbidden', 'Gas City callbacks are host-local'))
+      }
+      const parsed = gasCityOutboundCallbackSchema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply
+          .code(400)
+          .send(problem('invalid_request', 'Invalid Gas City callback', parsed.error.issues))
+      }
+      const conversation = database.product.getConversationById(
+        parsed.data.conversation.conversation_id,
+      )
+      const project = conversation ? database.getProject(conversation.projectId) : null
+      if (
+        !conversation ||
+        !project ||
+        parsed.data.conversation.account_id !== conversation.gasCityAccountId ||
+        parsed.data.conversation.conversation_id !== conversation.gasCityConversationId ||
+        parsed.data.conversation.scope_id !== project.rig.rigName
+      ) {
+        return reply.code(404).send(problem('not_found', 'Factoru conversation not found'))
+      }
+      return reply.code(200).send({
+        message_id: gasCityCallbackMessageId(parsed.data),
+        conversation: parsed.data.conversation,
+        delivered: true,
+        failure_kind: '',
+        retry_after: 0,
+        metadata: {},
+      })
+    })
+  }
 
   if (agentTools) {
     app.post(AGENT_TOOL_SESSION_PATH, async (request, reply) => {

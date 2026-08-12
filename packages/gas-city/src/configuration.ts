@@ -17,6 +17,8 @@ export interface ProjectRuntimeConfiguration {
   projectName: string
   rigName: string
   chatAgentName: string
+  conversationAccountId: string
+  conversationId: string
   chat: ProjectAgentBinding
   planning: ProjectAgentBinding
   design: ProjectAgentBinding
@@ -31,6 +33,8 @@ export interface ProjectRuntimeConfigurator {
 export interface GasCityProjectConfiguratorOptions {
   cityPath: string
   factoruServerUrl: string
+  gasCitySupervisorUrl: string
+  cityName: string
   projectManagerPromptPath: string
   executor: CommandExecutor
 }
@@ -215,6 +219,7 @@ function agentFile(project: ProjectRuntimeConfiguration): string {
   const lines = [
     `description = ${tomlString(`Factoru Project Manager chat for ${project.projectName}`)}`,
     'max_active_sessions = 1',
+    `env = { FACTORU_CONVERSATION_ACCOUNT_ID = ${tomlString(project.conversationAccountId)}, FACTORU_CONVERSATION_ID = ${tomlString(project.conversationId)}, FACTORU_CONVERSATION_SCOPE_ID = ${tomlString(project.rigName)} }`,
     ...bindingLines(project.chat),
   ]
   return `${lines.join('\n')}\n`
@@ -287,6 +292,8 @@ function updateRigBlock(source: string, project: ProjectRuntimeConfiguration): s
 export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
   readonly #cityPath: string
   readonly #factoruServerUrl: string
+  readonly #gasCitySupervisorUrl: string
+  readonly #cityName: string
   readonly #promptPath: string
   readonly #executor: CommandExecutor
 
@@ -298,6 +305,9 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
     }
     this.#cityPath = options.cityPath
     this.#factoruServerUrl = normalizeLoopbackServerUrl(options.factoruServerUrl)
+    this.#gasCitySupervisorUrl = normalizeLoopbackServerUrl(options.gasCitySupervisorUrl)
+    assertSafeName(options.cityName, 'city name')
+    this.#cityName = options.cityName
     this.#promptPath = options.projectManagerPromptPath
     this.#executor = options.executor
   }
@@ -334,7 +344,16 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
     const prompt = fs.readFileSync(this.#promptPath, 'utf8')
     let changed = atomicWritePrivateFileIfChanged(
       path.join(runtimeDirectory, 'factoru-server.json'),
-      `${JSON.stringify({ version: 1, serverUrl: this.#factoruServerUrl }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          version: 2,
+          serverUrl: this.#factoruServerUrl,
+          gasCitySupervisorUrl: this.#gasCitySupervisorUrl,
+          cityName: this.#cityName,
+        },
+        null,
+        2,
+      )}\n`,
     )
 
     for (const project of projects) {

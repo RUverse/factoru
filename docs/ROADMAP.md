@@ -493,12 +493,15 @@ The Project Manager path is Gas City's external-messaging protocol. The
 documented client-registration plus per-conversation SSE `subscribe` stream does
 not exist in the pinned 1.4.0 release; the real surface registers an adapter,
 binds a conversation to an **agent name** so the binding survives session
-restarts, posts turns to `extmsg/inbound`, and reads replies from
-`extmsg/transcript` with `after_sequence`, acknowledging through
-`transcript/ack`. Factoru persists both sides of the conversation and forwards
-them to the desktop. That transcript sequence is a durable cursor on both sides,
-which is a better fit for resumable delivery than a subscription would have
-been. The Gas City endpoint never leaves the server. The Project Manager maintains Factoru tasks through a
+restarts, posts turns to `extmsg/inbound`, and registers a host-local Factoru
+callback for replies. The Project Manager's pinned `gc factoru reply-current`
+command posts to `extmsg/outbound`; Gas City calls the callback and records the
+accepted reply before Factoru reads it from `extmsg/transcript` with
+`after_sequence`, acknowledging through `transcript/ack`. Factoru persists both
+sides of the conversation and forwards them to the desktop. That transcript
+sequence is a durable cursor on both sides, which is a better fit for resumable
+delivery than a subscription would have been. Neither the Gas City endpoint nor
+the Factoru callback leaves the server. The Project Manager maintains Factoru tasks through a
 narrow project-scoped tool interface, not by editing SQLite or treating chat
 text as a database command. The exact transport must be proven per harness:
 Gas City currently catalogs MCP but does not automatically attach every

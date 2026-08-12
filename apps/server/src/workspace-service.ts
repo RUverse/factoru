@@ -56,7 +56,11 @@ async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promis
 
 export interface ProjectManagerOrchestrator {
   listModelProviders?(): Promise<ModelProvider[]>
-  registerConversationAdapter(accountId: string, displayName: string): Promise<void>
+  registerConversationAdapter(
+    accountId: string,
+    displayName: string,
+    callbackUrl?: string,
+  ): Promise<void>
   bindConversation(conversation: ConversationRef, agentName: string): Promise<void>
   sendConversationTurn(
     conversation: ConversationRef,
@@ -226,6 +230,7 @@ export class WorkspaceService {
   readonly #capsules: ExecutionCapsuleManager | null
   readonly #cityName: string
   readonly #packLockDigest: string
+  readonly #conversationCallbackUrl: string | undefined
   #adapterRegistered = false
 
   constructor(
@@ -236,6 +241,7 @@ export class WorkspaceService {
       capsules: ExecutionCapsuleManager
       cityName: string
       packLockDigest: string
+      conversationCallbackUrl?: string
     } | null = null,
   ) {
     this.#database = database
@@ -244,6 +250,7 @@ export class WorkspaceService {
     this.#capsules = execution?.capsules ?? null
     this.#cityName = execution?.cityName ?? ''
     this.#packLockDigest = execution?.packLockDigest ?? ''
+    this.#conversationCallbackUrl = execution?.conversationCallbackUrl
   }
 
   get(projectId: string): Workspace {
@@ -544,7 +551,11 @@ export class WorkspaceService {
 
   async #ensureAdapter(): Promise<void> {
     if (this.#adapterRegistered) return
-    await this.#orchestrator.registerConversationAdapter('factoru-server', 'Factoru Server')
+    await this.#orchestrator.registerConversationAdapter(
+      'factoru-server',
+      'Factoru Server',
+      this.#conversationCallbackUrl,
+    )
     this.#adapterRegistered = true
   }
 
@@ -568,6 +579,8 @@ export class WorkspaceService {
           projectName: project.name,
           rigName: project.rig.rigName,
           chatAgentName: conversation.agentName,
+          conversationAccountId: conversation.gasCityAccountId,
+          conversationId: conversation.gasCityConversationId,
           chat: binding('project_manager', 'chat'),
           planning: binding('project_manager', 'planning'),
           design: binding('software_engineer', 'design'),

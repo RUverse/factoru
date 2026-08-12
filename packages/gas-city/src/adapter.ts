@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { SUPERVISOR_OPENAPI_PATH, SUPPORTED_HARNESSES } from './compatibility.js'
@@ -10,7 +11,7 @@ import {
   type EventCursor,
 } from './events.js'
 import { GasCityError } from './errors.js'
-import type { SupervisorClient } from './http.js'
+import { isLoopbackUrl, type SupervisorClient } from './http.js'
 import {
   serializeFormulaVariables,
   validateFormulaV2,
@@ -136,6 +137,7 @@ const REQUIRED_SUPERVISOR_PATHS: readonly string[] = [
   '/v0/city/{cityName}/extmsg/adapters',
   '/v0/city/{cityName}/extmsg/bind',
   '/v0/city/{cityName}/extmsg/inbound',
+  '/v0/city/{cityName}/extmsg/outbound',
   '/v0/city/{cityName}/extmsg/transcript',
   '/v0/city/{cityName}/extmsg/transcript/ack',
 ]
@@ -598,11 +600,27 @@ export class GasCityAdapter {
    * Idempotent by `Idempotency-Key`, because this runs on every server start
    * and re-registering must not create a second adapter identity.
    */
-  async registerConversationAdapter(accountId: string, displayName: string): Promise<void> {
+  async registerConversationAdapter(
+    accountId: string,
+    displayName: string,
+    callbackUrl?: string,
+  ): Promise<void> {
+    if (callbackUrl && !isLoopbackUrl(callbackUrl)) {
+      throw new GasCityError('Factoru conversation callbacks must use a loopback URL', {
+        kind: 'invalid_request',
+      })
+    }
+    const callbackIdentity = callbackUrl ?? 'poll-only'
+    const registrationKey = createHash('sha256').update(callbackIdentity).digest('hex').slice(0, 16)
     await this.#client.post(
       `/city/${this.#cityName}/extmsg/adapters`,
-      { provider: CONVERSATION_PROVIDER, account_id: accountId, name: displayName },
-      { idempotencyKey: `factoru-adapter-${accountId}` },
+      {
+        provider: CONVERSATION_PROVIDER,
+        account_id: accountId,
+        name: displayName,
+        ...(callbackUrl ? { callback_url: callbackUrl } : {}),
+      },
+      { idempotencyKey: `factoru-adapter-${accountId}-${registrationKey}` },
     )
   }
 

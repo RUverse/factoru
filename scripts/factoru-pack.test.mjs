@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { discoverFactoruServerUrl } from '../packs/factoru-default/assets/probe-tool/server-url.mjs'
+import { publishCurrentReply } from '../packs/factoru-default/assets/reply-current.mjs'
 import { resolveWorktreeRoot } from './worktree-env.mjs'
 
 describe('portable Factoru agent contracts', () => {
@@ -25,7 +26,7 @@ describe('portable Factoru agent contracts', () => {
       path.join(root, 'packs/factoru-default/formulas/standard-build.formula.toml'),
       'utf8',
     )
-    assert.match(pack, /version = "0\.4\.0"/)
+    assert.match(pack, /version = "0\.4\.1"/)
     assert.match(pack, /gascity\/roles/)
     assert.match(pack, /tree\/main\/gascity"/)
     assert.equal(lock.match(/3b3b89f2011e06d84459aa7bea1552382f13930a/g)?.length, 4)
@@ -115,6 +116,20 @@ describe('Factoru agent-tool server discovery', () => {
       discoverFactoruServerUrl({ env: { GC_CITY: city }, workdir: city }),
       'http://127.0.0.1:32100',
     )
+    fs.writeFileSync(
+      path.join(city, '.gc/factoru-server.json'),
+      JSON.stringify({
+        version: 2,
+        serverUrl: 'http://127.0.0.1:32101',
+        gasCitySupervisorUrl: 'http://127.0.0.1:8372',
+        cityName: 'factoru-test',
+      }),
+      { mode: 0o600 },
+    )
+    assert.equal(
+      discoverFactoruServerUrl({ env: { GC_CITY: city }, workdir: city }),
+      'http://127.0.0.1:32101',
+    )
   })
 
   it('rejects exposed, linked, or non-loopback server projections', (context) => {
@@ -160,6 +175,112 @@ describe('Factoru agent-tool server discovery', () => {
     assert.equal(
       discoverFactoruServerUrl({ env: {}, workdir: '/definitely/not/a/factoru/worktree' }),
       'http://127.0.0.1:8787',
+    )
+  })
+})
+
+describe('Factoru conversation reply command', () => {
+  it('replies to the latest inbound turn through Gas City with a stable key', async (context) => {
+    const city = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-reply-city-'))
+    context.after(() => fs.rmSync(city, { recursive: true }))
+    fs.mkdirSync(path.join(city, '.gc'))
+    fs.writeFileSync(
+      path.join(city, '.gc/factoru-server.json'),
+      JSON.stringify({
+        version: 2,
+        serverUrl: 'http://127.0.0.1:32100',
+        gasCitySupervisorUrl: 'http://127.0.0.1:38372',
+        cityName: 'factoru-test',
+      }),
+      { mode: 0o600 },
+    )
+    const calls = []
+    const fetchImpl = async (url, init = {}) => {
+      calls.push({ url: new URL(url), init })
+      if ((init.method ?? 'GET') === 'GET') {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                Sequence: 1,
+                Kind: 'inbound',
+                ProviderMessageID: 'msg-user-1',
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }
+      return new Response(
+        JSON.stringify({
+          Receipt: {
+            MessageID: 'factoru-out-1',
+            Delivered: true,
+            FailureKind: '',
+          },
+          TranscriptEntry: { Sequence: 2 },
+        }),
+        { status: 200 },
+      )
+    }
+
+    const result = await publishCurrentReply({
+      argv: ['--body', 'Inspect the entrypoint.'],
+      env: {
+        GC_CITY_PATH: city,
+        GC_SESSION_ID: 'fc-chat-1',
+        FACTORU_CONVERSATION_SCOPE_ID: 'factoru-rig',
+        FACTORU_CONVERSATION_ACCOUNT_ID: 'factoru-server',
+        FACTORU_CONVERSATION_ID: 'conv-1',
+      },
+      fetchImpl,
+    })
+
+    assert.deepEqual(result, {
+      delivered: true,
+      messageId: 'factoru-out-1',
+      sequence: 2,
+      replyTo: 'msg-user-1',
+    })
+    assert.equal(calls.length, 2)
+    const outbound = JSON.parse(calls[1].init.body)
+    assert.deepEqual(outbound.conversation, {
+      scope_id: 'factoru-rig',
+      provider: 'factoru',
+      account_id: 'factoru-server',
+      conversation_id: 'conv-1',
+      kind: 'dm',
+    })
+    assert.equal(outbound.reply_to_message_id, 'msg-user-1')
+    assert.match(outbound.idempotency_key, /^[a-f0-9]{64}$/)
+    assert.equal(calls[1].init.headers['X-GC-Request'], 'factoru-reply')
+  })
+
+  it('rejects a supervisor origin outside the host-local trust boundary', async (context) => {
+    const city = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-reply-city-'))
+    context.after(() => fs.rmSync(city, { recursive: true }))
+    fs.mkdirSync(path.join(city, '.gc'))
+    fs.writeFileSync(
+      path.join(city, '.gc/factoru-server.json'),
+      JSON.stringify({
+        version: 2,
+        gasCitySupervisorUrl: 'https://gas-city.example.com',
+        cityName: 'factoru-test',
+      }),
+      { mode: 0o600 },
+    )
+    await assert.rejects(
+      publishCurrentReply({
+        argv: ['--body', 'Do not send this.'],
+        env: {
+          GC_CITY_PATH: city,
+          GC_SESSION_ID: 'fc-chat-1',
+          FACTORU_CONVERSATION_SCOPE_ID: 'factoru-rig',
+          FACTORU_CONVERSATION_ACCOUNT_ID: 'factoru-server',
+          FACTORU_CONVERSATION_ID: 'conv-1',
+        },
+      }),
+      /bare HTTP loopback origin/,
     )
   })
 })
