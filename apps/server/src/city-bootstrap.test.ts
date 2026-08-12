@@ -44,10 +44,20 @@ describe('Factoru city bootstrap', () => {
     expect(commands.at(-1)).toEqual(['start', '/tmp/factoru/city', '--no-auto-restart'])
   })
 
-  it('adopts an existing city without rewriting its trusted provider config', () => {
+  it('re-pins only the Factoru-owned import when adopting an existing city', () => {
     expect(
       cityBootstrapCommands({ ...input, cityExists: true, factoruImportExists: true }),
     ).toEqual([
+      ['import', 'remove', 'factoru', '--city', '/tmp/factoru/city'],
+      [
+        'import',
+        'add',
+        '/worktree/packs/factoru-default',
+        '--name',
+        'factoru',
+        '--city',
+        '/tmp/factoru/city',
+      ],
       ['import', 'install', '--city', '/tmp/factoru/city'],
       ['start', '/tmp/factoru/city', '--no-auto-restart'],
     ])

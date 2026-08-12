@@ -80,17 +80,22 @@ export function cityBootstrapCommands(input: CityBootstrapInput): readonly (read
       input.cityPath,
     ])
   }
-  if (!input.factoruImportExists) {
-    commands.push([
-      'import',
-      'add',
-      input.factoruPackPath,
-      '--name',
-      'factoru',
-      '--city',
-      input.cityPath,
-    ])
+  // `gc import add` promotes a pack inside a Git worktree to a commit-pinned
+  // file:// import. Reconcile that Factoru-owned binding on every server start
+  // so an upgraded server cannot keep executing the previous deployment's
+  // pack SHA. Unrelated trusted imports and provider configuration stay intact.
+  if (input.factoruImportExists) {
+    commands.push(['import', 'remove', 'factoru', '--city', input.cityPath])
   }
+  commands.push([
+    'import',
+    'add',
+    input.factoruPackPath,
+    '--name',
+    'factoru',
+    '--city',
+    input.cityPath,
+  ])
   commands.push(['import', 'install', '--city', input.cityPath])
   commands.push(['start', input.cityPath, '--no-auto-restart'])
   return commands
