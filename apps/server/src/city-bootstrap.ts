@@ -62,6 +62,37 @@ export function isExistingFactoruImportFailure(args: readonly string[], error: u
   )
 }
 
+interface FactoruPackReconcileInput {
+  readonly cityPath: string
+  readonly factoruPackPath: string
+  readonly factoruImportExists: boolean
+}
+
+export function factoruPackReconcileCommands(
+  input: FactoruPackReconcileInput,
+  reload: boolean,
+): readonly (readonly string[])[] {
+  const commands: string[][] = []
+  // `gc import add` promotes a pack inside a Git worktree to a commit-pinned
+  // file:// import. Replace only the Factoru-owned binding so an upgraded
+  // server cannot keep executing the previous deployment's pack SHA.
+  if (input.factoruImportExists) {
+    commands.push(['import', 'remove', 'factoru', '--city', input.cityPath])
+  }
+  commands.push([
+    'import',
+    'add',
+    input.factoruPackPath,
+    '--name',
+    'factoru',
+    '--city',
+    input.cityPath,
+  ])
+  commands.push(['import', 'install', '--city', input.cityPath])
+  if (reload) commands.push(['reload', '--city', input.cityPath])
+  return commands
+}
+
 export function cityBootstrapCommands(input: CityBootstrapInput): readonly (readonly string[])[] {
   const commands: string[][] = []
   if (!input.cityExists) {
@@ -80,25 +111,50 @@ export function cityBootstrapCommands(input: CityBootstrapInput): readonly (read
       input.cityPath,
     ])
   }
-  // `gc import add` promotes a pack inside a Git worktree to a commit-pinned
-  // file:// import. Reconcile that Factoru-owned binding on every server start
-  // so an upgraded server cannot keep executing the previous deployment's
-  // pack SHA. Unrelated trusted imports and provider configuration stay intact.
-  if (input.factoruImportExists) {
-    commands.push(['import', 'remove', 'factoru', '--city', input.cityPath])
-  }
-  commands.push([
-    'import',
-    'add',
-    input.factoruPackPath,
-    '--name',
-    'factoru',
-    '--city',
-    input.cityPath,
-  ])
-  commands.push(['import', 'install', '--city', input.cityPath])
+  commands.push(...factoruPackReconcileCommands(input, false).map((args) => [...args]))
   commands.push(['start', input.cityPath, '--no-auto-restart'])
   return commands
+}
+
+async function executeCommands(config: ServerConfig, commands: readonly (readonly string[])[]) {
+  for (const args of commands) {
+    try {
+      await execFileAsync('gc', [...args], {
+        cwd: path.dirname(config.factoruPackPath),
+        encoding: 'utf8',
+        maxBuffer: 4 * 1024 * 1024,
+      })
+    } catch (error) {
+      if (isExistingFactoruImportFailure(args, error)) continue
+      throw error
+    }
+  }
+}
+
+/** Re-pin and reload the Factoru-owned pack when an existing server starts. */
+export async function reconcileFactoruPack(config: ServerConfig): Promise<boolean> {
+  const packFile = path.join(config.gasCityPath, 'pack.toml')
+  const cityFile = path.join(config.gasCityPath, 'city.toml')
+  const packExists = fs.existsSync(packFile)
+  const cityExists = fs.existsSync(cityFile)
+  if (packExists !== cityExists) {
+    throw new Error(
+      `The Factoru city is partially initialized at ${config.gasCityPath}; inspect it before retrying`,
+    )
+  }
+  if (!cityExists) return false
+  await executeCommands(
+    config,
+    factoruPackReconcileCommands(
+      {
+        cityPath: config.gasCityPath,
+        factoruPackPath: config.factoruPackPath,
+        factoruImportExists: hasFactoruImport(fs.readFileSync(packFile, 'utf8')),
+      },
+      true,
+    ),
+  )
+  return true
 }
 
 export async function configureCity(
@@ -127,20 +183,8 @@ export async function configureCity(
     cityExists,
     factoruImportExists,
   })
-  for (const args of commands) {
-    try {
-      await execFileAsync('gc', [...args], {
-        cwd: path.dirname(config.factoruPackPath),
-        encoding: 'utf8',
-        maxBuffer: 4 * 1024 * 1024,
-      })
-    } catch (error) {
-      // A prior attempt can add the import successfully and then fail later
-      // while starting Dolt. Treat that exact retry result as idempotent and
-      // continue to import installation and city startup.
-      if (isExistingFactoruImportFailure(args, error)) continue
-      throw error
-    }
-  }
+  // A prior attempt can add the import successfully and then fail later while
+  // starting Dolt. executeCommands treats only that exact retry as idempotent.
+  await executeCommands(config, commands)
   return { cityName, created: !cityExists }
 }

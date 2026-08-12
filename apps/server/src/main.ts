@@ -12,7 +12,7 @@ import {
   SupervisorClient,
 } from '@factoru/gas-city'
 import { buildServer } from './app.js'
-import { configureCity } from './city-bootstrap.js'
+import { configureCity, reconcileFactoruPack } from './city-bootstrap.js'
 import { parseCliArgs, renderCliHelp } from './cli.js'
 import { loadServerConfig } from './config.js'
 import { ensureServerId } from './identity.js'
@@ -142,6 +142,8 @@ async function main(): Promise<void> {
     if (!result.ready) process.exitCode = 1
     return
   }
+
+  if (command.kind === 'start') await reconcileFactoruPack(config)
 
   const database = new FactoruDatabase(config.databaseFile, serverId)
 

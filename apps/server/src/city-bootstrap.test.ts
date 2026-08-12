@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   cityBootstrapCommands,
+  factoruPackReconcileCommands,
   hasFactoruImport,
   isExistingFactoruImportFailure,
 } from './city-bootstrap.js'
@@ -60,6 +61,32 @@ describe('Factoru city bootstrap', () => {
       ],
       ['import', 'install', '--city', '/tmp/factoru/city'],
       ['start', '/tmp/factoru/city', '--no-auto-restart'],
+    ])
+  })
+
+  it('installs and reloads the current Factoru pack on server start', () => {
+    expect(
+      factoruPackReconcileCommands(
+        {
+          cityPath: '/tmp/factoru/city',
+          factoruPackPath: '/worktree/packs/factoru-default',
+          factoruImportExists: true,
+        },
+        true,
+      ),
+    ).toEqual([
+      ['import', 'remove', 'factoru', '--city', '/tmp/factoru/city'],
+      [
+        'import',
+        'add',
+        '/worktree/packs/factoru-default',
+        '--name',
+        'factoru',
+        '--city',
+        '/tmp/factoru/city',
+      ],
+      ['import', 'install', '--city', '/tmp/factoru/city'],
+      ['reload', '--city', '/tmp/factoru/city'],
     ])
   })
 
