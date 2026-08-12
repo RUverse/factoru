@@ -617,7 +617,7 @@ describe('GasCityAdapter conversation delivery', () => {
     await adapterWith(fn).registerConversationAdapter(
       'factoru-server-1',
       'Factoru Server',
-      'http://127.0.0.1:8787/internal/v1/gas-city/extmsg/callback/publish',
+      'http://127.0.0.1:8787/internal/v1/gas-city/extmsg/callback',
     )
 
     const headers = calls[0]?.init.headers as Record<string, string>
@@ -625,7 +625,7 @@ describe('GasCityAdapter conversation delivery', () => {
     expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
       provider: 'factoru',
       account_id: 'factoru-server-1',
-      callback_url: 'http://127.0.0.1:8787/internal/v1/gas-city/extmsg/callback/publish',
+      callback_url: 'http://127.0.0.1:8787/internal/v1/gas-city/extmsg/callback',
     })
   })
 

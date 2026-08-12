@@ -22,7 +22,7 @@ import { SERVER_VERSION } from './version.js'
 import { WorkspaceService } from './workspace-service.js'
 import { TaskService } from './task-service.js'
 import { AgentToolService } from './agent-tool-service.js'
-import { GAS_CITY_CALLBACK_PATH } from './gas-city-callback.js'
+import { GAS_CITY_CALLBACK_BASE_PATH } from './gas-city-callback.js'
 import { writeLocalEnrollmentFile } from './local-enrollment.js'
 import { CapsuleService } from './capsule-service.js'
 import { renderDoctorReport, runRemoteDoctor, systemDoctorEnvironment } from './doctor.js'
@@ -261,7 +261,8 @@ async function main(): Promise<void> {
       packLockDigest: createHash('sha256')
         .update(fs.readFileSync(path.join(config.factoruPackPath, 'packs.lock')))
         .digest('hex'),
-      conversationCallbackUrl: `${serverUrl}${GAS_CITY_CALLBACK_PATH}`,
+      // Gas City owns the provider-specific `/publish` suffix.
+      conversationCallbackUrl: `${serverUrl}${GAS_CITY_CALLBACK_BASE_PATH}`,
     },
   )
   const app = buildServer({

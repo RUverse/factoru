@@ -79,7 +79,8 @@ Factoru adopts the transcript cursor as the authoritative delivery mechanism and
 treats the adapter `callback_url` as the host-local acceptance boundary for
 assistant replies. The Project Manager calls the pack-defined
 `gc factoru reply-current` command, which posts to `extmsg/outbound`; Gas City
-calls the Factoru callback and records the accepted reply in the transcript.
+appends `/publish` to the registered callback base, calls the Factoru acceptance
+route, and records the accepted reply in the transcript.
 Factoru still advances product state only from the durable transcript cursor. A
 cursor that both sides persist is the better fit for a product whose requirement
 is that a desktop disconnect and a server restart never lose a conversation

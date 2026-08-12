@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
-export const GAS_CITY_CALLBACK_PATH = '/internal/v1/gas-city/extmsg/callback/publish'
+/** Gas City appends `/publish` to the adapter callback URL. */
+export const GAS_CITY_CALLBACK_BASE_PATH = '/internal/v1/gas-city/extmsg/callback'
+export const GAS_CITY_CALLBACK_PATH = `${GAS_CITY_CALLBACK_BASE_PATH}/publish`
 
 export const gasCityOutboundCallbackSchema = z.object({
   session_id: z.string().min(1).max(200),

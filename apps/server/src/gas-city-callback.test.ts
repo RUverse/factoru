@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { FactoruDatabase } from '@factoru/database'
 import { parseServerId } from '@factoru/domain'
 import { buildServer } from './app.js'
-import { GAS_CITY_CALLBACK_PATH } from './gas-city-callback.js'
+import { GAS_CITY_CALLBACK_BASE_PATH, GAS_CITY_CALLBACK_PATH } from './gas-city-callback.js'
 
 const directories: string[] = []
 
@@ -40,6 +40,11 @@ afterEach(() => {
 })
 
 describe('Gas City outbound callback', () => {
+  it("keeps the registered base separate from Gas City's publish suffix", () => {
+    expect(`${GAS_CITY_CALLBACK_BASE_PATH}/publish`).toBe(GAS_CITY_CALLBACK_PATH)
+    expect(GAS_CITY_CALLBACK_BASE_PATH).not.toMatch(/\/publish$/)
+  })
+
   it('acknowledges a scoped conversation idempotently without bypassing the transcript', async () => {
     const { app, database, project, conversation } = fixture()
     const payload = {
