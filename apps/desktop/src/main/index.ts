@@ -6,6 +6,7 @@ import {
   app,
   dialog,
   ipcMain,
+  nativeTheme,
   safeStorage,
   shell,
   type OpenDialogOptions,
@@ -16,11 +17,14 @@ import { isExternallyOpenable, isSameOrigin } from './navigation'
 import { DESKTOP_NAME, DESKTOP_VERSION } from './version'
 import { CredentialStore, ProfileStore } from './profile-store'
 import { ProductRuntime } from './product-runtime'
+import { bindWindowStateEvents, desktopWindowState } from './window-state'
+import { DESKTOP_WINDOW_SIZE, applyWindowTheme, windowChromeOptions } from './window-appearance'
 import {
   IPC_CONNECTION_CHANGED,
   IPC_CONNECTION_GET,
   IPC_CONNECTION_REFRESH,
 } from '../shared/connection'
+import { IPC_DESKTOP_WINDOW_GET } from '../shared/desktop-window'
 import {
   IPC_PRODUCT_ADD_MEMORY,
   IPC_PRODUCT_BROWSE,
@@ -80,14 +84,16 @@ const connection = new ConnectionRuntime({
 let product: ProductRuntime
 
 function createWindow(): BrowserWindow {
+  const dark = nativeTheme.shouldUseDarkColors
   const window = new BrowserWindow({
-    width: 1_100,
-    height: 760,
-    minWidth: 720,
-    minHeight: 480,
+    width: DESKTOP_WINDOW_SIZE.defaultWidth,
+    height: DESKTOP_WINDOW_SIZE.defaultHeight,
+    minWidth: DESKTOP_WINDOW_SIZE.minWidth,
+    minHeight: DESKTOP_WINDOW_SIZE.minHeight,
     show: false,
     title: 'Factoru',
-    backgroundColor: '#0f1115',
+    autoHideMenuBar: true,
+    ...windowChromeOptions(process.platform, dark),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -97,6 +103,8 @@ function createWindow(): BrowserWindow {
   })
 
   window.once('ready-to-show', () => window.show())
+  const unbindWindowState = bindWindowStateEvents(window)
+  window.once('closed', unbindWindowState)
 
   // The renderer is untrusted: it may not navigate away or open windows, and
   // only web URLs may reach the operating system's default handler.
@@ -123,6 +131,10 @@ function createWindow(): BrowserWindow {
 }
 
 function registerIpc(): void {
+  ipcMain.handle(IPC_DESKTOP_WINDOW_GET, (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    return window ? desktopWindowState(window) : { fullScreen: false }
+  })
   ipcMain.handle(IPC_CONNECTION_GET, () => connection.snapshot)
   ipcMain.handle(IPC_CONNECTION_REFRESH, async () => connection.refresh())
 
@@ -281,6 +293,13 @@ void app.whenReady().then(() => {
     { localEnrollmentFile: process.env.FACTORU_LOCAL_ENROLLMENT_FILE?.trim() },
   )
   registerIpc()
+  nativeTheme.on('updated', () => {
+    applyWindowTheme(
+      BrowserWindow.getAllWindows(),
+      process.platform,
+      nativeTheme.shouldUseDarkColors,
+    )
+  })
   void product.initialize(os.hostname())
   createWindow()
 

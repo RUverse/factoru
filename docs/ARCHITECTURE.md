@@ -34,7 +34,7 @@ inventory below is authoritative.
 | Monorepo | **Implemented** | pnpm workspace with a pnpm-managed Node 22.13.0 development runtime, both applications, protocol/domain/config/database/Gas City/UI packages, versioned templates and pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, isolated per-worktree state/ports/pairing, a source-preview `factoru-server` operator launcher, an explicit provider-selected city bootstrap, a read-only 64-bit Linux remote-host preflight, an idempotent checksum-pinned Debian-family source bootstrap, plus a disposable-repository-root override for safe project acceptance. | Add only milestone-owned boundaries as their real paths connect. |
 | Factoru Server | **Implemented** | Fastify connects SQLite-backed remote pairing and private loopback enrollment, trusted devices, authenticated one-time WebSocket tickets, scoped live methods, durable projects/workspaces/tasks, idempotent product commands, event/outbox reactors, Project Manager conversation delivery, Queue reconciliation, and restart observation while remaining loopback-bound. The serial delivery reactor resolves an allowed Formula Preset, snapshots it at admission, prepares/adopts one capsule, and dispatches either attached `standard-build` or standalone `software-delivery` before collecting evidence, usage, integration checks, and run decisions. Fast Patch completed ten benchmark runs plus one conversation-originated run across service restart; Standard Build is connected but lacks real-provider acceptance. The operator CLI covers foreground start/version, status, provider/city setup and readiness, repository diagnostics, correlated activity, pairing/SSH-forward details, doctor, and verified SQLite backup. | Complete Standard Build provider acceptance, then add packaged lifecycle, restore/recovery, logs, service management, and operational hardening. |
 | Shared protocol | **Implemented** | Protocol v2 in `packages/protocol` owns runtime-validated health/handshake, pairing/enrollment, named multi-repository projects, Blueprint/Team/Formula-Preset catalog and selection, the normalized safe model catalog, devices, workspaces, conversations, tasks, Queue/run evidence, live events, cursor snapshots, compatibility, and typed clients. The former Factory Template and Worker Type response fields remain read-only v2 aliases. Projects-v2 carries an ordered repository/rig collection plus the primary execution binding, while repository-access-check-v1 reports sanitized server-side URL readiness. Older cached workspaces receive safe collection, Team, and unavailable-model-catalog fallbacks. | Remove compatibility aliases only in a later negotiated protocol version. |
-| Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles, encrypted credentials, per-profile caches/cursors, a compound active-project reference, and one authenticated live session per saved server. It aggregates every cached project with its authoritative home factory and routes named IPC explicitly by factory/project identity rather than presentation selection ([ADR 0016](./adr/0016-concurrent-desktop-server-connections.md), [ADR 0017](./adr/0017-factory-independent-project-catalog.md)). Local enrollment is automatic when the private descriptor is available; Local Factory remains a protected built-in entry. The renderer reports aggregate factory health, filters a merged project catalog, manages each factory independently, supports Blueprint project creation, linked configured-provider/model Team selectors with effective configured defaults, project workflow defaults, and locked task overrides, and retains cached/offline board behavior with progressively disclosed run evidence. | Managed launch, packaged Mac acceptance, and real-provider Standard Build UX acceptance remain. |
+| Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles, encrypted credentials, per-profile caches/cursors, a compound active-project reference, and one authenticated live session per saved server. It aggregates every cached project with its authoritative home factory and routes named IPC explicitly by factory/project identity rather than presentation selection ([ADR 0016](./adr/0016-concurrent-desktop-server-connections.md), [ADR 0017](./adr/0017-factory-independent-project-catalog.md)). Local enrollment is automatic when the private descriptor is available; Local Factory remains a protected built-in entry. The renderer uses a frameless native-control shell with live system appearance, a narrow fullscreen/platform bridge, persisted resizable pane presentation state, responsive focus-managed drawers, shared React primitives, and a controlled prompt composer ([ADR 0020](./adr/0020-desktop-shell-and-ui-foundation.md)). It reports aggregate factory health, filters a merged project catalog, manages each factory independently, supports Blueprint project creation, linked configured-provider/model Team selectors with effective configured defaults, project workflow defaults, and locked task overrides, and retains cached/offline board behavior with progressively disclosed run evidence. | Managed launch, packaged Mac acceptance, and real-provider Standard Build UX acceptance remain. |
 | Gas City adapter | **Partial** | `packages/gas-city` is verified against Gas City 1.4.0 for compatibility/readiness, browser-safe configured-provider/model discovery, loopback supervisor transport, durable cursors, guarded rig registration that attaches the pinned Factoru pack before model patches, standalone run dispatch/observation/cancellation, usage folding, and project-runtime configuration. Preset-declared launch now adds rig-scope inherited-formula preview and idempotent source-bead attachment while standalone launches retain strict local Formula validation. Both contracts are adapter-tested, but attached Standard Build has not run against the pinned executable/provider. Raw DTOs and provider options stay inside the package; only safe model value/label/default metadata crosses into Factoru. | Complete attached-launch provider/restart acceptance and revalidate the compatibility range during packaging. |
 | Agent-tool bridge | **Implemented** | Factoru installs both harness MCP configs from `session_setup_script`. The server projects its current loopback origin into private, schema-versioned city runtime state so isolated ports reach the correct bootstrap. Setup requests a short-lived credential bound by the server to the exact rig, project, role, and Gas City session; the model never supplies it as an argument. The bridge exposes structured task tools, while server policy enforces role/project scope, request replay, and a redacted audit record ([ADR 0010](./adr/0010-agent-tool-transport.md)). The live PM path completed audited search/create/update/queue calls. | Revalidate tool bootstrap from packaged installations in Milestone 7. |
 | Factoru Gas City pack | **Partial** | `packs/factoru-default` 0.4.2 retains the accepted bounded `software-delivery` path for Fast Patch, adds a thin `standard-build` overlay on pinned upstream `gc.build-basic`, and supplies the scoped PM conversation reply command. The overlay binds decomposed work to Factoru's capsule, caps serial units at 20, and inserts trusted verification before upstream review; both pack imports are SHA-locked. Fast Patch completed 10/10 benchmark tasks plus the conversation-originated loop, while Standard Build currently has static and adapter verification only. | Lint and run Standard Build with pinned Gas City 1.4.0 and a real provider. |
@@ -293,14 +293,14 @@ flowchart TD
 
 | Component | Status | Responsibility |
 | --- | --- | --- |
-| `apps/desktop` | **Partial** | Electron main owns kind-aware friendly-name profiles, automatic protected local enrollment, encrypted credentials, authenticated per-factory live transport, compound project references, aggregate workspace/run caches and cursors, first-launch preference state, and explicitly targeted named IPC. The renderer implements aggregate factory management, one-home-factory multi-repository onboarding, merged project/PM/Team surfaces, Blueprint creation choices, workflow defaults/overrides, the four-state board, and progressively disclosed run evidence. Packaged local install remains later. |
+| `apps/desktop` | **Partial** | Electron main owns kind-aware friendly-name profiles, automatic protected local enrollment, encrypted credentials, authenticated per-factory live transport, compound project references, aggregate workspace/run caches and cursors, first-launch preference state, frameless native window configuration, live system-theme synchronization, and explicitly targeted named IPC. Preload adds only typed platform/fullscreen state beside the existing product bridge. The renderer owns versioned pane preferences and implements the responsive shell, aggregate factory management, one-home-factory multi-repository onboarding, merged project/PM/Team surfaces, Blueprint creation choices, workflow defaults/overrides, the four-state board, and progressively disclosed run evidence. Packaged local install remains later. |
 | `apps/server` | **Implemented** | Fastify serves health/auth/live methods, project/workspace/task services, idempotent commands, outbox/reactors, the loopback agent-tool gateway, Queue planning, and the serial execution loop. The server owns Blueprint/default resolution, task user-lock enforcement, immutable admission snapshots, preset capability validation, capsule creation/adoption, trusted checks, final integration validation, review packaging, and decision transitions. Standard Build's real-provider proof remains pending. |
 | `packages/protocol` | **Implemented** | Protocol v2 runtime-validates compatibility, authentication, Blueprint/Team/Formula-Preset catalog and selection, projects, workspaces, conversations, tasks, Queue/run evidence, commands, snapshots/cursors, live events, and explicit run actions. Former Factory Template and Worker Type response fields are read-only compatibility aliases for this version. |
 | `packages/domain` | **Implemented** | Server identity, client connection state, built-in Project Blueprint/Formula Preset/Team invariants, allowlist and default-precedence rules, Formula capability policy, the four task states, Queue phases, exact Needs-you actions, terminal resolutions, and deterministic candidate scoring are implemented. |
 | `packages/config` | **Implemented** | Shared TypeScript compiler configuration for every workspace package. |
 | `packages/database` | **Implemented** | SQLite connection policy, seven forward migrations, transactional event/outbox writes, backup/reopen recovery, Blueprint/project/task workflow selection, immutable run snapshots, and full serial execution evidence plus transition persistence. |
 | `packages/gas-city` | **Partial** | Factoru-owned orchestration port over Gas City 1.4.0. In addition to compatibility, cursors, registration, conversation, configuration, observation/cancellation, and usage folding, it supports preset-declared standalone and attached launches. Standalone validates local Formula v2; attached previews inherited formulas at rig scope, idempotently creates a source bead, then attaches it. The attached path is adapter-tested but not provider-accepted. |
-| `packages/ui` | **Implemented** | Factoru visual tokens consumed by the Electron renderer; no transport, product state, or server logic. Reusable React primitives can be promoted only after repeated use appears. |
+| `packages/ui` | **Implemented** | Semantic system-theme tokens, owned component styles, and compiled React Button/IconButton, Tabs, Badge, Card, Field, Dialog, Drawer, Tooltip, EmptyState, SplitView/ResizeHandle, and PromptComposer primitives. Base UI supplies accessible composite behavior, Lucide supplies icons, and React is a peer dependency. The package contains no transport, Electron, product-state, or server logic. |
 | `packs/factoru-default` | **Partial** | Version 0.4.0 contains Factoru's roles, probes, scoped task tools, Queue reconciliation, the provider-accepted `software-delivery` formula, and a thin SHA-pinned `standard-build` extension of upstream `gc.build-basic`. Static tests cover locks, caps, verification ordering, and publishing policy; pinned-runtime/provider acceptance for the inherited overlay is pending. |
 | `templates/` | **Implemented** | The versioned Blueprint schema plus `Standard Software Project` and `Fast Patch` manifests define pinned pack locks, fixed Team profiles, allowed Formula Presets, recommended defaults, model slots, memory/tool policy, and WIP-one capacity. Catalog invariants and manifest/domain synchronization are tested. |
 
@@ -336,10 +336,14 @@ flowchart LR
     C -->|"Authenticated APIs"| S["Factoru Servers"]
 ```
 
-- **Renderer:** React UI and local presentation state only. Node integration is
-  disabled and context isolation is enabled.
-- **Preload:** a small allowlisted API. It does not expose raw IPC, filesystem,
-  shell, or arbitrary request construction.
+- **Renderer:** React UI and local presentation state only. This includes a
+  versioned sidebar width, inspector width, explicit sidebar-collapse choice,
+  transient responsive-drawer state, and controlled message draft. Node
+  integration is disabled and context isolation is enabled.
+- **Preload:** a small allowlisted API. Its Desktop-window surface exposes only
+  normalized platform identity, fullscreen state, and a cleanup-safe state
+  subscription. It does not expose raw IPC, filesystem, shell, arbitrary window
+  mutation, or arbitrary request construction.
 - **Main:** windows, updates, OS credential storage, local server lifecycle, and
   connection-profile persistence.
 - **Connection runtime:** one owner for authentication, retry/backoff, snapshots,
@@ -349,6 +353,35 @@ flowchart LR
 
 React components do not create sockets, retries, or RPC clients. They consume
 domain-specific query, command, and subscription interfaces.
+
+The window and renderer composition is:
+
+```mermaid
+flowchart LR
+    NW["Native window controls"] --> EW["Electron window owner"]
+    NT["System appearance"] --> EW
+    EW -->|"platform + fullscreen only"| PB["Typed preload window bridge"]
+    PB --> RC["Renderer product controller"]
+    LP["Versioned local pane preferences"] --> SH["Responsive Desktop shell"]
+    RC --> SH
+    SH --> PS["Project sidebar"]
+    SH --> CV["Conversation + PromptComposer"]
+    SH --> TI["Tasks / Team inspector"]
+    UI["@factoru/ui"] --> SH
+    UI --> CV
+    UI --> TI
+```
+
+The 48px header is draggable except for explicitly non-draggable interactive
+controls. macOS uses the hidden style with explicitly positioned traffic lights; Windows and Linux use the
+native title-bar overlay. Pane limits and the responsive thresholds are derived
+from one layout configuration. Width resolution shrinks both inline side panes
+proportionally above their minimums before allowing the conversation below
+480px. At narrower widths Base UI dialogs render the same pane content as
+focus-managed drawers; these automatic modes never mutate the saved explicit
+collapse choice. Renderer theme tokens follow `prefers-color-scheme`, while
+Electron main synchronizes native background and overlay symbols from
+`nativeTheme` ([ADR 0020](./adr/0020-desktop-shell-and-ui-foundation.md)).
 
 Implemented today: `contextIsolation` is on, `nodeIntegration` is off, the
 renderer is sandboxed, and navigation and window-open requests are denied by the
@@ -1398,13 +1431,14 @@ not prose that can remain untouched after implementation changes.
 
 ## Decision and validation register
 
-Accepted decisions live in [`docs/adr/`](./adr/README.md). ADRs 0001–0019 record
+Accepted decisions live in [`docs/adr/`](./adr/README.md). ADRs 0001–0020 record
 the monorepo toolchain, server and protocol boundaries, database and packaging,
 per-worktree state, Gas City integration, remote onboarding, Project Manager
 runtime identities, private local enrollment, multi-repository projects, and
 the manual SSH source-preview transport, concurrent Desktop connections, and
-the factory-independent project catalog, managed project directories, and the
-Blueprint/Formula-Preset/Project-Manager boundary.
+the factory-independent project catalog, managed project directories, the
+Blueprint/Formula-Preset/Project-Manager boundary, and the frameless responsive
+Desktop shell/UI foundation.
 
 | Decision | Status | Required evidence |
 | --- | --- | --- |
@@ -1412,6 +1446,7 @@ Blueprint/Formula-Preset/Project-Manager boundary.
 | Protocol/RPC library | **Accepted** — [ADR 0003](./adr/0003-api-transport-and-protocol.md) | HTTP/JSON plus authenticated WebSocket methods use shared runtime-validated schemas; subscriptions, cursor recovery, authentication, and idempotent commands are connected and tested. Packaged remote acceptance remains. |
 | SQLite driver and migration tool | **Accepted, partially proven** — [ADR 0004](./adr/0004-database-and-migrations.md) | `better-sqlite3` with hand-written forward-only migrations now passes WAL, foreign-key, busy handling, rollback, identity binding, checkpoint, online-backup, integrity-restore, and restart tests. Native packaging and recovery benchmarks on every early target remain. |
 | Desktop and server packaging | **Accepted, partially implemented** — [ADR 0005](./adr/0005-packaging.md) | The Server has one operator command surface and the Linux bootstrap installs its source-bound launcher. electron-builder, bundled per-platform Server archives, container image, RUverse Homebrew formula, signing, notarization, service lifecycle, and packaged acceptance remain Milestone 7 evidence. |
+| Desktop shell and UI foundation | **Accepted, implemented** — [ADR 0020](./adr/0020-desktop-shell-and-ui-foundation.md) | Hidden native-control window chrome, live system appearance, the narrow platform/fullscreen bridge, central pane constraints, versioned renderer-local preferences, keyboard/pointer resizing, responsive focus-managed drawers, shared React primitives, and controlled composer semantics are connected and covered by unit/component tests. Packaged macOS and Linux visual acceptance remains Milestone 7 evidence. |
 | Team binding compiler | **Implemented for initial bindings** — [ADR 0012](./adr/0012-project-manager-runtime-identities.md) | Provider and `option_defaults.model` bindings project `chat`, `planning`, `design`, `implementation`, and `review` to the correct city/rig agents without leaking raw config into the domain. The Team UI now consumes only Gas City's safe configured-provider/model projection and automatically selects effective configured defaults. Fast Patch roles completed live delivery; expanding beyond the Codex/Claude compatibility matrix remains later work. |
 | Gas City supervision/install strategy | **Validate** | The source preview now has an idempotent checksum-pinned Linux arm64/x64 dependency bootstrap, correct per-tool version probes, and explicit CLI-owned initial city/provider setup plus structured readiness. Packaged macOS/Linux installs, upgrades, health, and recovery remain. |
 | Dedicated city and project-rig lifecycle | **Accepted, partially proven** | Stable naming, guarded rig registration, `.beads/` disclosure, unrelated-city coexistence, and service recovery passed development acceptance. Packaged creation/removal, backup recovery, and multi-host operation remain. |

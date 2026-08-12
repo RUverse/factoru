@@ -1,6 +1,7 @@
 import type { BlockedReason, ConnectionState } from '@factoru/domain'
 import type { FactoruErrorCode, HealthResponse } from '@factoru/protocol'
 import type { ProductBridge } from './product'
+import type { DesktopWindowBridge } from './desktop-window'
 
 /**
  * The connection view shared by Electron main, the preload bridge, and the
@@ -32,6 +33,7 @@ export const IPC_CONNECTION_CHANGED = 'factoru:connection:changed' as const
  * filesystem, no shell, and no way to construct an arbitrary request.
  */
 export interface FactoruBridge {
+  readonly desktopWindow: DesktopWindowBridge
   readonly connection: {
     get(): Promise<ConnectionSnapshot>
     refresh(): Promise<ConnectionSnapshot>

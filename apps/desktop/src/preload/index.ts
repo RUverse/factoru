@@ -43,6 +43,7 @@ import {
   IPC_PRODUCT_COMPLETE_REMOTE_FACTORY_INTRO,
   type ProductBridge,
 } from '../shared/product'
+import { createDesktopWindowBridge } from './desktop-window-bridge'
 
 const product: ProductBridge = {
   get: () => ipcRenderer.invoke(IPC_PRODUCT_GET),
@@ -96,6 +97,7 @@ const product: ProductBridge = {
 }
 
 const bridge: FactoruBridge = {
+  desktopWindow: createDesktopWindowBridge(ipcRenderer, process.platform),
   connection: {
     get: () => ipcRenderer.invoke(IPC_CONNECTION_GET) as Promise<ConnectionSnapshot>,
     refresh: () => ipcRenderer.invoke(IPC_CONNECTION_REFRESH) as Promise<ConnectionSnapshot>,

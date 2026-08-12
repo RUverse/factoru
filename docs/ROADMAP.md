@@ -178,6 +178,17 @@ design:
   Formula, beads, dependencies, sessions, evidence, and capsule resources in
   the same workspace. There is no separate operational mode.
 
+The shell uses a 48px integrated Electron drag region with native platform
+window controls and follows system light/dark appearance. The project sidebar
+and Tasks/Team inspector are pointer- and keyboard-resizable within one exported
+layout policy; their widths and the explicit sidebar-collapse choice are
+versioned renderer-local preferences. The conversation always retains at least
+480px. When the minimum panes no longer fit, the sidebar and then the inspector
+become focus-managed overlay drawers at thresholds derived from those same
+layout constants. Responsive drawer selection does not change the user's saved
+collapse choice. These are presentation preferences only: authoritative project,
+conversation, task, Team, and run state continues to come from Factoru Server.
+
 The conversation is the primary control surface for direction. Backlog is the
 intentional exception: a fast manual capture surface. Queue and later columns
 remain orchestrated rather than requiring the user to schedule workers.
@@ -753,6 +764,9 @@ without exposing Gas City or Dolt listeners remotely.
 
 - Build the project sidebar, center conversation, and right Tasks/Team pane.
 - Establish Factoru's visual tokens rather than copying T3 Code's UI.
+- Maintain the shipped frameless native-control shell, responsive resizable
+  panes, system themes, controlled prompt composer, and shared accessible React
+  primitives described by [ADR 0020](./adr/0020-desktop-shell-and-ui-foundation.md).
 - Promote the provisional pack's agent definitions into versioned Project
   Manager chat/planner and Software Engineer implementer/reviewer contracts.
 - Create the built-in `templates/software-project` project manifest (now the

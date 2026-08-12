@@ -1,4 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import {
+  Dialog,
+  Drawer,
+  IconButton,
+  PanelLeftIcon,
+  PanelRightIcon,
+  ResizeHandle,
+} from '@factoru/ui'
 import type {
   ProjectPreview,
   RepositoryAccessCheck,
@@ -14,6 +22,21 @@ import {
   factoryStatusLabel,
 } from '../../shared/factory'
 import { provisioningHeading, provisioningMessage } from './provisioning'
+import { ResponsivePane } from './components/ResponsivePane'
+import { DesktopShell } from './components/DesktopShell'
+import { ConversationSurface } from './features/conversation/ConversationSurface'
+import { InspectorTabs } from './features/inspector/InspectorTabs'
+import { TasksSurface } from './features/tasks/TasksSurface'
+import { TeamSurface } from './features/team/TeamSurface'
+import { ProjectSidebarSurface } from './features/sidebar/ProjectSidebarSurface'
+import { ProjectSetupSurface } from './features/project-setup/ProjectSetupSurface'
+import { OnboardingCard } from './features/onboarding/OnboardingCard'
+import {
+  INSPECTOR_RESIZE_LIMITS,
+  SIDEBAR_RESIZE_LIMITS,
+  useDesktopLayout,
+} from './layout/use-desktop-layout'
+import { useWindowState } from './layout/use-window-state'
 
 type Root = { id: string; label: string }
 type Entry = { name: string; relativePath: string; kind: 'directory' | 'repository' }
@@ -27,10 +50,10 @@ type RepositoryDraft =
     }
 
 const taskColumns = [
-  ['backlog', 'Backlog'],
-  ['queue', 'Queue'],
-  ['in_progress', 'In progress'],
   ['needs_you', 'Needs you'],
+  ['in_progress', 'In progress'],
+  ['queue', 'Queue'],
+  ['backlog', 'Backlog'],
 ] as const
 
 function statusLabel(value: string): string {
@@ -136,6 +159,8 @@ function ModelBindingEditor({
 }
 
 export function App() {
+  const layout = useDesktopLayout()
+  const windowState = useWindowState()
   const [snapshot, setSnapshot] = useState<ProductSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -169,6 +194,7 @@ export function App() {
   const [devices, setDevices] = useState<TrustedDevice[]>([])
   const [showDevices, setShowDevices] = useState(false)
   const [deviceFactoryId, setDeviceFactoryId] = useState<string | null>(null)
+  const [messageDraft, setMessageDraft] = useState('')
 
   useEffect(() => {
     let active = true
@@ -526,15 +552,10 @@ export function App() {
     void run(() => window.factoru.product.retry(activeProjectRef))
   }
 
-  const sendMessage = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const sendMessage = (text: string) => {
     if (!activeProjectRef) return
-    const form = event.currentTarget
-    const data = new FormData(form)
-    const text = String(data.get('message')).trim()
-    if (!text) return
     void run(() => window.factoru.product.sendMessage(activeProjectRef, text)).then(
-      (sent) => sent && form.reset(),
+      (sent) => sent && setMessageDraft(''),
     )
   }
 
@@ -677,12 +698,18 @@ export function App() {
   }
 
   if (!snapshot?.initialized)
-    return <main className="startup muted">Starting Factoru Desktop…</main>
+    return (
+      <main className="startup muted" data-platform={windowState.platform}>
+        <div className="window-drag-strip" aria-hidden="true" />
+        Starting Factoru Desktop…
+      </main>
+    )
 
   if (showPairing) {
     return (
-      <main className="onboarding">
-        <section className="onboarding-card" aria-labelledby="connect-heading">
+      <main className="onboarding" data-platform={windowState.platform}>
+        <div className="window-drag-strip" aria-hidden="true" />
+        <OnboardingCard headingId="connect-heading">
           <div className="brand-mark" aria-hidden="true">
             F
           </div>
@@ -776,266 +803,311 @@ factoru-server providers configure --provider codex`}</code>
             Cancel
           </button>
           {(error || snapshot.error) && <p className="error">{error ?? snapshot.error}</p>}
-        </section>
+        </OnboardingCard>
       </main>
     )
   }
 
   return (
-    <main className={`workspace-shell ${showProjectSetup ? 'project-setup-open' : ''}`}>
-      <aside className="sidebar">
-        <header className="sidebar-brand">
-          <span className="brand-mark small" aria-hidden="true">
-            F
-          </span>
-          <div>
-            <strong>Factoru</strong>
-            <span className="muted">Personal factory</span>
-          </div>
-        </header>
-
-        <div className={`factory-switcher ${factorySwitcherOpen ? 'open' : ''}`}>
-          <button
-            type="button"
-            className="factory-switcher-trigger"
-            aria-expanded={factorySwitcherOpen}
-            aria-controls="factory-switcher-panel"
-            aria-label={`Factories, ${factorySummary.label}`}
-            onClick={() => {
-              setFactorySwitcherOpen((open) => !open)
-              setRenamingFactoryId(null)
-            }}
-          >
-            <span className={`status-dot ${factorySummary.state}`} aria-hidden="true" />
-            <span className="factory-switcher-title">
-              <strong>{factorySummary.label}</strong>
+    <DesktopShell layout={layout} windowState={windowState} projectSetupOpen={showProjectSetup}>
+      <ResponsivePane
+        drawer={layout.mode !== 'wide'}
+        open={layout.sidebarDrawerOpen}
+        onOpenChange={(open) => (open ? layout.toggleSidebar() : layout.closeDrawers())}
+        side="left"
+        title="Project navigation"
+        width={layout.sidebarWidth}
+        visible={layout.mode !== 'wide' || !layout.sidebarCollapsed}
+      >
+        <ProjectSidebarSurface>
+          <header className="sidebar-brand">
+            <span className="brand-mark small" aria-hidden="true">
+              F
             </span>
-            <span className="factory-switcher-chevron" aria-hidden="true">
-              ▾
-            </span>
-          </button>
-
-          {factorySwitcherOpen && (
-            <section
-              id="factory-switcher-panel"
-              className="factory-switcher-panel"
-              aria-label="Factories"
+            <div className="sidebar-brand-copy">
+              <strong>Factoru</strong>
+              <span className="muted">Personal factory</span>
+            </div>
+            <IconButton
+              className="sidebar-collapse-button"
+              aria-label={
+                layout.mode === 'wide' ? 'Collapse project sidebar' : 'Close project sidebar'
+              }
+              onClick={layout.mode === 'wide' ? layout.toggleSidebar : layout.closeDrawers}
             >
-              <p className="factory-switcher-heading">Factories</p>
-              <div className="factory-list">
-                <button
-                  type="button"
-                  className={factoryFilterId === null ? 'active' : ''}
-                  aria-current={factoryFilterId === null ? 'true' : undefined}
-                  onClick={() => selectFactory(null)}
-                >
-                  <span className={`status-dot ${factorySummary.state}`} aria-hidden="true" />
-                  <span>
-                    <strong>All factories</strong>
-                    <small>{factorySummary.label}</small>
-                  </span>
-                  <small>All projects</small>
-                </button>
-                {!hasLocalFactory && (
+              <PanelLeftIcon size={15} aria-hidden="true" />
+            </IconButton>
+          </header>
+
+          <div className={`factory-switcher ${factorySwitcherOpen ? 'open' : ''}`}>
+            <button
+              type="button"
+              className="factory-switcher-trigger"
+              aria-expanded={factorySwitcherOpen}
+              aria-controls="factory-switcher-panel"
+              aria-label={`Factories, ${factorySummary.label}`}
+              onClick={() => {
+                setFactorySwitcherOpen((open) => !open)
+                setRenamingFactoryId(null)
+              }}
+            >
+              <span className={`status-dot ${factorySummary.state}`} aria-hidden="true" />
+              <span className="factory-switcher-title">
+                <strong>{factorySummary.label}</strong>
+              </span>
+              <span className="factory-switcher-chevron" aria-hidden="true">
+                ▾
+              </span>
+            </button>
+
+            {factorySwitcherOpen && (
+              <section
+                id="factory-switcher-panel"
+                className="factory-switcher-panel"
+                aria-label="Factories"
+              >
+                <p className="factory-switcher-heading">Factories</p>
+                <div className="factory-list">
                   <button
                     type="button"
-                    title="Connect Factoru Server on this device"
-                    onClick={() => {
-                      setFactorySwitcherOpen(false)
-                      setConnectionType('local')
-                      setError(null)
-                      setShowPairing(true)
-                    }}
+                    className={factoryFilterId === null ? 'active' : ''}
+                    aria-current={factoryFilterId === null ? 'true' : undefined}
+                    onClick={() => selectFactory(null)}
                   >
-                    <span className="status-dot pairing_required" aria-hidden="true" />
+                    <span className={`status-dot ${factorySummary.state}`} aria-hidden="true" />
                     <span>
-                      <strong>Local Factory</strong>
-                      <small>This device</small>
+                      <strong>All factories</strong>
+                      <small>{factorySummary.label}</small>
                     </span>
-                    <small>Not connected</small>
+                    <small>All projects</small>
                   </button>
-                )}
-                {snapshot.profiles.map((profile) => (
-                  <div className="factory-list-item" key={profile.serverId}>
+                  {!hasLocalFactory && (
                     <button
                       type="button"
-                      className={profile.serverId === factoryFilterId ? 'active' : ''}
-                      aria-current={profile.serverId === factoryFilterId ? 'true' : undefined}
-                      title={profile.error ?? profile.url}
-                      onClick={() => selectFactory(profile.serverId)}
-                    >
-                      <span
-                        className={`status-dot ${profile.connectionState}`}
-                        aria-hidden="true"
-                      />
-                      <span>
-                        <strong>{profile.name}</strong>
-                        <small>{profile.kind === 'local' ? 'This device' : profile.url}</small>
-                      </span>
-                      <small>{factoryStatusLabel(profile.connectionState)}</small>
-                    </button>
-                    <button
-                      type="button"
-                      className="factory-manage-button"
-                      aria-label={`Manage ${profile.name}`}
-                      aria-expanded={managedFactoryId === profile.serverId}
-                      onClick={() =>
-                        setManagedFactoryId((current) =>
-                          current === profile.serverId ? null : profile.serverId,
-                        )
-                      }
-                    >
-                      •••
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {managedFactory && renamingFactoryId === managedFactory.serverId ? (
-                <form className="factory-rename" onSubmit={renameFactory}>
-                  <label htmlFor="factory-name">Factory name</label>
-                  <input
-                    id="factory-name"
-                    autoFocus
-                    required
-                    maxLength={FACTORY_NAME_MAX_LENGTH}
-                    value={factoryName}
-                    onChange={(event) => setFactoryName(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Escape') return
-                      event.stopPropagation()
-                      setRenamingFactoryId(null)
-                      setFactoryName('')
-                    }}
-                  />
-                  <div>
-                    <button disabled={busy}>Save</button>
-                    <button
-                      type="button"
+                      title="Connect Factoru Server on this device"
                       onClick={() => {
+                        setFactorySwitcherOpen(false)
+                        setConnectionType('local')
+                        setError(null)
+                        setShowPairing(true)
+                      }}
+                    >
+                      <span className="status-dot pairing_required" aria-hidden="true" />
+                      <span>
+                        <strong>Local Factory</strong>
+                        <small>This device</small>
+                      </span>
+                      <small>Not connected</small>
+                    </button>
+                  )}
+                  {snapshot.profiles.map((profile) => (
+                    <div className="factory-list-item" key={profile.serverId}>
+                      <button
+                        type="button"
+                        className={profile.serverId === factoryFilterId ? 'active' : ''}
+                        aria-current={profile.serverId === factoryFilterId ? 'true' : undefined}
+                        title={profile.error ?? profile.url}
+                        onClick={() => selectFactory(profile.serverId)}
+                      >
+                        <span
+                          className={`status-dot ${profile.connectionState}`}
+                          aria-hidden="true"
+                        />
+                        <span>
+                          <strong>{profile.name}</strong>
+                          <small>{profile.kind === 'local' ? 'This device' : profile.url}</small>
+                        </span>
+                        <small>{factoryStatusLabel(profile.connectionState)}</small>
+                      </button>
+                      <button
+                        type="button"
+                        className="factory-manage-button"
+                        aria-label={`Manage ${profile.name}`}
+                        aria-expanded={managedFactoryId === profile.serverId}
+                        onClick={() =>
+                          setManagedFactoryId((current) =>
+                            current === profile.serverId ? null : profile.serverId,
+                          )
+                        }
+                      >
+                        •••
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {managedFactory && renamingFactoryId === managedFactory.serverId ? (
+                  <form className="factory-rename" onSubmit={renameFactory}>
+                    <label htmlFor="factory-name">Factory name</label>
+                    <input
+                      id="factory-name"
+                      autoFocus
+                      required
+                      maxLength={FACTORY_NAME_MAX_LENGTH}
+                      value={factoryName}
+                      onChange={(event) => setFactoryName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Escape') return
+                        event.stopPropagation()
                         setRenamingFactoryId(null)
                         setFactoryName('')
                       }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              ) : managedFactory ? (
-                <div className="factory-actions" aria-label={`${managedFactory.name} actions`}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRenamingFactoryId(managedFactory.serverId)
-                      setFactoryName(managedFactory.name)
-                    }}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => reconnectFactory(managedFactory.serverId)}
-                    disabled={busy}
-                  >
-                    Reconnect
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openTrustedDevices(managedFactory.serverId)}
-                    disabled={managedFactory.connectionState !== 'connected' || busy}
-                  >
-                    Trusted devices
-                  </button>
-                  {managedFactory.kind === 'local' ? (
-                    <span className="factory-built-in-note">Built in on this device</span>
-                  ) : (
+                    />
+                    <div>
+                      <button disabled={busy}>Save</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRenamingFactoryId(null)
+                          setFactoryName('')
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : managedFactory ? (
+                  <div className="factory-actions" aria-label={`${managedFactory.name} actions`}>
                     <button
                       type="button"
-                      className="danger"
-                      onClick={() => forgetFactory(managedFactory)}
+                      onClick={() => {
+                        setRenamingFactoryId(managedFactory.serverId)
+                        setFactoryName(managedFactory.name)
+                      }}
                     >
-                      Forget factory
+                      Rename
                     </button>
-                  )}
-                </div>
-              ) : null}
+                    <button
+                      type="button"
+                      onClick={() => reconnectFactory(managedFactory.serverId)}
+                      disabled={busy}
+                    >
+                      Reconnect
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openTrustedDevices(managedFactory.serverId)}
+                      disabled={managedFactory.connectionState !== 'connected' || busy}
+                    >
+                      Trusted devices
+                    </button>
+                    {managedFactory.kind === 'local' ? (
+                      <span className="factory-built-in-note">Built in on this device</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => forgetFactory(managedFactory)}
+                      >
+                        Forget factory
+                      </button>
+                    )}
+                  </div>
+                ) : null}
 
-              <button
-                type="button"
-                className="add-factory"
-                onClick={() => {
-                  setFactorySwitcherOpen(false)
-                  setConnectionType('remote')
-                  setShowPairing(true)
-                }}
-              >
-                + Connect another factory
-              </button>
-            </section>
-          )}
-        </div>
+                <button
+                  type="button"
+                  className="add-factory"
+                  onClick={() => {
+                    setFactorySwitcherOpen(false)
+                    setConnectionType('remote')
+                    setShowPairing(true)
+                  }}
+                >
+                  + Connect another factory
+                </button>
+              </section>
+            )}
+          </div>
 
-        <div className="sidebar-section-head">
-          <span>
-            Projects ·{' '}
-            {factoryFilterId
-              ? (snapshot.profiles.find((profile) => profile.serverId === factoryFilterId)?.name ??
-                'Factory')
-              : 'All factories'}
-          </span>
-          <button
-            className="icon-button"
-            aria-label="Add project"
-            title="Add project"
-            onClick={() => void loadRoots()}
-            disabled={onlineFactoryCount === 0 || busy}
-          >
-            +
-          </button>
-        </div>
-        <nav className="project-nav" aria-label="Projects">
-          {filteredProjects.length === 0 ? (
-            <p className="empty-sidebar">
-              {snapshot.projects.length === 0
-                ? 'Create a project and add its repositories to begin.'
-                : 'No projects match this factory filter.'}
-            </p>
-          ) : (
-            filteredProjects.map((located) => (
-              <button
-                key={`${located.ref.factoryId}:${located.ref.projectId}`}
-                className={
-                  located.ref.factoryId === snapshot.activeProjectRef?.factoryId &&
-                  located.ref.projectId === snapshot.activeProjectRef?.projectId
-                    ? 'active'
-                    : ''
-                }
-                onClick={() =>
-                  void run(() => window.factoru.product.selectProject(located.ref)).then(
-                    (value) => value && setSnapshot(value),
-                  )
-                }
-              >
-                <span className="project-glyph">
-                  {located.project.name.slice(0, 1).toUpperCase()}
-                </span>
-                <span>
-                  <strong>{located.project.name}</strong>
-                  <small>
-                    {located.factoryName} · {statusLabel(located.project.setupState)} ·{' '}
-                    {located.project.repositories.length}{' '}
-                    {located.project.repositories.length === 1 ? 'rig' : 'rigs'}
-                  </small>
-                </span>
-              </button>
-            ))
-          )}
-        </nav>
-      </aside>
+          <div className="sidebar-section-head">
+            <span>
+              Projects ·{' '}
+              {factoryFilterId
+                ? (snapshot.profiles.find((profile) => profile.serverId === factoryFilterId)
+                    ?.name ?? 'Factory')
+                : 'All factories'}
+            </span>
+            <button
+              className="icon-button"
+              aria-label="Add project"
+              title="Add project"
+              onClick={() => void loadRoots()}
+              disabled={onlineFactoryCount === 0 || busy}
+            >
+              +
+            </button>
+          </div>
+          <nav className="project-nav" aria-label="Projects">
+            {filteredProjects.length === 0 ? (
+              <p className="empty-sidebar">
+                {snapshot.projects.length === 0
+                  ? 'Create a project and add its repositories to begin.'
+                  : 'No projects match this factory filter.'}
+              </p>
+            ) : (
+              filteredProjects.map((located) => (
+                <button
+                  key={`${located.ref.factoryId}:${located.ref.projectId}`}
+                  className={
+                    located.ref.factoryId === snapshot.activeProjectRef?.factoryId &&
+                    located.ref.projectId === snapshot.activeProjectRef?.projectId
+                      ? 'active'
+                      : ''
+                  }
+                  onClick={() =>
+                    void run(() => window.factoru.product.selectProject(located.ref)).then(
+                      (value) => value && setSnapshot(value),
+                    )
+                  }
+                >
+                  <span className="project-glyph">
+                    {located.project.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span>
+                    <strong>{located.project.name}</strong>
+                    <small>
+                      {located.factoryName} · {statusLabel(located.project.setupState)} ·{' '}
+                      {located.project.repositories.length}{' '}
+                      {located.project.repositories.length === 1 ? 'rig' : 'rigs'}
+                    </small>
+                  </span>
+                </button>
+              ))
+            )}
+          </nav>
+        </ProjectSidebarSurface>
+      </ResponsivePane>
+
+      {layout.mode === 'wide' && !layout.sidebarCollapsed && (
+        <ResizeHandle
+          className="sidebar-resize-handle"
+          label="Resize project sidebar"
+          value={layout.sidebarWidth}
+          min={SIDEBAR_RESIZE_LIMITS.min}
+          max={layout.sidebarMaximum}
+          defaultValue={SIDEBAR_RESIZE_LIMITS.default}
+          onValueChange={layout.setSidebarWidth}
+        />
+      )}
 
       <section className="conversation-pane">
         <header className="pane-header">
-          <div>
+          <IconButton
+            className="pane-toggle sidebar-toggle"
+            aria-label={
+              layout.mode === 'wide' && !layout.sidebarCollapsed
+                ? 'Collapse project sidebar'
+                : 'Open project sidebar'
+            }
+            aria-expanded={
+              layout.mode === 'wide' ? !layout.sidebarCollapsed : layout.sidebarDrawerOpen
+            }
+            onClick={layout.toggleSidebar}
+          >
+            <PanelLeftIcon size={15} aria-hidden="true" />
+          </IconButton>
+          <div className="pane-header-main">
             <p className="eyebrow">
               Project Manager
               {activeLocatedProject ? ` · ${activeLocatedProject.factoryName}` : ''}
@@ -1043,11 +1115,23 @@ factoru-server providers configure --provider codex`}</code>
             </p>
             <h1>{activeProject?.name ?? 'Choose a project'}</h1>
           </div>
-          {snapshot.workspace && (
-            <span className={`health-pill ${snapshot.workspace.conversation.status}`}>
-              {statusLabel(snapshot.workspace.conversation.status)}
-            </span>
-          )}
+          <div className="pane-header-actions">
+            {snapshot.workspace && (
+              <span className={`health-pill ${snapshot.workspace.conversation.status}`}>
+                {statusLabel(snapshot.workspace.conversation.status)}
+              </span>
+            )}
+            {layout.mode === 'compact' && !showProjectSetup && (
+              <IconButton
+                className="pane-toggle"
+                aria-label="Open tasks and team inspector"
+                aria-expanded={layout.inspectorDrawerOpen}
+                onClick={layout.toggleInspector}
+              >
+                <PanelRightIcon size={15} aria-hidden="true" />
+              </IconButton>
+            )}
+          </div>
         </header>
 
         {snapshot.cached && (
@@ -1123,7 +1207,7 @@ factoru-server providers configure --provider codex`}</code>
         )}
 
         {showProjectSetup ? (
-          <section className="setup-panel">
+          <ProjectSetupSurface>
             <header>
               <div>
                 <p className="eyebrow">New project</p>
@@ -1440,767 +1524,780 @@ factoru-server providers configure --provider codex`}</code>
                 </button>
               </footer>
             </form>
-          </section>
+          </ProjectSetupSurface>
         ) : !snapshot.workspace ? (
           <section className="empty-state">
             <h2>No project selected</h2>
             <p>Create a project with one or more repositories, or choose one from the sidebar.</p>
           </section>
         ) : (
-          <>
-            <div className="message-list" aria-live="polite">
-              {snapshot.workspace.conversation.messages.length === 0 ? (
-                <section className="conversation-empty">
-                  <span className="avatar">PM</span>
-                  <h2>What should we work on?</h2>
-                  <p>
-                    Discuss the repository, clarify a direction, or ask the Project Manager to help
-                    shape the next task.
-                  </p>
-                </section>
-              ) : (
-                snapshot.workspace.conversation.messages.map((message) => (
-                  <article key={message.id} className={`message ${message.role}`}>
-                    <header>
-                      <strong>{message.role === 'assistant' ? 'Project Manager' : 'You'}</strong>
-                      <time>{new Date(message.createdAt).toLocaleTimeString()}</time>
-                    </header>
-                    <p>{message.text}</p>
-                    <footer>
-                      {statusLabel(message.deliveryState)}
-                      {message.tokenUsage &&
-                        ` · ${message.tokenUsage.input + message.tokenUsage.output} tokens`}
-                      {message.toolActivity.length > 0 &&
-                        ` · ${message.toolActivity.length} tool activities`}
-                    </footer>
-                  </article>
-                ))
-              )}
-            </div>
-            <form className="composer" onSubmit={sendMessage}>
-              <textarea
-                name="message"
-                rows={3}
-                maxLength={32_000}
-                placeholder="Message your Project Manager…"
-                disabled={!snapshot.connected || busy}
-              />
-              <button className="primary" disabled={!snapshot.connected || busy}>
-                Send
-              </button>
-            </form>
-          </>
+          <ConversationSurface
+            messages={snapshot.workspace.conversation.messages}
+            draft={messageDraft}
+            connected={snapshot.connected}
+            busy={busy}
+            onDraftChange={setMessageDraft}
+            onSend={sendMessage}
+          />
         )}
       </section>
 
-      <aside className="inspector-pane">
-        <header className="inspector-tabs">
-          <button className={tab === 'tasks' ? 'active' : ''} onClick={() => setTab('tasks')}>
-            Tasks
-          </button>
-          <button className={tab === 'team' ? 'active' : ''} onClick={() => setTab('team')}>
-            Team
-          </button>
-        </header>
+      {layout.mode !== 'compact' && !showProjectSetup && (
+        <ResizeHandle
+          className="inspector-resize-handle"
+          label="Resize tasks and team inspector"
+          direction="negative"
+          value={layout.inspectorWidth}
+          min={INSPECTOR_RESIZE_LIMITS.min}
+          max={layout.inspectorMaximum}
+          defaultValue={INSPECTOR_RESIZE_LIMITS.default}
+          onValueChange={layout.setInspectorWidth}
+        />
+      )}
 
-        {tab === 'tasks' ? (
-          <div className="task-board" aria-label="Tasks">
-            {snapshot.workspace ? (
-              <>
-                <section className="board-toolbar">
-                  <details>
-                    <summary>Capture a task</summary>
-                    <form className="task-create-form" onSubmit={createTask}>
-                      <input name="title" required maxLength={200} placeholder="A rough thought…" />
-                      <textarea
-                        name="description"
-                        rows={2}
-                        maxLength={20_000}
-                        placeholder="Optional context or acceptance criteria"
-                      />
-                      <select name="status" defaultValue="backlog">
-                        <option value="backlog">Save to Backlog</option>
-                        <option value="queue">Save and request planning</option>
-                      </select>
-                      <button className="primary" disabled={!snapshot.connected || busy}>
-                        Add task
-                      </button>
-                    </form>
-                  </details>
-                  <div className="queue-summary" aria-live="polite">
-                    <strong>Execution WIP {snapshot.workspace.factory.executionWipLimit}</strong>
-                    {snapshot.workspace.queueReconciliation ? (
-                      <span
-                        className={`health-pill ${snapshot.workspace.queueReconciliation.status}`}
-                      >
-                        Planning {statusLabel(snapshot.workspace.queueReconciliation.status)} · r
-                        {snapshot.workspace.queueReconciliation.coalescedThroughRevision}
-                      </span>
-                    ) : (
-                      <span className="muted">Queue is settled</span>
-                    )}
-                  </div>
-                  {snapshot.workspace.taskMergeProposals.map((proposal) => {
-                    const source = snapshot.workspace!.tasks.find(
-                      (task) => task.id === proposal.sourceTaskId,
-                    )
-                    const target = snapshot.workspace!.tasks.find(
-                      (task) => task.id === proposal.targetTaskId,
-                    )
-                    return (
-                      <article className="merge-proposal" key={proposal.id}>
-                        <strong>Merge confirmation</strong>
-                        <p>
-                          Merge “{source?.title ?? proposal.sourceTaskId}” into “
-                          {target?.title ?? proposal.targetTaskId}”? {proposal.reason}
-                        </p>
-                        <div>
-                          <button
-                            className="primary"
-                            disabled={!snapshot.connected || busy}
-                            onClick={() =>
-                              void run(() =>
-                                window.factoru.product.decideTaskMerge({
-                                  project: activeProjectRef!,
-                                  proposalId: proposal.id,
-                                  decision: 'accept',
-                                }),
-                              )
-                            }
-                          >
-                            Confirm merge
-                          </button>
-                          <button
-                            disabled={!snapshot.connected || busy}
-                            onClick={() =>
-                              void run(() =>
-                                window.factoru.product.decideTaskMerge({
-                                  project: activeProjectRef!,
-                                  proposalId: proposal.id,
-                                  decision: 'reject',
-                                }),
-                              )
-                            }
-                          >
-                            Keep separate
-                          </button>
-                        </div>
-                      </article>
-                    )
-                  })}
-                </section>
-                <div className="task-grid">
-                  {taskColumns.map(([id, label]) => {
-                    const tasks = snapshot.workspace!.tasks.filter((task) => task.status === id)
-                    return (
-                      <section key={id} className="task-column">
-                        <header>
-                          <span className={`column-dot ${id}`} />
-                          <h2>{label}</h2>
-                          <span>{tasks.length}</span>
-                        </header>
-                        <div className="task-list">
-                          {tasks.length === 0 ? (
-                            <p>No tasks</p>
-                          ) : (
-                            tasks.map((task) => {
-                              const taskRun = snapshot.workspace!.taskRuns.find(
-                                (candidate) => candidate.taskId === task.id,
-                              )
-                              return (
-                                <article className="task-card" key={`${task.id}:${task.version}`}>
-                                  <header>
-                                    <strong>{task.title}</strong>
-                                    {task.queuePhase && (
-                                      <span className="phase-badge">
-                                        {statusLabel(task.queuePhase)}
-                                      </span>
-                                    )}
-                                  </header>
-                                  {task.description && <p>{task.description}</p>}
-                                  {task.status === 'needs_you' && (
-                                    <div className="needs-action">
-                                      <strong>{statusLabel(task.needsYouAction!)}</strong>
-                                      <span>{task.needsYouMessage}</span>
-                                    </div>
-                                  )}
-                                  {taskRun && (
-                                    <section
-                                      className="run-summary"
-                                      aria-label="Software delivery run"
-                                    >
-                                      <header>
-                                        <strong>{statusLabel(taskRun.stage)}</strong>
-                                        <span className={`health-pill ${taskRun.status}`}>
-                                          {statusLabel(taskRun.status)}
+      <ResponsivePane
+        drawer={layout.mode === 'compact'}
+        open={layout.inspectorDrawerOpen}
+        onOpenChange={(open) => (open ? layout.toggleInspector() : layout.closeDrawers())}
+        side="right"
+        title="Tasks and team inspector"
+        width={layout.inspectorWidth}
+        visible={!showProjectSetup}
+      >
+        <aside className="inspector-pane">
+          <InspectorTabs
+            value={tab}
+            compact={layout.mode === 'compact'}
+            onValueChange={setTab}
+            onClose={layout.closeDrawers}
+          />
+
+          {tab === 'tasks' ? (
+            <TasksSurface>
+              {snapshot.workspace ? (
+                <>
+                  <section className="board-toolbar">
+                    <details>
+                      <summary>Capture a task</summary>
+                      <form className="task-create-form" onSubmit={createTask}>
+                        <input
+                          name="title"
+                          required
+                          maxLength={200}
+                          placeholder="A rough thought…"
+                        />
+                        <textarea
+                          name="description"
+                          rows={2}
+                          maxLength={20_000}
+                          placeholder="Optional context or acceptance criteria"
+                        />
+                        <select name="status" defaultValue="backlog">
+                          <option value="backlog">Save to Backlog</option>
+                          <option value="queue">Save and request planning</option>
+                        </select>
+                        <button className="primary" disabled={!snapshot.connected || busy}>
+                          Add task
+                        </button>
+                      </form>
+                    </details>
+                    <div className="queue-summary" aria-live="polite">
+                      <strong>Execution WIP {snapshot.workspace.factory.executionWipLimit}</strong>
+                      {snapshot.workspace.queueReconciliation ? (
+                        <span
+                          className={`health-pill ${snapshot.workspace.queueReconciliation.status}`}
+                        >
+                          Planning {statusLabel(snapshot.workspace.queueReconciliation.status)} · r
+                          {snapshot.workspace.queueReconciliation.coalescedThroughRevision}
+                        </span>
+                      ) : (
+                        <span className="muted">Queue is settled</span>
+                      )}
+                    </div>
+                    {snapshot.workspace.taskMergeProposals.map((proposal) => {
+                      const source = snapshot.workspace!.tasks.find(
+                        (task) => task.id === proposal.sourceTaskId,
+                      )
+                      const target = snapshot.workspace!.tasks.find(
+                        (task) => task.id === proposal.targetTaskId,
+                      )
+                      return (
+                        <article className="merge-proposal" key={proposal.id}>
+                          <strong>Merge confirmation</strong>
+                          <p>
+                            Merge “{source?.title ?? proposal.sourceTaskId}” into “
+                            {target?.title ?? proposal.targetTaskId}”? {proposal.reason}
+                          </p>
+                          <div>
+                            <button
+                              className="primary"
+                              disabled={!snapshot.connected || busy}
+                              onClick={() =>
+                                void run(() =>
+                                  window.factoru.product.decideTaskMerge({
+                                    project: activeProjectRef!,
+                                    proposalId: proposal.id,
+                                    decision: 'accept',
+                                  }),
+                                )
+                              }
+                            >
+                              Confirm merge
+                            </button>
+                            <button
+                              disabled={!snapshot.connected || busy}
+                              onClick={() =>
+                                void run(() =>
+                                  window.factoru.product.decideTaskMerge({
+                                    project: activeProjectRef!,
+                                    proposalId: proposal.id,
+                                    decision: 'reject',
+                                  }),
+                                )
+                              }
+                            >
+                              Keep separate
+                            </button>
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </section>
+                  <div className="task-grid">
+                    {taskColumns.map(([id, label]) => {
+                      const tasks = snapshot.workspace!.tasks.filter((task) => task.status === id)
+                      return (
+                        <section key={id} className="task-column">
+                          <header>
+                            <span className={`column-dot ${id}`} />
+                            <h2>{label}</h2>
+                            <span>{tasks.length}</span>
+                          </header>
+                          <div className="task-list">
+                            {tasks.length === 0 ? (
+                              <p>No tasks</p>
+                            ) : (
+                              tasks.map((task) => {
+                                const taskRun = snapshot.workspace!.taskRuns.find(
+                                  (candidate) => candidate.taskId === task.id,
+                                )
+                                return (
+                                  <article className="task-card" key={`${task.id}:${task.version}`}>
+                                    <header>
+                                      <strong>{task.title}</strong>
+                                      {task.queuePhase && (
+                                        <span className="phase-badge">
+                                          {statusLabel(task.queuePhase)}
                                         </span>
-                                      </header>
-                                      <div className="run-meter">
-                                        {taskRun.steps.map((step) => (
-                                          <span
-                                            className={step.status}
-                                            key={step.id}
-                                            title={step.title}
-                                          >
-                                            {statusLabel(step.title)}
-                                          </span>
-                                        ))}
+                                      )}
+                                    </header>
+                                    {task.description && <p>{task.description}</p>}
+                                    {task.status === 'needs_you' && (
+                                      <div className="needs-action">
+                                        <strong>{statusLabel(task.needsYouAction!)}</strong>
+                                        <span>{task.needsYouMessage}</span>
                                       </div>
-                                      <p>
-                                        {taskRun.usage.inputTokens + taskRun.usage.outputTokens}{' '}
-                                        tokens ·{' '}
-                                        {taskRun.usage.pricing === 'priced'
-                                          ? `$${taskRun.usage.estimatedCostUsd.toFixed(4)} estimated`
-                                          : taskRun.usage.pricing === 'unpriced'
-                                            ? 'cost unpriced by the configured provider'
-                                            : 'cost pending'}
-                                      </p>
-                                      {taskRun.error && (
-                                        <p className="run-error">
-                                          {taskRun.error.code}: {taskRun.error.message}
-                                        </p>
-                                      )}
-                                      {(taskRun.logs.length > 0 || taskRun.reviewPackage) && (
-                                        <details className="run-evidence">
-                                          <summary>Logs and evidence</summary>
-                                          {taskRun.logs.map((entry, index) => (
-                                            <pre key={index}>{entry}</pre>
+                                    )}
+                                    {taskRun && (
+                                      <section
+                                        className="run-summary"
+                                        aria-label="Software delivery run"
+                                      >
+                                        <header>
+                                          <strong>{statusLabel(taskRun.stage)}</strong>
+                                          <span className={`health-pill ${taskRun.status}`}>
+                                            {statusLabel(taskRun.status)}
+                                          </span>
+                                        </header>
+                                        <div className="run-meter">
+                                          {taskRun.steps.map((step) => (
+                                            <span
+                                              className={step.status}
+                                              key={step.id}
+                                              title={step.title}
+                                            >
+                                              {statusLabel(step.title)}
+                                            </span>
                                           ))}
-                                          {taskRun.reviewPackage && (
-                                            <>
-                                              <strong>Commits</strong>
-                                              <pre>{taskRun.reviewPackage.commits.join('\n')}</pre>
-                                              <strong>Checks</strong>
-                                              <pre>{taskRun.reviewPackage.checks.output}</pre>
-                                              <strong>Independent review</strong>
-                                              <pre>{taskRun.reviewPackage.internalReview}</pre>
-                                              <strong>Diff</strong>
-                                              <pre>{taskRun.reviewPackage.diff}</pre>
-                                              {taskRun.reviewPackage.unresolvedRisks.length > 0 && (
-                                                <p className="run-error">
-                                                  Risks:{' '}
-                                                  {taskRun.reviewPackage.unresolvedRisks.join('; ')}
-                                                </p>
-                                              )}
-                                            </>
-                                          )}
-                                        </details>
-                                      )}
-                                      <div className="run-actions">
-                                        {['pending', 'running', 'cancelling'].includes(
-                                          taskRun.status,
-                                        ) && (
-                                          <button
-                                            disabled={
-                                              !snapshot.connected ||
-                                              busy ||
-                                              taskRun.status === 'cancelling'
-                                            }
-                                            onClick={() =>
-                                              void run(() =>
-                                                window.factoru.product.cancelRun(
-                                                  activeProjectRef!,
-                                                  taskRun.id,
-                                                ),
-                                              )
-                                            }
-                                          >
-                                            Cancel run
-                                          </button>
+                                        </div>
+                                        <p>
+                                          {taskRun.usage.inputTokens + taskRun.usage.outputTokens}{' '}
+                                          tokens ·{' '}
+                                          {taskRun.usage.pricing === 'priced'
+                                            ? `$${taskRun.usage.estimatedCostUsd.toFixed(4)} estimated`
+                                            : taskRun.usage.pricing === 'unpriced'
+                                              ? 'cost unpriced by the configured provider'
+                                              : 'cost pending'}
+                                        </p>
+                                        {taskRun.error && (
+                                          <p className="run-error">
+                                            {taskRun.error.code}: {taskRun.error.message}
+                                          </p>
                                         )}
-                                        {taskRun.status === 'completed' && (
-                                          <>
+                                        {(taskRun.logs.length > 0 || taskRun.reviewPackage) && (
+                                          <details className="run-evidence">
+                                            <summary>Logs and evidence</summary>
+                                            {taskRun.logs.map((entry, index) => (
+                                              <pre key={index}>{entry}</pre>
+                                            ))}
+                                            {taskRun.reviewPackage && (
+                                              <>
+                                                <strong>Commits</strong>
+                                                <pre>
+                                                  {taskRun.reviewPackage.commits.join('\n')}
+                                                </pre>
+                                                <strong>Checks</strong>
+                                                <pre>{taskRun.reviewPackage.checks.output}</pre>
+                                                <strong>Independent review</strong>
+                                                <pre>{taskRun.reviewPackage.internalReview}</pre>
+                                                <strong>Diff</strong>
+                                                <pre>{taskRun.reviewPackage.diff}</pre>
+                                                {taskRun.reviewPackage.unresolvedRisks.length >
+                                                  0 && (
+                                                  <p className="run-error">
+                                                    Risks:{' '}
+                                                    {taskRun.reviewPackage.unresolvedRisks.join(
+                                                      '; ',
+                                                    )}
+                                                  </p>
+                                                )}
+                                              </>
+                                            )}
+                                          </details>
+                                        )}
+                                        <div className="run-actions">
+                                          {['pending', 'running', 'cancelling'].includes(
+                                            taskRun.status,
+                                          ) && (
                                             <button
-                                              className="primary"
-                                              disabled={!snapshot.connected || busy}
+                                              disabled={
+                                                !snapshot.connected ||
+                                                busy ||
+                                                taskRun.status === 'cancelling'
+                                              }
                                               onClick={() =>
-                                                window.confirm('Approve this implementation?') &&
                                                 void run(() =>
-                                                  window.factoru.product.approveRun(
+                                                  window.factoru.product.cancelRun(
                                                     activeProjectRef!,
                                                     taskRun.id,
-                                                    'Accepted after reviewing the delivery evidence.',
                                                   ),
                                                 )
                                               }
                                             >
-                                              Approve
+                                              Cancel run
                                             </button>
-                                            <button
-                                              disabled={!snapshot.connected || busy}
-                                              onClick={() => {
-                                                const feedback = window
-                                                  .prompt('What should the implementation change?')
-                                                  ?.trim()
-                                                if (feedback)
+                                          )}
+                                          {taskRun.status === 'completed' && (
+                                            <>
+                                              <button
+                                                className="primary"
+                                                disabled={!snapshot.connected || busy}
+                                                onClick={() =>
+                                                  window.confirm('Approve this implementation?') &&
                                                   void run(() =>
-                                                    window.factoru.product.requestRunChanges(
+                                                    window.factoru.product.approveRun(
                                                       activeProjectRef!,
                                                       taskRun.id,
-                                                      feedback,
+                                                      'Accepted after reviewing the delivery evidence.',
                                                     ),
                                                   )
-                                              }}
+                                                }
+                                              >
+                                                Approve
+                                              </button>
+                                              <button
+                                                disabled={!snapshot.connected || busy}
+                                                onClick={() => {
+                                                  const feedback = window
+                                                    .prompt(
+                                                      'What should the implementation change?',
+                                                    )
+                                                    ?.trim()
+                                                  if (feedback)
+                                                    void run(() =>
+                                                      window.factoru.product.requestRunChanges(
+                                                        activeProjectRef!,
+                                                        taskRun.id,
+                                                        feedback,
+                                                      ),
+                                                    )
+                                                }}
+                                              >
+                                                Request changes
+                                              </button>
+                                            </>
+                                          )}
+                                          {taskRun.status === 'failed' && (
+                                            <button
+                                              disabled={!snapshot.connected || busy}
+                                              onClick={() =>
+                                                void run(() =>
+                                                  window.factoru.product.retryRun(
+                                                    activeProjectRef!,
+                                                    taskRun.id,
+                                                  ),
+                                                )
+                                              }
                                             >
-                                              Request changes
+                                              Retry
                                             </button>
-                                          </>
-                                        )}
-                                        {taskRun.status === 'failed' && (
-                                          <button
-                                            disabled={!snapshot.connected || busy}
-                                            onClick={() =>
-                                              void run(() =>
-                                                window.factoru.product.retryRun(
-                                                  activeProjectRef!,
-                                                  taskRun.id,
-                                                ),
-                                              )
-                                            }
-                                          >
-                                            Retry
-                                          </button>
-                                        )}
-                                        {['completed', 'failed', 'cancelled'].includes(
-                                          taskRun.status,
-                                        ) && (
-                                          <button
-                                            disabled={!snapshot.connected || busy}
-                                            onClick={() =>
-                                              void run(() =>
-                                                window.factoru.product.archiveRun(
-                                                  activeProjectRef!,
-                                                  taskRun.id,
-                                                ),
-                                              )
-                                            }
-                                          >
-                                            Archive run
-                                          </button>
-                                        )}
-                                      </div>
-                                    </section>
-                                  )}
-                                  <footer>
-                                    <span>Priority {task.priority}</span>
-                                    <span>
-                                      {task.workerTypeKind
-                                        ? statusLabel(task.workerTypeKind)
-                                        : 'Unassigned'}
-                                    </span>
-                                    <span>
-                                      {task.workflowPresetId
-                                        ? (snapshot.workspace!.workflowPresets.find(
-                                            (preset) => preset.id === task.workflowPresetId,
-                                          )?.name ?? statusLabel(task.workflowPresetId))
-                                        : 'Project workflow'}
-                                      {task.workflowLockedByUser ? ' · locked' : ''}
-                                    </span>
-                                  </footer>
-                                  {task.status === 'backlog' && (
-                                    <button
-                                      className="queue-button"
-                                      disabled={!snapshot.connected || busy}
-                                      onClick={() => void queueTask(task)}
-                                    >
-                                      Move to Queue
-                                    </button>
-                                  )}
-                                  <details className="task-details">
-                                    <summary>Edit and move</summary>
-                                    <form onSubmit={(event) => updateTask(event, task)}>
-                                      <input
-                                        name="title"
-                                        required
-                                        defaultValue={task.title}
-                                        maxLength={200}
-                                      />
-                                      <textarea
-                                        name="description"
-                                        rows={3}
-                                        defaultValue={task.description}
-                                        maxLength={20_000}
-                                      />
-                                      <label>
-                                        Priority
-                                        <input
-                                          name="priority"
-                                          type="number"
-                                          min={0}
-                                          max={100}
-                                          defaultValue={task.priority}
-                                        />
-                                      </label>
-                                      {snapshot.workspace!.workflowPresets.length > 0 && (
-                                        <label>
-                                          Workflow preset
-                                          <select
-                                            name="workflowPresetId"
-                                            defaultValue={
-                                              task.workflowSelectionSource === 'pm' ||
-                                              task.workflowSelectionSource === 'user'
-                                                ? (task.workflowPresetId ?? '')
-                                                : ''
-                                            }
-                                            disabled={task.status === 'in_progress'}
-                                          >
-                                            <option value="">
-                                              Project default (
-                                              {snapshot.workspace!.workflowPresets.find(
-                                                (preset) =>
-                                                  preset.id ===
-                                                  snapshot.workspace!.factory
-                                                    .defaultWorkflowPresetId,
-                                              )?.name ??
-                                                statusLabel(
-                                                  snapshot.workspace!.factory
-                                                    .defaultWorkflowPresetId,
-                                                )}
-                                              )
-                                            </option>
-                                            {snapshot
-                                              .workspace!.workflowPresets.filter((preset) =>
-                                                snapshot.workspace!.blueprint.allowedWorkflowPresetIds.includes(
-                                                  preset.id,
-                                                ),
-                                              )
-                                              .map((preset) => (
-                                                <option value={preset.id} key={preset.id}>
-                                                  {preset.name}
-                                                </option>
-                                              ))}
-                                          </select>
-                                        </label>
-                                      )}
-                                      <button disabled={!snapshot.connected || busy}>
-                                        Save edits
-                                      </button>
-                                    </form>
-                                    <form onSubmit={(event) => moveTask(event, task)}>
-                                      <select name="status" defaultValue={task.status}>
-                                        {taskColumns.map(([value, text]) => (
-                                          <option value={value} key={value}>
-                                            {text}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <select name="needsYouAction" defaultValue="clarify">
-                                        <option value="clarify">Clarify</option>
-                                        <option value="approve">Approve</option>
-                                        <option value="review">Review</option>
-                                        <option value="resolve_conflict">Resolve conflict</option>
-                                        <option value="recover_failure">Recover failure</option>
-                                      </select>
-                                      <input
-                                        name="needsYouMessage"
-                                        placeholder="Required when moving to Needs you"
-                                      />
-                                      <button disabled={!snapshot.connected || busy}>Move</button>
-                                    </form>
-                                    <form onSubmit={(event) => resolveTask(event, task)}>
-                                      <select name="resolution" defaultValue="cancelled">
-                                        <option value="accepted">Accepted</option>
-                                        <option value="rejected">Rejected</option>
-                                        <option value="cancelled">Cancelled</option>
-                                      </select>
-                                      <input
-                                        name="summary"
-                                        required
-                                        placeholder="Why is this terminal?"
-                                      />
+                                          )}
+                                          {['completed', 'failed', 'cancelled'].includes(
+                                            taskRun.status,
+                                          ) && (
+                                            <button
+                                              disabled={!snapshot.connected || busy}
+                                              onClick={() =>
+                                                void run(() =>
+                                                  window.factoru.product.archiveRun(
+                                                    activeProjectRef!,
+                                                    taskRun.id,
+                                                  ),
+                                                )
+                                              }
+                                            >
+                                              Archive run
+                                            </button>
+                                          )}
+                                        </div>
+                                      </section>
+                                    )}
+                                    <footer>
+                                      <span>Priority {task.priority}</span>
+                                      <span>
+                                        {task.workerTypeKind
+                                          ? statusLabel(task.workerTypeKind)
+                                          : 'Unassigned'}
+                                      </span>
+                                      <span>
+                                        {task.workflowPresetId
+                                          ? (snapshot.workspace!.workflowPresets.find(
+                                              (preset) => preset.id === task.workflowPresetId,
+                                            )?.name ?? statusLabel(task.workflowPresetId))
+                                          : 'Project workflow'}
+                                        {task.workflowLockedByUser ? ' · locked' : ''}
+                                      </span>
+                                    </footer>
+                                    {task.status === 'backlog' && (
                                       <button
-                                        className="danger"
+                                        className="queue-button"
                                         disabled={!snapshot.connected || busy}
+                                        onClick={() => void queueTask(task)}
                                       >
-                                        Resolve task
+                                        Move to Queue
                                       </button>
-                                    </form>
-                                  </details>
-                                </article>
-                              )
-                            })
-                          )}
-                        </div>
-                      </section>
-                    )
-                  })}
-                </div>
-              </>
-            ) : (
-              <p className="board-note">Choose a project to see its task board.</p>
-            )}
-          </div>
-        ) : snapshot.workspace ? (
-          <div className="workers-panel" aria-label="Team">
-            <section className="factory-card">
-              <div>
-                <p className="eyebrow">{snapshot.workspace.blueprint.name}</p>
-                <strong>1 implementation at a time</strong>
-              </div>
-              <span className="health-pill ready">Serial MVP</span>
-            </section>
-
-            {snapshot.workspace.workflowPresets.length > 0 && (
-              <section className="worker-card">
-                <header>
-                  <div>
-                    <h2>Project workflow</h2>
-                    <p>Tasks inherit this preset unless a user locks an override.</p>
-                  </div>
-                </header>
-                <form className="model-row" onSubmit={updateWorkflowDefault}>
-                  <label htmlFor="project-workflow-preset">Default preset</label>
-                  <select
-                    id="project-workflow-preset"
-                    name="workflowPresetId"
-                    defaultValue={snapshot.workspace.factory.defaultWorkflowPresetId}
-                    disabled={!snapshot.connected}
-                  >
-                    {snapshot.workspace.workflowPresets
-                      .filter((preset) =>
-                        snapshot.workspace!.blueprint.allowedWorkflowPresetIds.includes(preset.id),
+                                    )}
+                                    <details className="task-details">
+                                      <summary>Edit and move</summary>
+                                      <form onSubmit={(event) => updateTask(event, task)}>
+                                        <input
+                                          name="title"
+                                          required
+                                          defaultValue={task.title}
+                                          maxLength={200}
+                                        />
+                                        <textarea
+                                          name="description"
+                                          rows={3}
+                                          defaultValue={task.description}
+                                          maxLength={20_000}
+                                        />
+                                        <label>
+                                          Priority
+                                          <input
+                                            name="priority"
+                                            type="number"
+                                            min={0}
+                                            max={100}
+                                            defaultValue={task.priority}
+                                          />
+                                        </label>
+                                        {snapshot.workspace!.workflowPresets.length > 0 && (
+                                          <label>
+                                            Workflow preset
+                                            <select
+                                              name="workflowPresetId"
+                                              defaultValue={
+                                                task.workflowSelectionSource === 'pm' ||
+                                                task.workflowSelectionSource === 'user'
+                                                  ? (task.workflowPresetId ?? '')
+                                                  : ''
+                                              }
+                                              disabled={task.status === 'in_progress'}
+                                            >
+                                              <option value="">
+                                                Project default (
+                                                {snapshot.workspace!.workflowPresets.find(
+                                                  (preset) =>
+                                                    preset.id ===
+                                                    snapshot.workspace!.factory
+                                                      .defaultWorkflowPresetId,
+                                                )?.name ??
+                                                  statusLabel(
+                                                    snapshot.workspace!.factory
+                                                      .defaultWorkflowPresetId,
+                                                  )}
+                                                )
+                                              </option>
+                                              {snapshot
+                                                .workspace!.workflowPresets.filter((preset) =>
+                                                  snapshot.workspace!.blueprint.allowedWorkflowPresetIds.includes(
+                                                    preset.id,
+                                                  ),
+                                                )
+                                                .map((preset) => (
+                                                  <option value={preset.id} key={preset.id}>
+                                                    {preset.name}
+                                                  </option>
+                                                ))}
+                                            </select>
+                                          </label>
+                                        )}
+                                        <button disabled={!snapshot.connected || busy}>
+                                          Save edits
+                                        </button>
+                                      </form>
+                                      <form onSubmit={(event) => moveTask(event, task)}>
+                                        <select name="status" defaultValue={task.status}>
+                                          {taskColumns.map(([value, text]) => (
+                                            <option value={value} key={value}>
+                                              {text}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <select name="needsYouAction" defaultValue="clarify">
+                                          <option value="clarify">Clarify</option>
+                                          <option value="approve">Approve</option>
+                                          <option value="review">Review</option>
+                                          <option value="resolve_conflict">Resolve conflict</option>
+                                          <option value="recover_failure">Recover failure</option>
+                                        </select>
+                                        <input
+                                          name="needsYouMessage"
+                                          placeholder="Required when moving to Needs you"
+                                        />
+                                        <button disabled={!snapshot.connected || busy}>Move</button>
+                                      </form>
+                                      <form onSubmit={(event) => resolveTask(event, task)}>
+                                        <select name="resolution" defaultValue="cancelled">
+                                          <option value="accepted">Accepted</option>
+                                          <option value="rejected">Rejected</option>
+                                          <option value="cancelled">Cancelled</option>
+                                        </select>
+                                        <input
+                                          name="summary"
+                                          required
+                                          placeholder="Why is this terminal?"
+                                        />
+                                        <button
+                                          className="danger"
+                                          disabled={!snapshot.connected || busy}
+                                        >
+                                          Resolve task
+                                        </button>
+                                      </form>
+                                    </details>
+                                  </article>
+                                )
+                              })
+                            )}
+                          </div>
+                        </section>
                       )
-                      .map((preset) => (
-                        <option value={preset.id} key={preset.id}>
-                          {preset.name}
-                        </option>
-                      ))}
-                  </select>
-                  <button disabled={!snapshot.connected || busy}>Save default</button>
-                </form>
-              </section>
-            )}
-
-            <section
-              className={`model-catalog-card ${snapshot.workspace.modelCatalog.status}`}
-              aria-live="polite"
-            >
-              <strong>
-                {snapshot.workspace.modelCatalog.status === 'ready' &&
-                snapshot.workspace.modelCatalog.providers.length > 0
-                  ? `Models loaded from ${snapshot.workspace.modelCatalog.providers.length} configured ${
-                      snapshot.workspace.modelCatalog.providers.length === 1
-                        ? 'provider'
-                        : 'providers'
-                    }`
-                  : 'Provider models unavailable'}
-              </strong>
-              <p>
-                {snapshot.workspace.modelCatalog.message ??
-                  'Choose a provider and Factoru will select its default model automatically.'}
-              </p>
-            </section>
-
-            {snapshot.workspace.team.map((worker) => (
-              <section className="worker-card" key={worker.kind}>
-                <header>
-                  <span className="avatar">{worker.kind === 'project_manager' ? 'PM' : 'SE'}</span>
-                  <div>
-                    <h2>{worker.displayName}</h2>
-                    <p>{worker.defaultFormula}</p>
+                    })}
                   </div>
-                  <span className="health-pill ready">capacity {worker.capacity}</span>
-                </header>
-                <details open>
-                  <summary>Model slots</summary>
-                  {worker.modelBindings.map((binding) => (
-                    <ModelBindingEditor
-                      key={`${binding.slot}:${binding.version}:${modelCatalogRevision(
-                        snapshot.workspace!.modelCatalog,
-                      )}`}
-                      binding={binding}
-                      catalog={snapshot.workspace!.modelCatalog}
-                      connected={snapshot.connected}
-                      busy={busy}
-                      onSave={(provider, model) =>
-                        updateModel(worker, binding.slot, provider, model)
-                      }
-                    />
-                  ))}
-                </details>
-                <details>
-                  <summary>Policy & tools</summary>
-                  <p>{worker.memoryPolicy.replaceAll('_', ' ')}</p>
-                  <ul>
-                    {worker.allowedTools.map((tool) => (
-                      <li key={tool}>{tool}</li>
-                    ))}
-                  </ul>
-                </details>
-              </section>
-            ))}
-
-            <section className="worker-card planner-card">
-              <header>
-                <div>
-                  <h2>Planner isolation probe</h2>
-                  <p>Runs separately while chat stays responsive.</p>
-                </div>
-                {snapshot.workspace.plannerProbe && (
-                  <span className={`health-pill ${snapshot.workspace.plannerProbe.status}`}>
-                    {statusLabel(snapshot.workspace.plannerProbe.status)}
-                  </span>
-                )}
-              </header>
-              {snapshot.workspace.plannerProbe &&
-              ['pending', 'running', 'cancelling'].includes(
-                snapshot.workspace.plannerProbe.status,
-              ) ? (
-                <button
-                  disabled={!snapshot.connected || busy}
-                  onClick={() =>
-                    void run(() =>
-                      window.factoru.product.cancelPlanner(
-                        activeProjectRef!,
-                        snapshot.workspace!.plannerProbe!.id,
-                      ),
-                    )
-                  }
-                >
-                  Cancel planner probe
-                </button>
+                </>
               ) : (
-                <button
-                  disabled={!snapshot.connected || busy}
-                  onClick={() =>
-                    void run(() => window.factoru.product.startPlanner(activeProjectRef!))
-                  }
-                >
-                  Run planner probe
-                </button>
+                <p className="board-note">Choose a project to see its task board.</p>
               )}
-            </section>
-
-            <section className="worker-card memory-card">
-              <header>
+            </TasksSurface>
+          ) : snapshot.workspace ? (
+            <TeamSurface>
+              <section className="factory-card">
                 <div>
-                  <h2>Durable memory</h2>
-                  <p>Every entry keeps explicit provenance and version history.</p>
+                  <p className="eyebrow">{snapshot.workspace.blueprint.name}</p>
+                  <strong>1 implementation at a time</strong>
                 </div>
-              </header>
-              <ul>
-                {snapshot.workspace.memory.map((entry) => (
-                  <li key={entry.id}>
-                    <span>{entry.content}</span>
-                    <small>
-                      {entry.scope} · v{entry.version} · {entry.provenance.ref}
-                    </small>
-                  </li>
-                ))}
-              </ul>
-              <form className="form-stack compact" onSubmit={addMemory}>
-                <label>
-                  Scope
-                  <select name="scope" defaultValue="project">
-                    <option value="project">Project</option>
-                    <option value="worker_type">Team role</option>
-                  </select>
-                </label>
-                <label>
-                  Team role
-                  <select name="workerTypeKind" defaultValue="project_manager">
-                    <option value="project_manager">Project Manager</option>
-                    <option value="software_engineer">Software Engineer</option>
-                  </select>
-                </label>
-                <textarea name="content" required rows={3} placeholder="A durable project fact…" />
-                <button disabled={!snapshot.connected || busy}>Add memory</button>
-              </form>
-            </section>
-          </div>
-        ) : (
-          <div className="empty-state small">Choose a project to inspect its team.</div>
-        )}
-      </aside>
+                <span className="health-pill ready">Serial MVP</span>
+              </section>
 
-      {!snapshot.remoteFactoryIntroComplete && (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="remote-factory-intro"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="remote-factory-intro-heading"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') completeRemoteFactoryIntro(false)
-            }}
-          >
-            <p className="eyebrow">Run work anywhere</p>
-            <h2 id="remote-factory-intro-heading">Add a remote factory</h2>
-            <p>
-              Keep Factoru running on a Raspberry Pi, Mac, or Linux host while this Desktop stays
-              connected to Local Factory too. Each project chooses one home factory.
-            </p>
-            <ol>
-              <li>Install and start Factoru Server on the remote host.</li>
-              <li>Keep it on loopback and create an SSH local-forward for this source preview.</li>
-              <li>Generate a pairing code, then add the forwarded Desktop URL here.</li>
-            </ol>
-            <pre>
-              <code>{`factoru-server status
-factoru-server pair --ssh-host user@server`}</code>
-            </pre>
-            <p className="muted">
-              The complete development instructions are in docs/remote-connection.md. Packaged setup
-              remains Milestone 7 work.
-            </p>
-            <div className="modal-actions">
-              <button type="button" onClick={() => completeRemoteFactoryIntro(false)}>
-                Not now
-              </button>
-              <button
-                type="button"
-                className="primary"
-                autoFocus
-                onClick={() => completeRemoteFactoryIntro(true)}
+              {snapshot.workspace.workflowPresets.length > 0 && (
+                <section className="worker-card">
+                  <header>
+                    <div>
+                      <h2>Project workflow</h2>
+                      <p>Tasks inherit this preset unless a user locks an override.</p>
+                    </div>
+                  </header>
+                  <form className="model-row" onSubmit={updateWorkflowDefault}>
+                    <label htmlFor="project-workflow-preset">Default preset</label>
+                    <select
+                      id="project-workflow-preset"
+                      name="workflowPresetId"
+                      defaultValue={snapshot.workspace.factory.defaultWorkflowPresetId}
+                      disabled={!snapshot.connected}
+                    >
+                      {snapshot.workspace.workflowPresets
+                        .filter((preset) =>
+                          snapshot.workspace!.blueprint.allowedWorkflowPresetIds.includes(
+                            preset.id,
+                          ),
+                        )
+                        .map((preset) => (
+                          <option value={preset.id} key={preset.id}>
+                            {preset.name}
+                          </option>
+                        ))}
+                    </select>
+                    <button disabled={!snapshot.connected || busy}>Save default</button>
+                  </form>
+                </section>
+              )}
+
+              <section
+                className={`model-catalog-card ${snapshot.workspace.modelCatalog.status}`}
+                aria-live="polite"
               >
-                Add remote factory
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+                <strong>
+                  {snapshot.workspace.modelCatalog.status === 'ready' &&
+                  snapshot.workspace.modelCatalog.providers.length > 0
+                    ? `Models loaded from ${snapshot.workspace.modelCatalog.providers.length} configured ${
+                        snapshot.workspace.modelCatalog.providers.length === 1
+                          ? 'provider'
+                          : 'providers'
+                      }`
+                    : 'Provider models unavailable'}
+                </strong>
+                <p>
+                  {snapshot.workspace.modelCatalog.message ??
+                    'Choose a provider and Factoru will select its default model automatically.'}
+                </p>
+              </section>
 
-      {showDevices && deviceFactory && (
-        <section className="device-drawer" aria-labelledby="trusted-devices-heading">
-          <header>
-            <div>
-              <h2 id="trusted-devices-heading">Trusted devices</h2>
-              <p className="muted">{deviceFactory.name}</p>
-            </div>
-            <button
-              onClick={() => {
-                setShowDevices(false)
-                setDeviceFactoryId(null)
-                setDevices([])
-              }}
-            >
-              Close
-            </button>
-          </header>
-          {devices.length === 0 ? (
-            <p className="muted">No trusted devices found for this factory.</p>
-          ) : (
-            devices.map((device) => (
-              <div key={device.id}>
-                <span>{device.name}</span>
-                {!device.revokedAt && (
+              {snapshot.workspace.team.map((worker) => (
+                <section className="worker-card" key={worker.kind}>
+                  <header>
+                    <span className="avatar">
+                      {worker.kind === 'project_manager' ? 'PM' : 'SE'}
+                    </span>
+                    <div>
+                      <h2>{worker.displayName}</h2>
+                      <p>{worker.defaultFormula}</p>
+                    </div>
+                    <span className="health-pill ready">capacity {worker.capacity}</span>
+                  </header>
+                  <details open>
+                    <summary>Model slots</summary>
+                    {worker.modelBindings.map((binding) => (
+                      <ModelBindingEditor
+                        key={`${binding.slot}:${binding.version}:${modelCatalogRevision(
+                          snapshot.workspace!.modelCatalog,
+                        )}`}
+                        binding={binding}
+                        catalog={snapshot.workspace!.modelCatalog}
+                        connected={snapshot.connected}
+                        busy={busy}
+                        onSave={(provider, model) =>
+                          updateModel(worker, binding.slot, provider, model)
+                        }
+                      />
+                    ))}
+                  </details>
+                  <details>
+                    <summary>Policy & tools</summary>
+                    <p>{worker.memoryPolicy.replaceAll('_', ' ')}</p>
+                    <ul>
+                      {worker.allowedTools.map((tool) => (
+                        <li key={tool}>{tool}</li>
+                      ))}
+                    </ul>
+                  </details>
+                </section>
+              ))}
+
+              <section className="worker-card planner-card">
+                <header>
+                  <div>
+                    <h2>Planner isolation probe</h2>
+                    <p>Runs separately while chat stays responsive.</p>
+                  </div>
+                  {snapshot.workspace.plannerProbe && (
+                    <span className={`health-pill ${snapshot.workspace.plannerProbe.status}`}>
+                      {statusLabel(snapshot.workspace.plannerProbe.status)}
+                    </span>
+                  )}
+                </header>
+                {snapshot.workspace.plannerProbe &&
+                ['pending', 'running', 'cancelling'].includes(
+                  snapshot.workspace.plannerProbe.status,
+                ) ? (
                   <button
+                    disabled={!snapshot.connected || busy}
                     onClick={() =>
-                      window.confirm(`Revoke ${device.name}?`) &&
                       void run(() =>
-                        window.factoru.product.revoke(deviceFactory.serverId, device.id),
-                      ).then(() =>
-                        window.factoru.product.devices(deviceFactory.serverId).then(setDevices),
+                        window.factoru.product.cancelPlanner(
+                          activeProjectRef!,
+                          snapshot.workspace!.plannerProbe!.id,
+                        ),
                       )
                     }
                   >
-                    Revoke
+                    Cancel planner probe
+                  </button>
+                ) : (
+                  <button
+                    disabled={!snapshot.connected || busy}
+                    onClick={() =>
+                      void run(() => window.factoru.product.startPlanner(activeProjectRef!))
+                    }
+                  >
+                    Run planner probe
                   </button>
                 )}
-              </div>
-            ))
+              </section>
+
+              <section className="worker-card memory-card">
+                <header>
+                  <div>
+                    <h2>Durable memory</h2>
+                    <p>Every entry keeps explicit provenance and version history.</p>
+                  </div>
+                </header>
+                <ul>
+                  {snapshot.workspace.memory.map((entry) => (
+                    <li key={entry.id}>
+                      <span>{entry.content}</span>
+                      <small>
+                        {entry.scope} · v{entry.version} · {entry.provenance.ref}
+                      </small>
+                    </li>
+                  ))}
+                </ul>
+                <form className="form-stack compact" onSubmit={addMemory}>
+                  <label>
+                    Scope
+                    <select name="scope" defaultValue="project">
+                      <option value="project">Project</option>
+                      <option value="worker_type">Team role</option>
+                    </select>
+                  </label>
+                  <label>
+                    Team role
+                    <select name="workerTypeKind" defaultValue="project_manager">
+                      <option value="project_manager">Project Manager</option>
+                      <option value="software_engineer">Software Engineer</option>
+                    </select>
+                  </label>
+                  <textarea
+                    name="content"
+                    required
+                    rows={3}
+                    placeholder="A durable project fact…"
+                  />
+                  <button disabled={!snapshot.connected || busy}>Add memory</button>
+                </form>
+              </section>
+            </TeamSurface>
+          ) : (
+            <div className="empty-state small">Choose a project to inspect its team.</div>
           )}
-        </section>
+        </aside>
+      </ResponsivePane>
+
+      {!snapshot.remoteFactoryIntroComplete && (
+        <Dialog
+          open
+          onOpenChange={(open) => !open && completeRemoteFactoryIntro(false)}
+          title="Add a remote factory"
+          description="Run work anywhere"
+          className="remote-factory-intro"
+        >
+          <p>
+            Keep Factoru running on a Raspberry Pi, Mac, or Linux host while this Desktop stays
+            connected to Local Factory too. Each project chooses one home factory.
+          </p>
+          <ol>
+            <li>Install and start Factoru Server on the remote host.</li>
+            <li>Keep it on loopback and create an SSH local-forward for this source preview.</li>
+            <li>Generate a pairing code, then add the forwarded Desktop URL here.</li>
+          </ol>
+          <pre>
+            <code>{`factoru-server status
+factoru-server pair --ssh-host user@server`}</code>
+          </pre>
+          <p className="muted">
+            The complete development instructions are in docs/remote-connection.md. Packaged setup
+            remains Milestone 7 work.
+          </p>
+          <div className="modal-actions">
+            <button type="button" onClick={() => completeRemoteFactoryIntro(false)}>
+              Not now
+            </button>
+            <button
+              type="button"
+              className="primary"
+              autoFocus
+              onClick={() => completeRemoteFactoryIntro(true)}
+            >
+              Add remote factory
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {showDevices && deviceFactory && (
+        <Drawer
+          open
+          onOpenChange={(open) => {
+            if (open) return
+            setShowDevices(false)
+            setDeviceFactoryId(null)
+            setDevices([])
+          }}
+          title="Trusted devices"
+          width={340}
+        >
+          <section className="device-drawer-content" aria-labelledby="trusted-devices-heading">
+            <header>
+              <div>
+                <h2 id="trusted-devices-heading">Trusted devices</h2>
+                <p className="muted">{deviceFactory.name}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDevices(false)
+                  setDeviceFactoryId(null)
+                  setDevices([])
+                }}
+              >
+                Close
+              </button>
+            </header>
+            {devices.length === 0 ? (
+              <p className="muted">No trusted devices found for this factory.</p>
+            ) : (
+              devices.map((device) => (
+                <div key={device.id}>
+                  <span>{device.name}</span>
+                  {!device.revokedAt && (
+                    <button
+                      onClick={() =>
+                        window.confirm(`Revoke ${device.name}?`) &&
+                        void run(() =>
+                          window.factoru.product.revoke(deviceFactory.serverId, device.id),
+                        ).then(() =>
+                          window.factoru.product.devices(deviceFactory.serverId).then(setDevices),
+                        )
+                      }
+                    >
+                      Revoke
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </section>
+        </Drawer>
       )}
 
       {(error || snapshot.error) && (
@@ -2209,6 +2306,6 @@ factoru-server pair --ssh-host user@server`}</code>
           <button onClick={() => setError(null)}>Dismiss</button>
         </div>
       )}
-    </main>
+    </DesktopShell>
   )
 }
