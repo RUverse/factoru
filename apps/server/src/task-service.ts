@@ -21,6 +21,9 @@ export function taskProjection(record: TaskRecord): Task {
     queueOrder: record.queueOrder,
     workerTypeKind: record.workerTypeKind,
     formulaName: record.formulaName,
+    workflowPresetId: record.workflowPresetId,
+    workflowSelectionSource: record.workflowSelectionSource,
+    workflowLockedByUser: record.workflowLockedByUser,
     needsYouAction: record.needsYouAction,
     needsYouMessage: record.needsYouMessage,
     resolution: record.resolution,
@@ -64,6 +67,7 @@ export class TaskService {
       title?: string
       description?: string
       priority?: number
+      workflowPresetId?: Task['workflowPresetId']
     },
     actorId: string,
   ): Task {
@@ -71,6 +75,9 @@ export class TaskService {
     return taskProjection(
       this.#database.tasks.update({
         ...input,
+        workflowSelectionSource: input.workflowPresetId === undefined ? undefined : 'user',
+        workflowLockedByUser:
+          input.workflowPresetId === undefined ? undefined : input.workflowPresetId !== null,
         actorKind: 'user',
         actorId,
       }),

@@ -98,6 +98,8 @@ export interface RunCorrelation {
    * same name, and a run must remain explainable afterwards.
    */
   readonly formulaHash: string | undefined
+  /** Factoru-owned source bead used by attached formula launches. */
+  readonly sourceBeadId?: string
   /** Event sequence at dispatch, so observation resumes from the right place. */
   readonly startingEventSeq: number
 }
@@ -110,6 +112,8 @@ export interface RunCorrelation {
 const REQUIRED_SUPERVISOR_PATHS: readonly string[] = [
   '/v0/city/{cityName}/provider-readiness',
   '/v0/city/{cityName}/rigs',
+  '/v0/city/{cityName}/beads',
+  '/v0/city/{cityName}/formulas/{name}/preview',
   '/v0/city/{cityName}/sling',
   '/v0/city/{cityName}/runs/{run_id}/steps',
   '/v0/city/{cityName}/runs/{run_id}/cancel',
@@ -208,6 +212,20 @@ const slingResultSchema = z.object({
   workflow_id: z.string(),
   root_bead_id: z.string(),
   run: z.object({ run_id: z.string(), status: z.string().optional() }).optional(),
+})
+
+const beadSchema = z.object({ id: z.string(), status: z.string().optional() })
+
+const formulaPreviewSchema = z.object({
+  name: z.string(),
+  steps: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.string(),
+      metadata: z.record(z.string(), z.string()).default({}),
+    }),
+  ),
+  deps: z.array(z.object({ from: z.string(), to: z.string() })).default([]),
 })
 
 const runStepsSchema = z.object({
@@ -322,6 +340,74 @@ export interface GasCityAdapterOptions {
   readonly probe: CommandProbe
   /** Resolves the exact pinned source Factoru validates before dispatch. */
   readonly formulaSource?: (formulaName: string) => Promise<string>
+}
+
+export interface InheritedFormulaCapabilityPolicy {
+  readonly maxImplementationUnits: number
+  readonly drainContext: 'shared'
+  readonly requiredStepIds: readonly string[]
+  readonly requiredEdges: readonly (readonly [from: string, to: string])[]
+}
+
+function semanticStepMatches(compiledId: string, semanticId: string): boolean {
+  return compiledId === semanticId || compiledId.endsWith(`.${semanticId}`)
+}
+
+function validateInheritedFormulaPreview(
+  raw: unknown,
+  formulaName: string,
+  policy: InheritedFormulaCapabilityPolicy,
+): void {
+  const preview = formulaPreviewSchema.parse(raw)
+  if (preview.name !== formulaName) {
+    throw new GasCityError('Inherited formula preview resolved the wrong formula', {
+      kind: 'invalid_request',
+    })
+  }
+  for (const required of policy.requiredStepIds) {
+    if (!preview.steps.some((step) => semanticStepMatches(step.id, required))) {
+      throw new GasCityError(`Inherited formula is missing required step ${required}`, {
+        kind: 'invalid_request',
+      })
+    }
+  }
+  for (const [from, to] of policy.requiredEdges) {
+    if (
+      !preview.deps.some(
+        (edge) => semanticStepMatches(edge.from, from) && semanticStepMatches(edge.to, to),
+      )
+    ) {
+      throw new GasCityError(`Inherited formula is missing required dependency ${from} -> ${to}`, {
+        kind: 'invalid_request',
+      })
+    }
+  }
+  if (preview.steps.some((step) => step.kind === 'gate' || step.kind === 'wait')) {
+    throw new GasCityError('Inherited formula requires an interactive or waiting gate', {
+      kind: 'invalid_request',
+    })
+  }
+  const drains = preview.steps.filter((step) => step.kind === 'drain')
+  if (drains.length === 0) {
+    throw new GasCityError('Inherited formula has no bounded implementation drain', {
+      kind: 'invalid_request',
+    })
+  }
+  for (const drain of drains) {
+    const rawMaxUnits = drain.metadata['gc.drain_max_units'] ?? ''
+    const maxUnits = /^\d+$/.test(rawMaxUnits) ? Number(rawMaxUnits) : Number.NaN
+    if (
+      drain.metadata['gc.drain_context'] !== policy.drainContext ||
+      !Number.isInteger(maxUnits) ||
+      maxUnits < 1 ||
+      maxUnits > policy.maxImplementationUnits ||
+      drain.metadata['gc.drain_item_single_lane'] !== 'true'
+    ) {
+      throw new GasCityError('Inherited formula violates the preset drain capability policy', {
+        kind: 'invalid_request',
+      })
+    }
+  }
 }
 
 export class GasCityAdapter {
@@ -518,8 +604,38 @@ export class GasCityAdapter {
     title: string
     variables: Readonly<Record<string, FormulaVariableValue>>
     requestId?: string
+    launchMode?: 'standalone' | 'attached'
+    capabilityPolicy?: InheritedFormulaCapabilityPolicy
+    sourceBead?: {
+      description: string
+      labels?: readonly string[]
+      metadata: Readonly<Record<string, string>>
+      priority?: number
+    }
   }): Promise<RunCorrelation> {
-    if (this.#formulaSource) {
+    const launchMode = request.launchMode ?? 'standalone'
+    if (launchMode === 'attached') {
+      if (!request.sourceBead) {
+        throw new GasCityError('Attached workflow launch requires source bead metadata', {
+          kind: 'invalid_request',
+        })
+      }
+      if (!request.capabilityPolicy) {
+        throw new GasCityError('Attached workflow launch requires a capability policy', {
+          kind: 'invalid_request',
+        })
+      }
+      const preview = await this.#client.post(
+        `/city/${this.#cityName}/formulas/${request.formulaName}/preview`,
+        {
+          scope_kind: 'rig',
+          scope_ref: request.rigName,
+          target: request.target,
+          vars: serializeFormulaVariables(request.variables),
+        },
+      )
+      validateInheritedFormulaPreview(preview, request.formulaName, request.capabilityPolicy)
+    } else if (this.#formulaSource) {
       validateFormulaV2(
         await this.#formulaSource(request.formulaName),
         request.formulaName,
@@ -527,12 +643,33 @@ export class GasCityAdapter {
       )
     }
     const startingEventSeq = await this.#currentEventSeq()
+    const sourceBead =
+      launchMode === 'attached'
+        ? beadSchema.parse(
+            await this.#client.post(
+              `/city/${this.#cityName}/beads`,
+              {
+                rig: request.rigName,
+                title: request.title,
+                type: 'feature',
+                description: request.sourceBead!.description,
+                labels: [...(request.sourceBead!.labels ?? [])],
+                metadata: request.sourceBead!.metadata,
+                ...(request.sourceBead!.priority === undefined
+                  ? {}
+                  : { priority: request.sourceBead!.priority }),
+              },
+              { idempotencyKey: `${request.requestId ?? request.title}:source` },
+            ),
+          )
+        : undefined
 
     const raw = await this.#client.post(
       `/city/${this.#cityName}/sling`,
       {
         target: request.target,
         formula: request.formulaName,
+        ...(sourceBead ? { attached_bead_id: sourceBead.id } : {}),
         rig: request.rigName,
         scope_kind: 'rig',
         scope_ref: request.rigName,
@@ -552,6 +689,7 @@ export class GasCityAdapter {
       workflowRootBeadId: result.root_bead_id,
       formulaName: request.formulaName,
       formulaHash,
+      sourceBeadId: sourceBead?.id,
       startingEventSeq,
     }
   }

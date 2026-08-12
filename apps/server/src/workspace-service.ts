@@ -25,7 +25,16 @@ import type {
   RunSnapshot,
   ProjectRuntimeConfigurator,
   FormulaVariableValue,
+  InheritedFormulaCapabilityPolicy,
 } from '@factoru/gas-city'
+import {
+  PROJECT_BLUEPRINTS,
+  WORKFLOW_PRESETS,
+  projectBlueprint,
+  workflowPreset,
+  validateWorkflowPresetLaunch,
+  type WorkflowPresetId,
+} from '@factoru/domain'
 import { ApplicationError } from './project-service.js'
 import { CapsuleIntegrationError, type ExecutionCapsuleManager } from './capsule-service.js'
 
@@ -54,6 +63,14 @@ export interface ProjectManagerOrchestrator {
     title: string
     variables: Readonly<Record<string, FormulaVariableValue>>
     requestId?: string
+    launchMode?: 'standalone' | 'attached'
+    capabilityPolicy?: InheritedFormulaCapabilityPolicy
+    sourceBead?: {
+      description: string
+      labels?: readonly string[]
+      metadata: Readonly<Record<string, string>>
+      priority?: number
+    }
   }): Promise<RunCorrelation>
   describeRun(runId: string, workflowRootBeadId: string): Promise<RunSnapshot>
   readRunUsage?(
@@ -128,6 +145,9 @@ function taskProjection(record: TaskRecord): Task {
     queueOrder: record.queueOrder,
     workerTypeKind: record.workerTypeKind,
     formulaName: record.formulaName,
+    workflowPresetId: record.workflowPresetId,
+    workflowSelectionSource: record.workflowSelectionSource,
+    workflowLockedByUser: record.workflowLockedByUser,
     needsYouAction: record.needsYouAction,
     needsYouMessage: record.needsYouMessage,
     resolution: record.resolution,
@@ -149,6 +169,13 @@ function executionProjection(record: ExecutionRunRecord): ExecutionRun {
     formulaName: record.formulaName,
     formulaVersion: record.formulaVersion,
     formulaHash: record.formulaHash,
+    workflowPresetId: record.workflowPresetId,
+    workflowPresetVersion: record.workflowPresetVersion,
+    resolvedVariables: record.resolvedVariables,
+    blueprintId: record.blueprintId,
+    blueprintVersion: record.blueprintVersion,
+    packLockDigest: record.packLockDigest,
+    sourceBeadId: record.sourceBeadId,
     status: record.status,
     stage: record.stage,
     capsule:
@@ -181,7 +208,7 @@ export class WorkspaceService {
   readonly #configurator: ProjectRuntimeConfigurator | null
   readonly #capsules: ExecutionCapsuleManager | null
   readonly #cityName: string
-  readonly #packVersion: string
+  readonly #packLockDigest: string
   #adapterRegistered = false
 
   constructor(
@@ -191,7 +218,7 @@ export class WorkspaceService {
     execution: {
       capsules: ExecutionCapsuleManager
       cityName: string
-      packVersion: string
+      packLockDigest: string
     } | null = null,
   ) {
     this.#database = database
@@ -199,7 +226,7 @@ export class WorkspaceService {
     this.#configurator = configurator
     this.#capsules = execution?.capsules ?? null
     this.#cityName = execution?.cityName ?? ''
-    this.#packVersion = execution?.packVersion ?? ''
+    this.#packLockDigest = execution?.packLockDigest ?? ''
   }
 
   get(projectId: string): Workspace {
@@ -224,6 +251,10 @@ export class WorkspaceService {
     return workspaceSchema.parse({
       projectId,
       factory,
+      blueprint: projectBlueprint(factory.blueprintId),
+      blueprintCatalog: PROJECT_BLUEPRINTS,
+      workflowPresets: WORKFLOW_PRESETS,
+      team: this.#database.product.listWorkerTypes(projectId).map(workerProjection),
       workerTypes: this.#database.product.listWorkerTypes(projectId).map(workerProjection),
       conversation: this.#conversationProjection(conversation),
       memory,
@@ -292,6 +323,28 @@ export class WorkspaceService {
         throw new ApplicationError(
           'invalid_model_binding',
           'Provider and model must be configured together',
+        )
+      }
+      throw error
+    }
+  }
+
+  updateProjectWorkflowDefault(
+    projectId: string,
+    presetId: WorkflowPresetId,
+  ): Workspace['factory'] {
+    this.#requireConversation(projectId)
+    try {
+      const updated = this.#database.product.updateDefaultWorkflowPreset(projectId, presetId)
+      if (this.#database.tasks.listActive(projectId).some((task) => task.status === 'queue')) {
+        this.#database.tasks.requestReconciliation(projectId, 'project_workflow_default_updated')
+      }
+      return updated
+    } catch (error) {
+      if (error instanceof Error && error.message === 'workflow_preset_not_allowed') {
+        throw new ApplicationError(
+          'workflow_preset_not_allowed',
+          'This workflow is not allowed by the project blueprint',
         )
       }
       throw error
@@ -436,7 +489,7 @@ export class WorkspaceService {
     if (this.#capsules) {
       this.#database.tasks.admitNextExecution({
         cityName: this.#cityName,
-        packVersion: this.#packVersion,
+        packLockDigest: this.#packLockDigest,
       })
       await this.#dispatchExecution()
     }
@@ -470,6 +523,7 @@ export class WorkspaceService {
           chatAgentName: conversation.agentName,
           chat: binding('project_manager', 'chat'),
           planning: binding('project_manager', 'planning'),
+          design: binding('software_engineer', 'design'),
           implementation: binding('software_engineer', 'implementation'),
           review: binding('software_engineer', 'review'),
         }
@@ -569,6 +623,7 @@ export class WorkspaceService {
     const project = this.#database.getProject(claimed.reconciliation.projectId)
     if (!project) return
     try {
+      this.#database.tasks.applyProjectWorkflowDefault(project.id)
       const correlation = await this.#orchestrator.startRun({
         rigName: project.rig.rigName,
         formulaName: 'queue-reconcile',
@@ -640,23 +695,88 @@ export class WorkspaceService {
         branchName: capsule.branchName,
         baseBranch: capsule.baseBranch,
       })
+      const preset = workflowPreset(claimed.run.workflowPresetId ?? 'fast-patch')
+      const request = [task.title, task.description].filter(Boolean).join('\n\n')
+      const variables: Record<string, FormulaVariableValue> =
+        preset.id === 'standard-build'
+          ? {
+              ...preset.variables,
+              task_id: task.id,
+              run_id: claimed.run.id,
+              request,
+              artifact_root: capsule.evidencePath,
+              capsule_path: capsule.worktreePath,
+              evidence_path: capsule.evidencePath,
+              verification_script: capsule.verificationScript,
+            }
+          : {
+              task_id: task.id,
+              run_id: claimed.run.id,
+              request,
+              capsule_path: capsule.worktreePath,
+              base_branch: capsule.baseBranch,
+              evidence_path: capsule.evidencePath,
+              verification_script: capsule.verificationScript,
+              implementation_target: `${project.rig.rigName}/factoru.software-implementer`,
+              review_target: `${project.rig.rigName}/factoru.software-reviewer`,
+            }
+      validateWorkflowPresetLaunch({
+        presetId: preset.id,
+        formulaName: preset.formulaName,
+        launchMode: preset.launchMode,
+        variables,
+      })
+      this.#database.tasks.setExecutionVariables(claimed.run.id, variables)
       const correlation = await this.#orchestrator.startRun({
         rigName: project.rig.rigName,
-        formulaName: 'software-delivery',
-        target: `${project.rig.rigName}/factoru.software-implementer`,
+        formulaName: preset.formulaName,
+        target:
+          preset.launchMode === 'attached'
+            ? `${project.rig.rigName}/gc.run-operator`
+            : `${project.rig.rigName}/factoru.software-implementer`,
         title: `Deliver ${task.title}`,
-        variables: {
-          task_id: task.id,
-          run_id: claimed.run.id,
-          request: [task.title, task.description].filter(Boolean).join('\n\n'),
-          capsule_path: capsule.worktreePath,
-          base_branch: capsule.baseBranch,
-          evidence_path: capsule.evidencePath,
-          verification_script: capsule.verificationScript,
-          implementation_target: `${project.rig.rigName}/factoru.software-implementer`,
-          review_target: `${project.rig.rigName}/factoru.software-reviewer`,
-        },
+        variables,
         requestId: claimed.run.requestId,
+        launchMode: preset.launchMode,
+        ...(preset.launchMode === 'attached'
+          ? {
+              capabilityPolicy: {
+                maxImplementationUnits: preset.capabilities.maxImplementationUnits,
+                drainContext: 'shared',
+                requiredStepIds: [
+                  'requirements',
+                  'plan',
+                  'decompose',
+                  'factoru-bind-capsule',
+                  'implement-same-session',
+                  'summarize-implementation',
+                  'factoru-verify',
+                  'review',
+                  'finalize',
+                ],
+                requiredEdges: [
+                  ['decompose', 'factoru-bind-capsule'],
+                  ['factoru-bind-capsule', 'implement-same-session'],
+                  ['summarize-implementation', 'factoru-verify'],
+                  ['factoru-verify', 'review'],
+                  ['review', 'finalize'],
+                ],
+              },
+              sourceBead: {
+                description: request,
+                labels: ['factoru', `factoru-preset:${preset.id}`],
+                metadata: {
+                  'factoru.project_id': project.id,
+                  'factoru.task_id': task.id,
+                  'factoru.run_id': claimed.run.id,
+                  'factoru.workflow_preset_id': preset.id,
+                  work_dir: capsule.worktreePath,
+                  artifact_dir: capsule.evidencePath,
+                },
+                priority: Math.max(0, Math.min(4, Math.floor((100 - task.priority) / 25))),
+              },
+            }
+          : {}),
       })
       this.#database.tasks.startExecution(claimed.run.id, correlation, claimed.outboxId)
     } catch (error) {
@@ -721,7 +841,7 @@ export class WorkspaceService {
     })
     if (statuses.some((status) => status === 'failed')) {
       this.#database.tasks.finishExecution(run.id, 'failed', {
-        error: { code: 'software_delivery_failed', message: 'A software-delivery step failed.' },
+        error: { code: 'workflow_failed', message: `A ${run.formulaName} step failed.` },
       })
       return
     }

@@ -19,6 +19,7 @@ export interface ProjectRuntimeConfiguration {
   chatAgentName: string
   chat: ProjectAgentBinding
   planning: ProjectAgentBinding
+  design: ProjectAgentBinding
   implementation: ProjectAgentBinding
   review: ProjectAgentBinding
 }
@@ -234,6 +235,18 @@ function patchBlock(project: ProjectRuntimeConfiguration): string {
     ['project-manager-planner', project.planning],
     ['software-implementer', project.implementation],
     ['software-reviewer', project.review],
+    ['gc.run-operator', project.design],
+    ['gc.requirements-planner', project.design],
+    ['gc.design-author', project.design],
+    ['gc.task-decomposer', project.design],
+    ['gc.issue-triager', project.design],
+    ['gc.design-implementation-reviewer', project.review],
+    ['gc.design-test-risk-reviewer', project.review],
+    ['gc.review-synthesizer', project.review],
+    ['gc.gap-analyst', project.review],
+    ['gc.implementation-reviewer', project.review],
+    ['gc.implementation-worker', project.implementation],
+    ['gc.publisher', project.implementation],
   ]
   return bindings
     .filter(([, binding]) => binding.provider !== null)
@@ -263,12 +276,12 @@ function updateRigBlock(source: string, project: ProjectRuntimeConfiguration): s
 }
 
 /**
- * Projects Factoru-owned Worker Type bindings into the dedicated city.
+ * Projects Factoru-owned Team model bindings into the dedicated city.
  *
  * Root-pack named sessions are city scoped in Gas City 1.4.0. Each project
  * therefore gets a distinct local chat agent/template and named session, while
- * planner/implementer/reviewer model choices are rig patches on the imported
- * Factoru pack agents. The two generated regions are bounded and idempotent;
+ * planner/design/implementer/reviewer model choices are rig patches on the
+ * imported Factoru and upstream role agents. The two generated regions are bounded and idempotent;
  * unrelated city configuration is preserved byte-for-byte.
  */
 export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
@@ -297,6 +310,7 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
       for (const binding of [
         project.chat,
         project.planning,
+        project.design,
         project.implementation,
         project.review,
       ]) {

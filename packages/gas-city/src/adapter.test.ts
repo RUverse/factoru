@@ -198,6 +198,8 @@ describe('GasCityAdapter.verifySupervisorContract', () => {
           [
             '/v0/city/{cityName}/provider-readiness',
             '/v0/city/{cityName}/rigs',
+            '/v0/city/{cityName}/beads',
+            '/v0/city/{cityName}/formulas/{name}/preview',
             '/v0/city/{cityName}/sling',
             '/v0/city/{cityName}/runs/{run_id}/steps',
             '/v0/city/{cityName}/runs/{run_id}/cancel',
@@ -366,6 +368,149 @@ describe('GasCityAdapter.startRun', () => {
 
     expect(correlation.runId).toBe('pr-x')
     expect(correlation.formulaHash).toBeUndefined()
+  })
+
+  it('resolves inherited formulas at rig scope and idempotently attaches a source bead', async () => {
+    const { fn, calls } = fakeFetch((url) => {
+      if (url.pathname.endsWith('/preview')) {
+        return {
+          body: {
+            name: 'standard-build',
+            steps: [
+              { id: 'standard-build.requirements', kind: 'task' },
+              { id: 'standard-build.factoru-bind-capsule', kind: 'task' },
+              {
+                id: 'standard-build.implement-same-session',
+                kind: 'drain',
+                metadata: {
+                  'gc.drain_context': 'shared',
+                  'gc.drain_max_units': '20',
+                  'gc.drain_item_single_lane': 'true',
+                },
+              },
+              { id: 'standard-build.factoru-verify', kind: 'check' },
+              { id: 'standard-build.review', kind: 'expansion' },
+            ],
+            deps: [
+              {
+                from: 'standard-build.factoru-bind-capsule',
+                to: 'standard-build.implement-same-session',
+              },
+              { from: 'standard-build.factoru-verify', to: 'standard-build.review' },
+            ],
+          },
+        }
+      }
+      if (url.pathname.endsWith('/events')) return { body: { items: [] } }
+      if (url.pathname.endsWith('/beads')) return { body: { id: 'fx-source-1', status: 'open' } }
+      if (url.pathname.endsWith('/sling')) {
+        return {
+          body: {
+            workflow_id: 'fx-standard-1',
+            root_bead_id: 'fx-root-1',
+            run: { run_id: 'fx-run-1' },
+          },
+        }
+      }
+      return {
+        body: {
+          workflow_id: 'fx-standard-1',
+          root_bead_id: 'fx-root-1',
+          beads: [{ id: 'fx-root-1', metadata: { 'gc.formula_hash': 'sha-standard' } }],
+        },
+      }
+    })
+
+    const correlation = await adapterWith(fn).startRun({
+      rigName: 'probe',
+      formulaName: 'standard-build',
+      target: 'probe/gc.run-operator',
+      title: 'Deliver attached task',
+      variables: { task_id: 'task_1', capsule_path: '/capsule' },
+      requestId: 'run-request-1',
+      launchMode: 'attached',
+      capabilityPolicy: {
+        maxImplementationUnits: 20,
+        drainContext: 'shared',
+        requiredStepIds: [
+          'requirements',
+          'factoru-bind-capsule',
+          'implement-same-session',
+          'factoru-verify',
+          'review',
+        ],
+        requiredEdges: [
+          ['factoru-bind-capsule', 'implement-same-session'],
+          ['factoru-verify', 'review'],
+        ],
+      },
+      sourceBead: {
+        description: 'Implement the task',
+        labels: ['factoru'],
+        metadata: { 'factoru.run_id': 'run_1', work_dir: '/capsule' },
+      },
+    })
+
+    expect(correlation).toMatchObject({ sourceBeadId: 'fx-source-1', runId: 'fx-run-1' })
+    const paths = calls.map((call) => call.url.pathname)
+    expect(paths.indexOf('/v0/city/factoru-spike/formulas/standard-build/preview')).toBeLessThan(
+      paths.indexOf('/v0/city/factoru-spike/beads'),
+    )
+    const bead = calls.find((call) => call.url.pathname.endsWith('/beads'))!
+    expect((bead.init.headers as Record<string, string>)['Idempotency-Key']).toBe(
+      'run-request-1:source',
+    )
+    const sling = calls.find((call) => call.url.pathname.endsWith('/sling'))!
+    expect(JSON.parse(String(sling.init.body))).toMatchObject({
+      attached_bead_id: 'fx-source-1',
+      scope_kind: 'rig',
+      scope_ref: 'probe',
+    })
+  })
+
+  it('rejects an inherited formula that exceeds its preset capability before creating a bead', async () => {
+    const { fn, calls } = fakeFetch((url) =>
+      url.pathname.endsWith('/preview')
+        ? {
+            body: {
+              name: 'standard-build',
+              steps: [
+                { id: 'standard-build.factoru-verify', kind: 'check' },
+                {
+                  id: 'standard-build.implement-same-session',
+                  kind: 'drain',
+                  metadata: {
+                    'gc.drain_context': 'shared',
+                    'gc.drain_max_units': '21',
+                    'gc.drain_item_single_lane': 'true',
+                  },
+                },
+              ],
+              deps: [],
+            },
+          }
+        : { body: { items: [] } },
+    )
+
+    await expect(
+      adapterWith(fn).startRun({
+        rigName: 'probe',
+        formulaName: 'standard-build',
+        target: 'probe/gc.run-operator',
+        title: 'Rejected attached task',
+        variables: {},
+        launchMode: 'attached',
+        capabilityPolicy: {
+          maxImplementationUnits: 20,
+          drainContext: 'shared',
+          requiredStepIds: ['factoru-verify', 'implement-same-session'],
+          requiredEdges: [],
+        },
+        sourceBead: { description: 'task', metadata: { work_dir: '/capsule' } },
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_request' })
+    expect(calls.some((call) => call.url.pathname.endsWith('/beads'))).toBe(false)
+    expect(calls.some((call) => call.url.pathname.endsWith('/sling'))).toBe(false)
   })
 })
 

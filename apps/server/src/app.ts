@@ -16,6 +16,8 @@ import {
   CAPABILITY_CONVERSATIONS,
   CAPABILITY_WORKSPACES,
   CAPABILITY_WORKER_TYPES,
+  CAPABILITY_PROJECT_BLUEPRINTS,
+  CAPABILITY_WORKFLOW_PRESETS,
   CAPABILITY_TASKS,
   CAPABILITY_QUEUE_RECONCILIATION,
   CAPABILITY_SOFTWARE_DELIVERY,
@@ -43,6 +45,7 @@ import {
   pairingExchangeResponseSchema,
   problem,
   projectCreateParamsSchema,
+  projectWorkflowDefaultUpdateParamsSchema,
   projectIdParamsSchema,
   projectPreviewParamsSchema,
   projectSnapshotSchema,
@@ -146,6 +149,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
                 CAPABILITY_WORKSPACES,
                 CAPABILITY_CONVERSATIONS,
                 CAPABILITY_WORKER_TYPES,
+                CAPABILITY_PROJECT_BLUEPRINTS,
+                CAPABILITY_WORKFLOW_PRESETS,
                 CAPABILITY_SOFTWARE_DELIVERY,
               ]
             : []),
@@ -395,7 +400,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'devices.revoke': 'devices:revoke',
       'workspaces.get': 'projects:read',
       'conversations.send': 'projects:write',
+      'team.updateModelBinding': 'projects:write',
       'workers.updateModelBinding': 'projects:write',
+      'projects.updateWorkflowDefault': 'projects:write',
       'memory.add': 'projects:write',
       'planner.start': 'projects:write',
       'planner.cancel': 'projects:write',
@@ -520,6 +527,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           )
           break
         }
+        case 'team.updateModelBinding':
         case 'workers.updateModelBinding': {
           if (!workspaces)
             throw new ApplicationError('unavailable', 'Workspace service is unavailable')
@@ -535,6 +543,25 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
             request.method,
             params,
             () => workspaces.updateModelBinding(params),
+          )
+          break
+        }
+        case 'projects.updateWorkflowDefault': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = projectWorkflowDefaultUpdateParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Updating the project workflow default requires commandId',
+            )
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () =>
+              workspaces.updateProjectWorkflowDefault(params.projectId, params.workflowPresetId),
           )
           break
         }
@@ -768,7 +795,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         request.method === 'projects.create' ||
         request.method === 'projects.retrySetup' ||
         request.method === 'conversations.send' ||
+        request.method === 'team.updateModelBinding' ||
         request.method === 'workers.updateModelBinding' ||
+        request.method === 'projects.updateWorkflowDefault' ||
         request.method === 'memory.add' ||
         request.method === 'planner.start' ||
         request.method === 'planner.cancel' ||

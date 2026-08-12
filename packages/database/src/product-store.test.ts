@@ -31,7 +31,7 @@ function fixture() {
     rigName: 'factoru-rig',
     beadPrefix: 'fact',
   })
-  return { db, project }
+  return { db, device, project }
 }
 
 afterEach(() => {
@@ -39,11 +39,14 @@ afterEach(() => {
 })
 
 describe('Milestone 3 product persistence', () => {
-  it('initializes the built-in Factory Template atomically with a project', () => {
+  it('initializes the recommended Project Blueprint atomically with a project', () => {
     const { db, project } = fixture()
     expect(db.product.factorySettings(project.id)).toEqual({
       templateId: 'software-project',
-      templateVersion: 1,
+      templateVersion: 2,
+      blueprintId: 'standard-software-project',
+      blueprintVersion: 1,
+      defaultWorkflowPresetId: 'standard-build',
       maxParallelImplementationWorkers: 1,
       executionWipLimit: 1,
       queueRevision: 0,
@@ -53,11 +56,89 @@ describe('Milestone 3 product persistence', () => {
     expect(workers.find((worker) => worker.kind === 'project_manager')?.modelBindings).toHaveLength(
       2,
     )
+    expect(workers.find((worker) => worker.kind === 'software_engineer')).toMatchObject({
+      defaultFormula: 'standard-build',
+      modelBindings: expect.arrayContaining([
+        { slot: 'design', provider: null, model: null, version: 1 },
+      ]),
+    })
     expect(db.product.getConversation(project.id)).toMatchObject({
       id: 'conv_11111111111111111111111111111111',
       projectId: project.id,
       transcriptCursor: 0,
     })
+    db.close()
+  })
+
+  it('changes the project workflow default without overriding a user-locked task', () => {
+    const { db, project } = fixture()
+    const inherited = db.tasks.create({
+      projectId: project.id,
+      title: 'Inherited',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    const locked = db.tasks.create({
+      projectId: project.id,
+      title: 'Locked',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    db.tasks.applyProjectWorkflowDefault(project.id)
+    db.tasks.update({
+      taskId: locked.id,
+      workflowPresetId: 'standard-build',
+      workflowSelectionSource: 'user',
+      workflowLockedByUser: true,
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+
+    expect(db.product.updateDefaultWorkflowPreset(project.id, 'fast-patch')).toMatchObject({
+      defaultWorkflowPresetId: 'fast-patch',
+    })
+    expect(db.tasks.get(inherited.id)).toMatchObject({
+      workflowPresetId: 'fast-patch',
+      workflowSelectionSource: 'project_default',
+      workflowLockedByUser: false,
+    })
+    expect(db.tasks.get(locked.id)).toMatchObject({
+      workflowPresetId: 'standard-build',
+      workflowSelectionSource: 'user',
+      workflowLockedByUser: true,
+    })
+    db.close()
+  })
+
+  it('seeds the Fast Patch Blueprint default when selected at project creation', () => {
+    const { db, device } = fixture()
+    const project = db.createProject({
+      commandId: 'cmd_create_fast',
+      deviceId: device.id,
+      requestHash: 'request-hash-fast',
+      projectId: 'prj_22222222222222222222222222222222',
+      name: 'Small fixes',
+      blueprintId: 'fast-patch',
+      repositoryRootId: 'root_fast',
+      repositoryRelativePath: 'small-fixes',
+      repositoryRealPath: '/srv/repos/small-fixes',
+      defaultBranch: 'dev',
+      cityName: 'factoru-city',
+      rigName: 'small-fixes-rig',
+      beadPrefix: 'small',
+    })
+
+    expect(db.product.factorySettings(project.id)).toMatchObject({
+      blueprintId: 'fast-patch',
+      defaultWorkflowPresetId: 'fast-patch',
+    })
+    expect(
+      db.product.listWorkerTypes(project.id).find((worker) => worker.kind === 'software_engineer'),
+    ).toMatchObject({ defaultFormula: 'software-delivery' })
     db.close()
   })
 

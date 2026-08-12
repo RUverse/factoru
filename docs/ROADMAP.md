@@ -24,7 +24,7 @@ one-click setup, not a different architecture.
 Inside each project, the user primarily talks to a Project Manager. The Project
 Manager turns conversation into tasks, reconciles repeated requests, orders the
 work, and delegates implementation. The user does not have to maintain the
-board manually. The Tasks and Workers views make the Project Manager's actions
+board manually. The Tasks and Team views make the Project Manager's actions
 visible and configurable.
 
 The initial promise is deliberately narrow:
@@ -60,23 +60,25 @@ defining product capabilities:
 4. **A visual Kanban control surface.** Backlog is a user-editable thought dump:
    the user can add rough items without first explaining or structuring them.
    Moving an item to Queue explicitly asks the Project Manager to reconcile,
-   clarify, prioritize, plan dependencies, and assign a Worker Type/formula.
+   clarify, prioritize, plan dependencies, and assign a Team role/Formula Preset.
    The board remains Backlog, Queue, In progress, and Needs you.
-5. **Configurable worker factories.** A Worker Type owns versioned prompt policy,
+5. **Configurable teams.** A Team role profile owns versioned prompt policy,
    durable role memory, one or more model bindings, scoped Factoru tools, a
-   default formula, and capacity policy. Project Factory settings cap parallel
-   implementation workers while the Project Manager decides which tasks are
-   logically safe to run together.
+   default Formula Preset, and capacity policy. Project Factory settings cap
+   parallel implementation workers while the Project Manager decides which
+   tasks are logically safe to run together.
 6. **One formula-native experience.** Factoru gives Gas City a coherent product
-   UX rather than separate simple and advanced modes. Curated Factory Templates
-   make the product immediately usable; the same interface progressively gains
-   Formula selection, run inspection, and safe customization without forcing
-   users to understand raw Gas City configuration.
+   UX rather than separate simple and advanced modes. Curated Project Blueprints
+   and Formula Presets make the product immediately usable; the same interface
+   progressively gains Formula selection, run inspection, and safe customization
+   without forcing users to understand raw Gas City configuration.
 
-The **Project Manager** is Factoru's user-facing master-agent role. Factoru
-defines its behavior and durable product responsibilities; Gas City provides
-the underlying formula-driven orchestration for autonomous task execution. It
-is not presented as a built-in Gas City primitive.
+The **Project Manager** is Factoru's Mayor-equivalent coordinator. It is not the
+upstream `gc.mayor`: that unrestricted role can create beads and launch work
+directly, bypassing Factoru-owned task admission and audit history. Factoru
+defines PM behavior and durable product responsibilities, while Gas City
+provides the underlying formula-driven execution through authenticated
+Factoru tools and server-owned scheduling.
 
 ## Decisions already made
 
@@ -91,10 +93,10 @@ is not presented as a built-in Gas City primitive.
 5. macOS is the first desktop target. Linux desktop packaging follows later.
    The server must target macOS and Linux early because remote installations are
    part of the initial architecture.
-6. The first visible Worker Types are **Project Manager** and **Software
-   Engineer**. A Worker Type may bind multiple Gas City agents/models: the
-   Software Engineer initially exposes separate implementation and review model
-   slots.
+6. The first visible Team role profiles are **Project Manager** and **Software
+   Engineering**. A role profile may bind multiple Gas City agents/models: the
+   Software Engineering profile exposes separate design, implementation, and
+   review model slots.
 7. Projects and tasks are Factoru entities stored by their authoritative home
    Factoru Server. Gas City execution records are linked to tasks but do not
    replace the product model.
@@ -117,7 +119,7 @@ is not presented as a built-in Gas City primitive.
     explicit trigger for durable Project Manager reconciliation; it does not
     immediately promise execution.
 14. Project Manager chat and queue planning are separate Gas City agent
-    identities grouped into one visible Worker Type. Chat stays always-on while
+    identities grouped into one visible Team role. Chat stays always-on while
     queue reconciliation is serialized and event-driven.
 15. Factoru has one progressively disclosed interface. It does not fork into
     beginner and expert modes as Formula and run controls are added.
@@ -164,10 +166,10 @@ design:
   home-factory labels, project activity summary, add project, and settings.
 - **Center:** the selected project's Project Manager conversation and message
   composer.
-- **Right pane:** switchable **Tasks** and **Workers** tabs.
+- **Right pane:** switchable **Tasks** and **Team** tabs.
 - **Tasks:** four columns—Needs you, In progress, Queue, and Backlog—with compact
   cards and worker/run indicators.
-- **Workers:** Project Manager and Software Engineer profiles with prompt,
+- **Team:** Project Manager and Software Engineering profiles with prompt,
   memory, model-slot, tool, workflow, health, and capacity summaries.
 - **Factory settings:** maximum parallel implementation workers, initially
   locked to one until capsules are proven.
@@ -193,7 +195,8 @@ A Factoru project initially contains:
 - one or more Git repositories below that directory's `repositories/` child,
   each with a default branch and Gas City rig binding;
 - a primary repository/rig used by the serial task-execution path;
-- Project Manager and Software Engineer settings;
+- one versioned Project Blueprint, Project Manager and Software Engineering Team settings;
+- allowed Formula Presets plus a project default and optional locked task overrides;
 - project Factory capacity and resource policy;
 - versioned project and per-Worker-Type memory;
 - one Project Manager conversation;
@@ -227,8 +230,9 @@ Factoru/Gas City setup files; unrelated staged work remains protected.
 The user or Project Manager may create and edit Backlog items. The user may move
 a Backlog item to Queue to request orchestration. From Queue onward, the Project
 Manager normally owns reconciliation, splitting/merging, priority, dependencies,
-Worker Type/formula assignment, and readiness; direct user control remains an
-explicit override rather than routine scheduling work.
+allowed Formula Preset selection for unlocked tasks, and readiness; direct user
+control remains an explicit, user-locked override rather than routine scheduling
+work.
 
 The active statuses mean:
 
@@ -253,26 +257,26 @@ recent tasks. It may create a new task, update an existing task, link related
 work, or ask the user to clarify. Automatic semantic merging is a later feature;
 the first version may use a simple candidate search plus explicit reasoning.
 
-### Worker Types, models, memory, prompts, and tools
+### Team profiles, models, memory, prompts, and tools
 
-The first two configurable Worker Types are:
+The first two configurable Team role profiles are:
 
 - **Project Manager:** an always-on chat agent plus a separate on-demand planner
   limited to one concurrent queue-reconciliation pass. Both use the same
   project/role memory and tool policy, but they do not pretend to share a live
   context window.
-- **Software Engineer:** an implementer pool plus an independent reviewer pool.
-  Its default `software-delivery` formula routes implementation, deterministic
-  checks, review feedback, bounded correction, and finalization.
+- **Software Engineering:** design, implementer, and independent reviewer
+  bindings. Standard Build uses all three; Fast Patch uses implementation and
+  review.
 
-Each Worker Type owns:
+Each Team role profile owns:
 
 - a versioned base system prompt from the Factoru pack plus project overrides;
-- named model bindings—for example Project Manager `chat`/`planning`, and
-  Software Engineer `implementation`/`review`;
+- named model bindings—Project Manager `chat`/`planning`, and Software
+  Engineering `design`/`implementation`/`review`;
 - allowlisted Factoru tools for its individual agent bindings;
 - project-scoped durable role memory with provenance and explicit updates;
-- a default formula and bounded retry/correction policy;
+- allowed Formula Presets and bounded retry/correction policy;
 - capacity and health information.
 
 For example, a user can configure Claude for `implementation` and Codex for
@@ -280,7 +284,7 @@ For example, a user can configure Claude for `implementation` and Codex for
 one worker process changing models mid-session. Provider credentials remain
 server secrets and are never returned to the renderer.
 
-Memory is layered: project memory, Worker-Type role memory, task/run state in
+Memory is layered: project memory, Team-role memory, task/run state in
 Factoru plus beads/artifacts, and per-session transcripts. Pool instances share
 durable state through scoped tools and beads, not shared in-process memory.
 Permanent memory writes are proposed with source/provenance and validated rather
@@ -337,7 +341,8 @@ factoru/
 ├── packs/
 │   └── factoru-default/  # Agents, prompts, tools, checks, and Formula v2
 ├── templates/
-│   └── software-project/ # Built-in Factoru Factory Template manifest
+│   ├── software-project/ # Standard Software Project Blueprint manifest
+│   └── fast-patch/       # Fast Patch Blueprint manifest
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── ROADMAP.md
@@ -394,8 +399,9 @@ Factoru Server owns:
 - conversations and messages;
 - task identity, status, Queue phase, priority/order, cross-task dependencies,
   resource intent, resolution, and user-facing history;
-- Worker Types, prompt overrides, named model bindings, tool/memory policies,
-  and project Factory capacity;
+- Project Blueprint identity/version, Team prompt/model/tool/memory policies,
+  allowed Formula Presets, project workflow default, task selection/lock, and
+  project Factory capacity;
 - versioned project and role memory with provenance;
 - links between tasks and Gas City runs;
 - cached projections used by the UI.
@@ -446,10 +452,10 @@ only product component that talks to it, through `packages/gas-city`.
 | **City** | One dedicated Gas City deployment per Factoru Server, stored below the server data root and named from `server_id`. |
 | **Rig** | The Gas City registration and bead namespace for one repository. A Factoru project contains one or more rigs. |
 | **Pack** | The versioned definition of Factoru's agents, prompts, tools, doctor checks, and formulas. The city imports the pinned default pack. |
-| **Agent** | One configured runtime role. Factoru Worker Types bind lower-level chat, planner, implementer, and reviewer agents; Gas City hardcodes none of them. |
+| **Agent** | One configured runtime role. Factoru Team profiles bind lower-level chat, planner, designer, implementer, and reviewer agents; Gas City hardcodes none of them. |
 | **Session** | One live agent instance. PM chat stays available, PM planning is serialized on demand, and implementer/reviewer pools scale on demand while bead work remains durable. |
 | **Bead** | Gas City's durable execution unit. Formula roots and steps are beads, but Factoru tasks remain separate product entities. |
-| **Formula v2** | A reusable routed work graph. It coordinates agent roles/models and dependencies; it does not define a Worker Type by itself. |
+| **Formula v2** | A reusable routed work graph. A Factoru Formula Preset configures it; it does not define a Team profile by itself. |
 | **Convoy** | A tracked group of beads. Later it can hold decomposed work and feed safe fan-out; it is not the Kanban board. |
 | **Event** | A sequenced immutable observation consumed through SSE for projection, recovery, and diagnostics. |
 | **Order** | A scheduled/event trigger for formulas or trusted exec work. Later useful for maintenance, but not the MVP Queue scheduler. |
@@ -493,18 +499,34 @@ catalogued server to agent sessions.
 A Backlog task has no Gas City work. Moving it to Queue creates or reuses a
 durable `queue-reconcile` planning bead for the serialized PM planner. After the
 plan is accepted and capacity/dependencies allow execution, Factoru records a
-`task_run` linking the task to the city, rig, resolved pack/formula version,
-workflow-root bead, event cursor, and request ID.
+`task_run` linking the task to the city, rig, resolved Blueprint and Formula
+Preset versions, formula name/hash, variables, pack-lock digest, source/root
+beads, event cursor, and request ID. That snapshot is immutable once launched.
 Child step beads and Gas City's `open → in_progress → closed` lifecycle remain
 execution detail. A terminal workflow becomes a Factoru review package and moves
 the task to Needs you; it does not become a fifth Kanban column.
 
-The `factoru-default` pack supplies `queue-reconcile` and the first
-`software-delivery` Formula v2 workflow:
+The `factoru-default` 0.4 pack supplies `queue-reconcile` and two selectable
+Formula Presets:
+
+- **Standard Build** (recommended) launches `standard-build` in attached mode.
+  It is a thin Factoru overlay on the pinned upstream `build-basic`, preserving
+  requirements, design, plan review, decomposition, serial implementation,
+  upstream review, finalization, and disabled publishing. The overlay binds no
+  more than 20 implementation units to the Factoru task capsule and inserts a
+  trusted two-attempt verification step before upstream review.
+- **Fast Patch** launches the existing `software-delivery` formula in standalone
+  mode with implement → deterministic check → independent review → finalize and
+  its existing two-attempt correction bound.
+
+Both run with WIP one, autonomous gates, no automatic push or pull request, and
+one Factoru-owned task capsule. Standard Build uses the upstream same-session
+shared drain; Gas City-created per-unit worktrees remain deferred until project
+concurrency is introduced.
 
 ```mermaid
 flowchart LR
-    P["Validate task inputs"] --> A["Implementation model<br/>for example Claude"]
+    P["Resolve immutable Formula Preset"] --> A["Implementation model<br/>for example Claude"]
     A --> B["Deterministic checks"]
     B -->|"pass"| C["Independent review model<br/>for example Codex"]
     B -->|"fail"| D["Bounded correction"]
@@ -516,11 +538,12 @@ flowchart LR
     F --> E["Factoru moves task to Needs you"]
 ```
 
-The formula uses real `needs` dependencies and routes each step to the Worker
-Type's selected agent/model binding. It is the workflow, not the worker
-definition. A Gas City agent remains one configured runtime role; Factoru's
-Software Engineer profile composes the implementer, reviewer, tools, memory
-policy, model slots, capacity, and formula.
+The formulas use real `needs` dependencies and route each step to the Team
+profile's selected agent/model binding. A Formula is the workflow; a Formula
+Preset is Factoru's pinned, policy-bounded configuration of it. A Gas City agent
+remains one configured runtime role; Factoru's Software Engineering profile
+composes design, implementation, review, tools, memory policy, model slots,
+capacity, and allowed presets.
 
 Use a Gas City `check` budget of two total review attempts (initial attempt plus
 one correction) and narrow `retry` only for transient, idempotent failures. The
@@ -545,8 +568,8 @@ MVP keeps one active implementation run.
 Later, `max_parallel_implementation_workers=3` maps to an implementer-pool cap
 of three, while higher rig/workspace safety caps reserve room for PM chat,
 planning, review, and control sessions. The Project Manager decides task-level
-dependencies, resource conflicts, priority, Worker Type, and formula. Gas City
-decides which materialized beads are ready and assigns concrete pool sessions.
+dependencies, resource conflicts, priority, and an allowed Formula Preset. Gas
+City decides which materialized beads are ready and assigns concrete pool sessions.
 Three is therefore a ceiling, not an instruction to force three tasks to run.
 
 The adapter must remain narrow enough to test against a real Gas City instance
@@ -562,21 +585,23 @@ reload, event duplication/replay, cancellation, `.beads/` changes inside an
 existing repository, worktree ownership, upgrades, and Linux arm64 support.
 
 Factoru's UI is formula-native but does not treat the whole product experience
-as a Formula. Chat, Backlog, Kanban state, Worker Types, permissions, memory,
+as a Formula. Chat, Backlog, Kanban state, Team profiles, permissions, memory,
 Factory policy, and human review remain Factoru product concepts around durable
 Formula runs. The initial UI renders the useful projection of those runs; over
 time the same task and Worker surfaces reveal more of the underlying graph and
 controls without introducing a separate mode.
 
-The accessible distribution unit is a versioned **Factoru Factory Template**,
-initially built in. It combines a pinned Gas City pack with Factoru Worker
-Types, named model slots, tool and memory policies, Formula defaults, capsule
-requirements, and UI metadata. The built-in software template supplies
-`queue-reconcile` and `software-delivery` so a user can select models and start
-without authoring orchestration.
+The accessible distribution unit is a versioned **Project Blueprint**. It
+combines pinned packs with Factoru Team profiles, named model slots, tool and
+memory policies, allowed Formula Presets, a recommended default, capsule
+requirements, and UI metadata. **Standard Software Project** is recommended for
+new projects; **Fast Patch** is the alternate Blueprint. The Blueprint default
+seeds the project default, the project default applies when a task has no
+override, a user-locked task choice wins, and the PM may select an allowed
+preset only for an unlocked task.
 
 Custom formulas remain part of the product vision. Customization should progress
-through the same interface: choose a built-in template, clone its safe settings,
+through the same interface: choose a built-in Blueprint, clone its safe settings,
 select or parameterize a validated Formula, and later import or author raw
 Formula v2. Every chosen Formula/version is visible per project and run.
 Importing a whole third-party pack is more powerful—it can contain commands,
@@ -629,7 +654,7 @@ milestone is a thin probe or adapter seam, not a second orchestration runtime.
 - Implement the narrowest useful `packages/gas-city` adapter spike. Record which
   operations use typed REST/SSE, validated config generation/reload, or—only for
   a proven API gap—pinned `gc --json`; keep all raw DTOs inside the adapter.
-- Before treating prompts, tools, or Worker Types as stable, prove one minimal
+- Before treating prompts, tools, or Team profiles as stable, prove one minimal
   authenticated Factoru tool round trip through both initial Claude and Codex
   harnesses. **Resolved:** both harnesses called a role-scoped probe tool.
   Gas City catalogues a pack's `mcp/` directory but never delivers it to a live
@@ -660,7 +685,7 @@ milestone is a thin probe or adapter seam, not a second orchestration runtime.
 - Every agent Factoru binds to a Formula step must carry Gas City's
   `gc-role-worker` prompt fragment. Without it an agent completes its work and
   exits without closing its bead, and the workflow stalls with no error
-  anywhere. This is a permanent constraint on the Worker Type contract.
+  anywhere. This is a permanent constraint on the Team role contract.
 - Consume the city event stream, persist its cursor, restart both processes, and
   resume without losing or duplicating the observed operation. A temporary
   probe store is sufficient; durable Factoru persistence begins in Milestone 2.
@@ -715,13 +740,14 @@ without exposing Gas City or Dolt listeners remotely.
 
 ### Milestone 3 — Product shell and persistent Project Manager
 
-- Build the project sidebar, center conversation, and right Tasks/Workers pane.
+- Build the project sidebar, center conversation, and right Tasks/Team pane.
 - Establish Factoru's visual tokens rather than copying T3 Code's UI.
 - Promote the provisional pack's agent definitions into versioned Project
   Manager chat/planner and Software Engineer implementer/reviewer contracts.
-- Create the built-in `templates/software-project` Factory Template manifest
-  and persist its initial Worker Types, named model slots, prompt/tool/memory
-  policies, capacity defaults, and eventual Formula binding points.
+- Create the built-in `templates/software-project` project manifest (now the
+  Standard Software Project Blueprint) and persist its initial Team profiles,
+  named model slots, prompt/tool/memory policies, capacity defaults, and Formula
+  binding points.
 - Bind each Factoru conversation to the isolated Gas City Project Manager
   session using a stable conversation ID.
 - Persist user/assistant messages in Factoru and resume both Factoru and Gas City
@@ -731,7 +757,7 @@ without exposing Gas City or Dolt listeners remotely.
   in Milestone 4.
 - Store provider credentials only on the server and apply Project Manager and
   Software Engineer named model bindings as validated Gas City config.
-- Persist versioned Worker Type prompt overrides, tool policies, and minimal
+- Persist versioned Team prompt overrides, tool policies, and minimal
   project/role memory with explicit provenance.
 - Show token usage, tool activity, Gas City/session health, errors,
   cancellation, and reconnect behavior without exposing Gas City credentials.
@@ -748,7 +774,7 @@ bounded project/role memory without exposing credentials or losing history.
 - Add the task schema, status invariants, terminal resolutions, event log, and
   task-run correlation records.
 - Add the production `queue-reconcile` Formula to `factoru-default` and bind it
-  as the Project Manager Worker Type's planning workflow.
+  as the Project Manager Team profile's planning workflow.
 - Let the user create/edit rough Backlog cards directly and move them to Queue.
 - Make every Queue transition/edit create or coalesce one idempotent
   `queue-reconcile` planning bead; show its Queue phase on the card.
@@ -765,7 +791,7 @@ bounded project/role memory without exposing credentials or losing history.
 
 Exit: both chat and direct Backlog capture create persistent tasks; Queueing
 triggers one serialized PM planning pass that can merge/split, prioritize, set
-dependencies, and select a Worker Type/formula without blocking chat or
+dependencies, and choose an allowed Formula Preset without blocking chat or
 duplicating/crossing project state.
 
 ### Milestone 5 — `software-delivery` Formula v2 operational spike
@@ -779,7 +805,8 @@ at least ten small tasks in disposable test repositories before coupling it to
 the production board loop.
 
 - Replace the Milestone 1 probe Formula with the versioned production candidate
-  and bind it to the Software Engineer Worker Type in the built-in template.
+  and bind it to the Software Engineer Team profile in the built-in project
+  manifest.
 - Validate formula variables, routes, compiler requirements, pack/formula
   version capture, and workflow-root correlation before dispatch.
 - Add Factoru-side semantic validation for the pinned Formula v2 release:
@@ -833,6 +860,21 @@ mid-run. See [the acceptance report](./spikes/milestones-5-6-acceptance.md).
 Exit: one real task travels from conversation to reviewed diff without manual
 board management and safely survives desktop, server, supervisor, and agent
 restarts.
+
+### Blueprint-driven Formula catalog
+
+**Status: Implemented (2026-08-12); live provider acceptance pending.** Protocol
+v2, migration 0007, Desktop controls, Team model slots, immutable run snapshots,
+and attached/standalone adapter contracts implement the catalog described above.
+Legacy active `software-delivery` runs remain Fast Patch snapshots; unlocked
+queued work migrates to Standard Build. Automated tests cover defaults,
+user-locks, PM selection, migration, both launch modes, restart, cancellation,
+capability rejection, and capsule routing. Real-provider Standard Build
+acceptance remains required before its production behavior is called validated;
+the host used for this change did not have the pinned `gc` executable. The
+default precedence, Formula launch split, and Factoru Project Manager versus
+upstream Mayor boundary are recorded in
+[ADR 0019](./adr/0019-blueprints-formula-presets-and-project-manager-boundary.md).
 
 ### Milestone 7 — Packaging and dependable operation
 
@@ -901,7 +943,7 @@ confusion.
 After the core loop proves useful:
 
 - richer task reconciliation and automatic duplicate merging;
-- additional Worker Types, specialist model slots, and multi-lane reviewers;
+- additional Team roles, specialist model slots, and multi-lane reviewers;
 - task decomposition and dependency planning;
 - a Formula v2 catalog with built-in, cloned, user-authored, and project-specific
   workflows, validation, parameterization, version pinning, run-time selection,

@@ -174,7 +174,9 @@ Verify the connected Milestone 6 path:
    changes.
 3. Send a Project Manager message, receive a provider reply, and confirm the
    conversation survives Desktop and Server restarts.
-4. Edit Worker model slots and confirm the desired binding becomes healthy.
+4. In Team, edit Project Manager `chat`/`planning` and Software Engineer
+   `design`/`implementation`/`review` slots, then confirm each desired binding
+   becomes healthy.
 5. Create and edit a rough Backlog card.
 6. Move the card to Queue and observe `awaiting_triage`, `triaging`, and the
    resulting ready/waiting/clarification phase.
@@ -187,6 +189,17 @@ Verify the connected Milestone 6 path:
     checks, independent review, unresolved risks, and usage.
 11. Exercise cancel, retry, request changes, approve, and archive on appropriate
     disposable runs.
+
+Exercise both allowed Formula Presets. With Standard Build selected, confirm the
+run has an attached Gas City source bead, retains requirements/design/
+decomposition, executes no more than 20 serial units in the Factoru capsule,
+runs trusted verification before independent review, and neither pushes nor
+opens a pull request. Force one correctable verification failure and repeat the
+Server restart while PM chat stays responsive. With Fast Patch selected,
+confirm the existing standalone implement/check/review/finalize path and its
+two-total-attempt correction bound. Change the project default between runs,
+lock one task to the other preset, and confirm existing run snapshots do not
+change.
 
 During a disposable run, restart Desktop and then Factoru Server independently.
 Confirm that accepted intent, task/run correlation, cursors, the capsule, and
@@ -205,8 +218,10 @@ operator drill.
 `scripts/milestone-5-acceptance.mjs` is deliberately excluded from
 `pnpm test`. It spends provider tokens, runs ten delivery tasks plus one
 conversation-originated path, and mutates the explicitly supplied disposable
-repository. Run it only against a dedicated city and repository that may be
-discarded.
+repository. It remains the historical Fast Patch/`software-delivery` benchmark;
+the Standard Build checks above are a separate required operator acceptance
+until they receive a dedicated destructive harness. Run either only against a
+dedicated city and repository that may be discarded.
 
 Build first:
 

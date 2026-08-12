@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import fs from 'node:fs'
@@ -255,7 +255,9 @@ async function main(): Promise<void> {
     {
       capsules: new CapsuleService(path.join(config.dataDir, 'capsules')),
       cityName,
-      packVersion: '0.3.0',
+      packLockDigest: createHash('sha256')
+        .update(fs.readFileSync(path.join(config.factoruPackPath, 'packs.lock')))
+        .digest('hex'),
     },
   )
   const app = buildServer({

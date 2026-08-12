@@ -40,7 +40,7 @@ export function App() {
   const [snapshot, setSnapshot] = useState<ProductSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [tab, setTab] = useState<'tasks' | 'workers'>('tasks')
+  const [tab, setTab] = useState<'tasks' | 'team'>('tasks')
   const [showPairing, setShowPairing] = useState(false)
   const [factorySwitcherOpen, setFactorySwitcherOpen] = useState(false)
   const [renamingFactoryId, setRenamingFactoryId] = useState<string | null>(null)
@@ -58,6 +58,9 @@ export function App() {
   const [preview, setPreview] = useState<ProjectPreview | null>(null)
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
+  const [projectBlueprintId, setProjectBlueprintId] = useState<
+    'standard-software-project' | 'fast-patch'
+  >('standard-software-project')
   const [repositoryUrl, setRepositoryUrl] = useState('')
   const [repositoryDrafts, setRepositoryDrafts] = useState<RepositoryDraft[]>([])
   const [checkingRepositoryAccess, setCheckingRepositoryAccess] = useState(false)
@@ -390,6 +393,7 @@ export function App() {
       .create(projectFactoryId, {
         name: projectName.trim(),
         description: projectDescription.trim() || undefined,
+        blueprintId: projectBlueprintId,
         repositories: repositoryDrafts.map((draft) =>
           draft.kind === 'local'
             ? {
@@ -456,6 +460,18 @@ export function App() {
     )
   }
 
+  const updateWorkflowDefault = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!activeProjectRef) return
+    const data = new FormData(event.currentTarget)
+    void run(() =>
+      window.factoru.product.updateWorkflowDefault(
+        activeProjectRef,
+        String(data.get('workflowPresetId')) as 'standard-build' | 'fast-patch',
+      ),
+    )
+  }
+
   const addMemory = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!activeProjectRef) return
@@ -493,6 +509,12 @@ export function App() {
   const updateTask = (event: FormEvent<HTMLFormElement>, task: Task) => {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
+    const workflowPreset = data.get('workflowPresetId')
+    const selectedWorkflowPreset = workflowPreset === null ? null : String(workflowPreset)
+    const currentWorkflowPreset =
+      task.workflowSelectionSource === 'pm' || task.workflowSelectionSource === 'user'
+        ? (task.workflowPresetId ?? '')
+        : ''
     void run(() =>
       window.factoru.product.updateTask({
         project: activeProjectRef!,
@@ -500,6 +522,12 @@ export function App() {
         title: String(data.get('title')),
         description: String(data.get('description')),
         priority: Number(data.get('priority')),
+        workflowPresetId:
+          selectedWorkflowPreset === null || selectedWorkflowPreset === currentWorkflowPreset
+            ? undefined
+            : selectedWorkflowPreset === ''
+              ? null
+              : (selectedWorkflowPreset as 'standard-build' | 'fast-patch'),
       }),
     )
   }
@@ -1069,6 +1097,37 @@ factoru-server providers configure --provider codex`}</code>
                 </label>
               </div>
 
+              <fieldset className="factory-choice">
+                <legend>Project Blueprint</legend>
+                <p>Choose a ready starting structure. You can change the project workflow later.</p>
+                <label>
+                  <input
+                    type="radio"
+                    name="projectBlueprint"
+                    value="standard-software-project"
+                    checked={projectBlueprintId === 'standard-software-project'}
+                    onChange={() => setProjectBlueprintId('standard-software-project')}
+                  />
+                  <span>
+                    <strong>Standard Software Project · Recommended</strong>
+                    <small>Full requirements-to-review lifecycle, with Fast Patch available.</small>
+                  </span>
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="projectBlueprint"
+                    value="fast-patch"
+                    checked={projectBlueprintId === 'fast-patch'}
+                    onChange={() => setProjectBlueprintId('fast-patch')}
+                  />
+                  <span>
+                    <strong>Fast Patch</strong>
+                    <small>Bounded implement, verify, review, and finalize by default.</small>
+                  </span>
+                </label>
+              </fieldset>
+
               <div className="repository-picker-card">
                 <div className="repository-picker-heading">
                   <div>
@@ -1343,8 +1402,8 @@ factoru-server providers configure --provider codex`}</code>
           <button className={tab === 'tasks' ? 'active' : ''} onClick={() => setTab('tasks')}>
             Tasks
           </button>
-          <button className={tab === 'workers' ? 'active' : ''} onClick={() => setTab('workers')}>
-            Workers
+          <button className={tab === 'team' ? 'active' : ''} onClick={() => setTab('team')}>
+            Team
           </button>
         </header>
 
@@ -1633,6 +1692,14 @@ factoru-server providers configure --provider codex`}</code>
                                         ? statusLabel(task.workerTypeKind)
                                         : 'Unassigned'}
                                     </span>
+                                    <span>
+                                      {task.workflowPresetId
+                                        ? (snapshot.workspace!.workflowPresets.find(
+                                            (preset) => preset.id === task.workflowPresetId,
+                                          )?.name ?? statusLabel(task.workflowPresetId))
+                                        : 'Project workflow'}
+                                      {task.workflowLockedByUser ? ' · locked' : ''}
+                                    </span>
                                   </footer>
                                   {task.status === 'backlog' && (
                                     <button
@@ -1668,6 +1735,47 @@ factoru-server providers configure --provider codex`}</code>
                                           defaultValue={task.priority}
                                         />
                                       </label>
+                                      {snapshot.workspace!.workflowPresets.length > 0 && (
+                                        <label>
+                                          Workflow preset
+                                          <select
+                                            name="workflowPresetId"
+                                            defaultValue={
+                                              task.workflowSelectionSource === 'pm' ||
+                                              task.workflowSelectionSource === 'user'
+                                                ? (task.workflowPresetId ?? '')
+                                                : ''
+                                            }
+                                            disabled={task.status === 'in_progress'}
+                                          >
+                                            <option value="">
+                                              Project default (
+                                              {snapshot.workspace!.workflowPresets.find(
+                                                (preset) =>
+                                                  preset.id ===
+                                                  snapshot.workspace!.factory
+                                                    .defaultWorkflowPresetId,
+                                              )?.name ??
+                                                statusLabel(
+                                                  snapshot.workspace!.factory
+                                                    .defaultWorkflowPresetId,
+                                                )}
+                                              )
+                                            </option>
+                                            {snapshot
+                                              .workspace!.workflowPresets.filter((preset) =>
+                                                snapshot.workspace!.blueprint.allowedWorkflowPresetIds.includes(
+                                                  preset.id,
+                                                ),
+                                              )
+                                              .map((preset) => (
+                                                <option value={preset.id} key={preset.id}>
+                                                  {preset.name}
+                                                </option>
+                                              ))}
+                                          </select>
+                                        </label>
+                                      )}
                                       <button disabled={!snapshot.connected || busy}>
                                         Save edits
                                       </button>
@@ -1727,16 +1835,47 @@ factoru-server providers configure --provider codex`}</code>
             )}
           </div>
         ) : snapshot.workspace ? (
-          <div className="workers-panel">
+          <div className="workers-panel" aria-label="Team">
             <section className="factory-card">
               <div>
-                <p className="eyebrow">Factory capacity</p>
+                <p className="eyebrow">{snapshot.workspace.blueprint.name}</p>
                 <strong>1 implementation at a time</strong>
               </div>
               <span className="health-pill ready">Serial MVP</span>
             </section>
 
-            {snapshot.workspace.workerTypes.map((worker) => (
+            {snapshot.workspace.workflowPresets.length > 0 && (
+              <section className="worker-card">
+                <header>
+                  <div>
+                    <h2>Project workflow</h2>
+                    <p>Tasks inherit this preset unless a user locks an override.</p>
+                  </div>
+                </header>
+                <form className="model-row" onSubmit={updateWorkflowDefault}>
+                  <label htmlFor="project-workflow-preset">Default preset</label>
+                  <select
+                    id="project-workflow-preset"
+                    name="workflowPresetId"
+                    defaultValue={snapshot.workspace.factory.defaultWorkflowPresetId}
+                    disabled={!snapshot.connected}
+                  >
+                    {snapshot.workspace.workflowPresets
+                      .filter((preset) =>
+                        snapshot.workspace!.blueprint.allowedWorkflowPresetIds.includes(preset.id),
+                      )
+                      .map((preset) => (
+                        <option value={preset.id} key={preset.id}>
+                          {preset.name}
+                        </option>
+                      ))}
+                  </select>
+                  <button disabled={!snapshot.connected || busy}>Save default</button>
+                </form>
+              </section>
+            )}
+
+            {snapshot.workspace.team.map((worker) => (
               <section className="worker-card" key={worker.kind}>
                 <header>
                   <span className="avatar">{worker.kind === 'project_manager' ? 'PM' : 'SE'}</span>
@@ -1848,11 +1987,11 @@ factoru-server providers configure --provider codex`}</code>
                   Scope
                   <select name="scope" defaultValue="project">
                     <option value="project">Project</option>
-                    <option value="worker_type">Worker Type</option>
+                    <option value="worker_type">Team role</option>
                   </select>
                 </label>
                 <label>
-                  Worker Type
+                  Team role
                   <select name="workerTypeKind" defaultValue="project_manager">
                     <option value="project_manager">Project Manager</option>
                     <option value="software_engineer">Software Engineer</option>
@@ -1864,7 +2003,7 @@ factoru-server providers configure --provider codex`}</code>
             </section>
           </div>
         ) : (
-          <div className="empty-state small">Choose a project to inspect its workers.</div>
+          <div className="empty-state small">Choose a project to inspect its team.</div>
         )}
       </aside>
 

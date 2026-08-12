@@ -29,6 +29,7 @@ import {
   IPC_PRODUCT_SEND_MESSAGE,
   IPC_PRODUCT_START_PLANNER,
   IPC_PRODUCT_UPDATE_MODEL,
+  IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT,
   IPC_PRODUCT_CREATE_TASK,
   IPC_PRODUCT_UPDATE_TASK,
   IPC_PRODUCT_MOVE_TASK,
@@ -68,6 +69,8 @@ const product: ProductBridge = {
   selectProject: (project) => ipcRenderer.invoke(IPC_PRODUCT_SELECT_PROJECT, project),
   sendMessage: (project, message) => ipcRenderer.invoke(IPC_PRODUCT_SEND_MESSAGE, project, message),
   updateModel: (input) => ipcRenderer.invoke(IPC_PRODUCT_UPDATE_MODEL, input),
+  updateWorkflowDefault: (project, workflowPresetId) =>
+    ipcRenderer.invoke(IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT, project, workflowPresetId),
   addMemory: (input) => ipcRenderer.invoke(IPC_PRODUCT_ADD_MEMORY, input),
   startPlanner: (project) => ipcRenderer.invoke(IPC_PRODUCT_START_PLANNER, project),
   cancelPlanner: (project, plannerProbeId) =>

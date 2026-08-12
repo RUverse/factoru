@@ -57,7 +57,11 @@ const TOOLS = [
           type: ['string', 'null'],
           enum: ['project_manager', 'software_engineer', null],
         },
-        formulaName: { type: ['string', 'null'] },
+        workflowPresetId: {
+          type: 'string',
+          enum: ['standard-build', 'fast-patch'],
+          description: 'Allowed Formula Preset. Omit when the user locked the task choice.',
+        },
         needsYouAction: {
           type: 'string',
           enum: ['clarify', 'approve', 'review', 'resolve_conflict', 'recover_failure'],

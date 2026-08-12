@@ -41,6 +41,7 @@ const project = {
   chatAgentName: 'project-manager-chat-111111111111',
   chat: { provider: 'anthropic', model: 'claude-sonnet' },
   planning: { provider: 'openai', model: 'codex' },
+  design: { provider: 'google', model: 'gemini-design' },
   implementation: { provider: 'anthropic', model: 'claude-sonnet' },
   review: { provider: 'openai', model: 'codex' },
 }
@@ -64,6 +65,8 @@ describe('GasCityProjectConfigurator', () => {
     ).toContain('option_defaults = { model = "claude-sonnet" }')
     const city = fs.readFileSync(path.join(root, 'city.toml'), 'utf8')
     expect(city).toContain('agent = "project-manager-planner"')
+    expect(city).toContain('agent = "gc.requirements-planner"')
+    expect(city).toContain('option_defaults = { model = "gemini-design" }')
     expect(city).toContain('agent = "software-reviewer"')
     expect(run).toHaveBeenCalledWith('gc', ['reload', '--city', root])
     expect(fs.readFileSync(path.join(root, '.gc/factoru-server.json'), 'utf8')).toBe(

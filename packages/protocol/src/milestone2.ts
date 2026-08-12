@@ -165,7 +165,10 @@ export const liveMethodSchema = z.enum([
   'devices.revoke',
   'workspaces.get',
   'conversations.send',
+  'team.updateModelBinding',
+  // Protocol-v2 command alias for protocol-v1 Desktop builds.
   'workers.updateModelBinding',
+  'projects.updateWorkflowDefault',
   'memory.add',
   'planner.start',
   'planner.cancel',
@@ -253,6 +256,9 @@ export const projectRepositoryInputSchema = z.discriminatedUnion('kind', [
 export const projectCreateParamsSchema = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(2_000).optional(),
+  blueprintId: z
+    .enum(['standard-software-project', 'fast-patch'])
+    .default('standard-software-project'),
   repositories: z.array(projectRepositoryInputSchema).min(1).max(12),
 })
 export const projectIdParamsSchema = z.object({ projectId: z.string().min(1) })

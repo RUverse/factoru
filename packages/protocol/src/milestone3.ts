@@ -5,9 +5,51 @@ import { executionRunSchema } from './milestone5.js'
 export const CAPABILITY_WORKSPACES = 'workspaces-v1'
 export const CAPABILITY_CONVERSATIONS = 'conversations-v1'
 export const CAPABILITY_WORKER_TYPES = 'worker-types-v1'
+export const CAPABILITY_PROJECT_BLUEPRINTS = 'project-blueprints-v1'
+export const CAPABILITY_WORKFLOW_PRESETS = 'workflow-presets-v1'
 
 export const workerTypeKindSchema = z.enum(['project_manager', 'software_engineer'])
-export const modelSlotSchema = z.enum(['chat', 'planning', 'implementation', 'review'])
+export const modelSlotSchema = z.enum(['chat', 'planning', 'design', 'implementation', 'review'])
+
+export const workflowPresetIdSchema = z.enum(['standard-build', 'fast-patch'])
+export const projectBlueprintIdSchema = z.enum(['standard-software-project', 'fast-patch'])
+export const workflowSelectionSourceSchema = z.enum([
+  'blueprint_default',
+  'project_default',
+  'pm',
+  'user',
+])
+
+export const workflowPresetSchema = z.object({
+  id: workflowPresetIdSchema,
+  version: z.number().int().positive(),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  formulaName: z.enum(['standard-build', 'software-delivery']),
+  formulaVersion: z.string().min(1),
+  launchMode: z.enum(['attached', 'standalone']),
+  variables: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+  capabilities: z.object({
+    maxImplementationUnits: z.number().int().min(1).max(20),
+    maxVerificationAttempts: z.number().int().min(1).max(2),
+    maxCorrectionAttempts: z.number().int().min(1).max(6),
+    allowPush: z.literal(false),
+    allowOpenPr: z.literal(false),
+    interactionMode: z.literal('autonomous'),
+    drainPolicy: z.literal('same-session'),
+  }),
+})
+
+export const projectBlueprintSchema = z.object({
+  id: projectBlueprintIdSchema,
+  version: z.number().int().positive(),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  recommended: z.boolean(),
+  teamRoleKinds: z.array(workerTypeKindSchema),
+  allowedWorkflowPresetIds: z.array(workflowPresetIdSchema).min(1),
+  defaultWorkflowPresetId: workflowPresetIdSchema,
+})
 
 export const modelBindingSchema = z
   .object({
@@ -36,6 +78,9 @@ export const workerTypeSchema = z.object({
 export const factorySettingsSchema = z.object({
   templateId: z.literal('software-project'),
   templateVersion: z.number().int().positive(),
+  blueprintId: projectBlueprintIdSchema.default('standard-software-project'),
+  blueprintVersion: z.number().int().positive().default(1),
+  defaultWorkflowPresetId: workflowPresetIdSchema.default('standard-build'),
   maxParallelImplementationWorkers: z.literal(1),
   executionWipLimit: z.literal(1).default(1),
   queueRevision: z.number().int().nonnegative().default(0),
@@ -96,19 +141,38 @@ export const plannerProbeSchema = z.object({
   finishedAt: z.iso.datetime().nullable(),
 })
 
-export const workspaceSchema = z.object({
-  projectId: z.string(),
-  factory: factorySettingsSchema,
-  workerTypes: z.array(workerTypeSchema),
-  conversation: conversationSchema,
-  memory: z.array(memoryEntrySchema),
-  plannerProbe: plannerProbeSchema.nullable(),
-  tasks: z.array(taskSchema).default([]),
-  recentTaskResolutions: z.array(taskSchema).default([]),
-  queueReconciliation: queueReconciliationSchema.nullable().default(null),
-  taskMergeProposals: z.array(taskMergeProposalSchema).default([]),
-  taskRuns: z.array(executionRunSchema).default([]),
-})
+export const workspaceSchema = z
+  .object({
+    projectId: z.string(),
+    factory: factorySettingsSchema,
+    blueprint: projectBlueprintSchema.default({
+      id: 'standard-software-project',
+      version: 1,
+      name: 'Standard Software Project',
+      description: 'Full lifecycle delivery by default, with Fast Patch available.',
+      recommended: true,
+      teamRoleKinds: ['project_manager', 'software_engineer'],
+      allowedWorkflowPresetIds: ['standard-build', 'fast-patch'],
+      defaultWorkflowPresetId: 'standard-build',
+    }),
+    blueprintCatalog: z.array(projectBlueprintSchema).default([]),
+    workflowPresets: z.array(workflowPresetSchema).default([]),
+    team: z.array(workerTypeSchema).default([]),
+    // One-version read-only compatibility alias for clients built against Worker Types.
+    workerTypes: z.array(workerTypeSchema),
+    conversation: conversationSchema,
+    memory: z.array(memoryEntrySchema),
+    plannerProbe: plannerProbeSchema.nullable(),
+    tasks: z.array(taskSchema).default([]),
+    recentTaskResolutions: z.array(taskSchema).default([]),
+    queueReconciliation: queueReconciliationSchema.nullable().default(null),
+    taskMergeProposals: z.array(taskMergeProposalSchema).default([]),
+    taskRuns: z.array(executionRunSchema).default([]),
+  })
+  .transform((workspace) => ({
+    ...workspace,
+    team: workspace.team.length > 0 ? workspace.team : workspace.workerTypes,
+  }))
 
 export const workspaceParamsSchema = z.object({ projectId: z.string().min(1) })
 export const conversationSendParamsSchema = workspaceParamsSchema.extend({
@@ -134,9 +198,14 @@ export const memoryAddParamsSchema = workspaceParamsSchema.extend({
 export const plannerCancelParamsSchema = workspaceParamsSchema.extend({
   plannerProbeId: z.string().min(1),
 })
+export const projectWorkflowDefaultUpdateParamsSchema = workspaceParamsSchema.extend({
+  workflowPresetId: workflowPresetIdSchema,
+})
 
 export type Workspace = z.infer<typeof workspaceSchema>
 export type WorkerType = z.infer<typeof workerTypeSchema>
+export type WorkflowPreset = z.infer<typeof workflowPresetSchema>
+export type ProjectBlueprint = z.infer<typeof projectBlueprintSchema>
 export type Conversation = z.infer<typeof conversationSchema>
 export type ConversationMessage = z.infer<typeof conversationMessageSchema>
 export type MemoryEntry = z.infer<typeof memoryEntrySchema>

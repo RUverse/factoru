@@ -113,6 +113,7 @@ export class AgentToolService {
           message.includes('required') ||
           message.startsWith('invalid_') ||
           message.startsWith('task_') ||
+          message.startsWith('workflow_') ||
           message.startsWith('cross_project') ||
           message.startsWith('superseded_')
         return this.#record(credential, input, expected ? 'denied' : 'failed', {
@@ -173,7 +174,22 @@ export class AgentToolService {
       }
       case 'tasks.update': {
         const taskId = requireString(args.taskId, 'task_id')
-        requireTask(taskId)
+        const task = requireTask(taskId)
+        const requestedPreset =
+          args.workflowPresetId === undefined
+            ? args.formulaName === 'standard-build'
+              ? 'standard-build'
+              : args.formulaName === 'software-delivery'
+                ? 'fast-patch'
+                : undefined
+            : optionalEnum(
+                args.workflowPresetId,
+                ['standard-build', 'fast-patch'] as const,
+                'workflow_preset',
+              )
+        if (requestedPreset && task.workflowLockedByUser) {
+          throw new Error('workflow_preset_user_locked')
+        }
         return this.#database.tasks.update({
           taskId,
           title: optionalString(args.title),
@@ -198,10 +214,9 @@ export class AgentToolService {
                   ['project_manager', 'software_engineer'] as const,
                   'worker_type',
                 ),
-          formulaName:
-            args.formulaName === null || typeof args.formulaName === 'string'
-              ? args.formulaName
-              : undefined,
+          workflowPresetId: requestedPreset,
+          workflowSelectionSource: requestedPreset ? 'pm' : undefined,
+          workflowLockedByUser: requestedPreset ? false : undefined,
           needsYouAction: optionalEnum(
             args.needsYouAction,
             ['clarify', 'approve', 'review', 'resolve_conflict', 'recover_failure'] as const,

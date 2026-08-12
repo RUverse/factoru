@@ -5,11 +5,15 @@ import {
   taskCandidateScore,
   validateTaskState,
   type NeedsYouAction,
+  type ProjectBlueprintId,
   type QueuePhase,
   type TaskResolution,
   type TaskStatus,
+  type WorkflowPresetId,
+  type WorkflowSelectionSource,
   type WorkerTypeKind,
 } from '@factoru/domain'
+import { assertWorkflowPresetAllowed, workflowPreset } from '@factoru/domain'
 
 export type TaskActorKind = 'user' | 'pm_chat' | 'pm_planner' | 'system'
 export type TaskSource = 'user' | 'pm_chat' | 'pm_planner'
@@ -25,6 +29,9 @@ export interface TaskRecord {
   queueOrder: number
   workerTypeKind: WorkerTypeKind | null
   formulaName: string | null
+  workflowPresetId: WorkflowPresetId | null
+  workflowSelectionSource: WorkflowSelectionSource
+  workflowLockedByUser: boolean
   needsYouAction: NeedsYouAction | null
   needsYouMessage: string | null
   resolution: TaskResolution | null
@@ -108,6 +115,13 @@ export interface ExecutionRunRecord {
   formulaName: string
   formulaVersion: string | null
   formulaHash: string | null
+  workflowPresetId: WorkflowPresetId | null
+  workflowPresetVersion: number | null
+  resolvedVariables: Record<string, string | number | boolean>
+  blueprintId: ProjectBlueprintId | null
+  blueprintVersion: number | null
+  packLockDigest: string | null
+  sourceBeadId: string | null
   runId: string | null
   workflowRootBeadId: string | null
   startingEventCursor: number
@@ -160,6 +174,9 @@ interface TaskRow {
   queue_order: number
   worker_type_kind: WorkerTypeKind | null
   formula_name: string | null
+  workflow_preset_id: WorkflowPresetId | null
+  workflow_selection_source: WorkflowSelectionSource
+  workflow_locked_by_user: 0 | 1
   needs_you_action: NeedsYouAction | null
   needs_you_message: string | null
   resolution: TaskResolution | null
@@ -197,6 +214,13 @@ interface ExecutionRunRow {
   formula_name: string
   formula_version: string | null
   formula_hash: string | null
+  workflow_preset_id: WorkflowPresetId | null
+  workflow_preset_version: number | null
+  resolved_vars_json: string
+  blueprint_id: ProjectBlueprintId | null
+  blueprint_version: number | null
+  pack_lock_digest: string | null
+  source_bead_id: string | null
   run_id: string | null
   workflow_root_bead_id: string | null
   starting_event_cursor: number
@@ -249,6 +273,16 @@ function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
     formulaName: row.formula_name,
     formulaVersion: row.formula_version,
     formulaHash: row.formula_hash,
+    workflowPresetId: row.workflow_preset_id,
+    workflowPresetVersion: row.workflow_preset_version,
+    resolvedVariables: JSON.parse(row.resolved_vars_json) as Record<
+      string,
+      string | number | boolean
+    >,
+    blueprintId: row.blueprint_id,
+    blueprintVersion: row.blueprint_version,
+    packLockDigest: row.pack_lock_digest,
+    sourceBeadId: row.source_bead_id,
     runId: row.run_id,
     workflowRootBeadId: row.workflow_root_bead_id,
     startingEventCursor: row.starting_event_cursor,
@@ -356,6 +390,26 @@ export class TaskStore {
     ).map((row) => this.#fromRow(row))
   }
 
+  applyProjectWorkflowDefault(projectId: string): number {
+    const settings = this.#factorySettings(projectId)
+    assertWorkflowPresetAllowed(settings.blueprintId, settings.defaultWorkflowPresetId)
+    const preset = workflowPreset(settings.defaultWorkflowPresetId)
+    const now = this.#now().toISOString()
+    return this.#db
+      .prepare(
+        `UPDATE tasks SET workflow_preset_id = ?, formula_name = ?,
+           workflow_selection_source = 'project_default', worker_type_kind = 'software_engineer',
+           version = version + 1, updated_at = ?
+         WHERE project_id = ? AND status = 'queue' AND resolution IS NULL
+           AND workflow_preset_id IS NULL AND workflow_locked_by_user = 0`,
+      )
+      .run(preset.id, preset.formulaName, now, projectId).changes
+  }
+
+  requestReconciliation(projectId: string, reason: string): QueueReconciliationRecord {
+    return this.#db.transaction(() => this.#requestReconciliation(projectId, reason))()
+  }
+
   update(input: {
     taskId: string
     title?: string
@@ -364,6 +418,9 @@ export class TaskStore {
     queuePhase?: QueuePhase
     workerTypeKind?: WorkerTypeKind | null
     formulaName?: string | null
+    workflowPresetId?: WorkflowPresetId | null
+    workflowSelectionSource?: WorkflowSelectionSource
+    workflowLockedByUser?: boolean
     needsYouAction?: NeedsYouAction
     needsYouMessage?: string
     actorKind: TaskActorKind
@@ -395,11 +452,30 @@ export class TaskStore {
         resolution: null,
       })
       const now = this.#now().toISOString()
+      let workflowPresetId =
+        input.workflowPresetId === undefined ? current.workflowPresetId : input.workflowPresetId
+      let workflowSelectionSource = input.workflowSelectionSource ?? current.workflowSelectionSource
+      let workflowLockedByUser = input.workflowLockedByUser ?? current.workflowLockedByUser
+      let formulaName =
+        input.formulaName === undefined ? current.formulaName : input.formulaName?.trim() || null
+      if (input.workflowPresetId !== undefined && input.workflowPresetId !== null) {
+        const settings = this.#factorySettings(current.projectId)
+        assertWorkflowPresetAllowed(settings.blueprintId, input.workflowPresetId)
+        workflowPresetId = input.workflowPresetId
+        formulaName = workflowPreset(input.workflowPresetId).formulaName
+      }
+      if (input.workflowPresetId === null) {
+        workflowPresetId = null
+        workflowSelectionSource = 'project_default'
+        workflowLockedByUser = false
+      }
       this.#db
         .prepare(
           `UPDATE tasks SET title = ?, description = ?, priority = ?, queue_phase = ?,
-             worker_type_kind = ?, formula_name = ?, needs_you_action = ?, needs_you_message = ?,
-             version = version + 1, updated_at = ? WHERE id = ? AND resolution IS NULL`,
+             worker_type_kind = ?, formula_name = ?, workflow_preset_id = ?,
+             workflow_selection_source = ?, workflow_locked_by_user = ?,
+             needs_you_action = ?, needs_you_message = ?, version = version + 1,
+             updated_at = ? WHERE id = ? AND resolution IS NULL`,
         )
         .run(
           title,
@@ -407,7 +483,10 @@ export class TaskStore {
           priority,
           queuePhase,
           input.workerTypeKind === undefined ? current.workerTypeKind : input.workerTypeKind,
-          input.formulaName === undefined ? current.formulaName : input.formulaName?.trim() || null,
+          formulaName,
+          workflowPresetId,
+          workflowSelectionSource,
+          workflowLockedByUser ? 1 : 0,
           needsYouAction,
           needsYouMessage,
           now,
@@ -902,14 +981,18 @@ export class TaskStore {
     return row ? executionFromRow(row) : null
   }
 
-  admitNextExecution(input: { cityName: string; packVersion: string }): ExecutionRunRecord | null {
+  admitNextExecution(input: {
+    cityName: string
+    packLockDigest: string
+  }): ExecutionRunRecord | null {
     return this.#db.transaction(() => {
       const candidate = this.#db
         .prepare(
           `SELECT t.*, r.rig_name FROM tasks t
            JOIN project_rig_bindings r ON r.project_id = t.project_id
            WHERE t.resolution IS NULL AND t.status = 'queue' AND t.queue_phase = 'ready'
-             AND t.worker_type_kind = 'software_engineer' AND t.formula_name = 'software-delivery'
+             AND t.worker_type_kind = 'software_engineer'
+             AND t.workflow_preset_id IN ('standard-build', 'fast-patch')
              AND r.registration_state = 'ready'
              AND NOT EXISTS (
                SELECT 1 FROM task_runs active WHERE active.project_id = t.project_id
@@ -933,13 +1016,17 @@ export class TaskStore {
 
       const now = this.#now().toISOString()
       const id = `run_${randomUUID().replaceAll('-', '')}`
+      const settings = this.#factorySettings(candidate.project_id)
+      const preset = workflowPreset(candidate.workflow_preset_id!)
+      const resolvedVariables = { ...preset.variables }
       this.#db
         .prepare(
           `INSERT INTO task_runs(
              id, project_id, task_id, kind, city_name, rig_name, formula_name,
-             formula_version, starting_event_cursor, request_id, status, stage,
-             created_at, updated_at
-           ) VALUES (?, ?, ?, 'implementation', ?, ?, 'software-delivery', ?, 0, ?,
+             formula_version, workflow_preset_id, workflow_preset_version,
+             resolved_vars_json, blueprint_id, blueprint_version, pack_lock_digest,
+             starting_event_cursor, request_id, status, stage, created_at, updated_at
+           ) VALUES (?, ?, ?, 'implementation', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?,
              'pending', 'admission', ?, ?)`,
         )
         .run(
@@ -948,7 +1035,14 @@ export class TaskStore {
           candidate.id,
           input.cityName,
           candidate.rig_name,
-          input.packVersion,
+          preset.formulaName,
+          preset.formulaVersion,
+          preset.id,
+          preset.version,
+          JSON.stringify(resolvedVariables),
+          settings.blueprintId,
+          settings.blueprintVersion,
+          input.packLockDigest,
           id,
           now,
           now,
@@ -1033,6 +1127,21 @@ export class TaskStore {
     return this.#execution(id)
   }
 
+  setExecutionVariables(
+    id: string,
+    variables: Readonly<Record<string, string | number | boolean>>,
+  ): ExecutionRunRecord {
+    const now = this.#now().toISOString()
+    const updated = this.#db
+      .prepare(
+        `UPDATE task_runs SET resolved_vars_json = ?, updated_at = ?
+         WHERE id = ? AND kind = 'implementation' AND status = 'pending'`,
+      )
+      .run(JSON.stringify(variables), now, id)
+    if (updated.changes !== 1) throw new Error('invalid_execution_state')
+    return this.#execution(id)
+  }
+
   startExecution(
     id: string,
     correlation: {
@@ -1040,6 +1149,7 @@ export class TaskStore {
       workflowRootBeadId: string
       formulaHash?: string
       startingEventSeq: number
+      sourceBeadId?: string
     },
     outboxId: string,
   ): ExecutionRunRecord {
@@ -1048,13 +1158,14 @@ export class TaskStore {
       const updated = this.#db
         .prepare(
           `UPDATE task_runs SET status = 'running', stage = 'implementation', run_id = ?,
-             workflow_root_bead_id = ?, formula_hash = ?, starting_event_cursor = ?,
+             workflow_root_bead_id = ?, formula_hash = ?, source_bead_id = ?, starting_event_cursor = ?,
              started_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
         )
         .run(
           correlation.runId,
           correlation.workflowRootBeadId,
           correlation.formulaHash ?? null,
+          correlation.sourceBeadId ?? null,
           correlation.startingEventSeq,
           now,
           now,
@@ -1367,6 +1478,9 @@ export class TaskStore {
       queueOrder: row.queue_order,
       workerTypeKind: row.worker_type_kind,
       formulaName: row.formula_name,
+      workflowPresetId: row.workflow_preset_id,
+      workflowSelectionSource: row.workflow_selection_source,
+      workflowLockedByUser: row.workflow_locked_by_user === 1,
       needsYouAction: row.needs_you_action,
       needsYouMessage: row.needs_you_message,
       resolution: row.resolution,
@@ -1409,6 +1523,31 @@ export class TaskStore {
     const task = this.get(id)
     if (!task) throw new Error('task_not_found')
     return task
+  }
+
+  #factorySettings(projectId: string): {
+    blueprintId: ProjectBlueprintId
+    blueprintVersion: number
+    defaultWorkflowPresetId: WorkflowPresetId
+  } {
+    const row = this.#db
+      .prepare(
+        `SELECT blueprint_id, blueprint_version, default_workflow_preset_id
+         FROM factory_settings WHERE project_id = ?`,
+      )
+      .get(projectId) as
+      | {
+          blueprint_id: ProjectBlueprintId
+          blueprint_version: number
+          default_workflow_preset_id: WorkflowPresetId
+        }
+      | undefined
+    if (!row) throw new Error('factory_settings_not_found')
+    return {
+      blueprintId: row.blueprint_id,
+      blueprintVersion: row.blueprint_version,
+      defaultWorkflowPresetId: row.default_workflow_preset_id,
+    }
   }
 
   #requireActive(id: string): TaskRecord {

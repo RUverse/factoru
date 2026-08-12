@@ -37,8 +37,9 @@ an entire development workflow.
   model/resource bindings.
 - **Formula:** the Gas City execution definition associated with or generated
   from a Factoru graph.
-- **Factory Template:** the Factoru bundle that selects a pinned Gas City pack,
-  Worker Types, model/tool/memory defaults, Formulas, and capsule requirements.
+- **Project Blueprint:** the Factoru bundle that selects pinned Gas City packs,
+  Team profiles, allowed Formula Presets, model/tool/memory defaults, and
+  capsule requirements.
 - **Run:** one immutable execution snapshot for one task and graph version.
 - **Capsule:** the resource lease assigned to an implementation unit, including
   its worktree and runtime isolation.
@@ -47,7 +48,7 @@ an entire development workflow.
 
 Users continue talking to the Project Manager and observing the board. Formula
 inspection and later authoring are progressively disclosed in those same task
-and Worker surfaces; Factoru does not introduce separate simple and advanced
+and Team surfaces; Factoru does not introduce separate simple and advanced
 modes or require graph manipulation for normal work.
 
 ## Illustrative ideal graph
@@ -174,8 +175,9 @@ work. Before creating a node framework or graph editor, Factoru should have:
 
 Until then:
 
-- ship one built-in Factoru Factory Template around the `factoru-default` pack
-  with fixed `queue-reconcile` and `software-delivery` formulas;
+- ship the curated Standard Software Project and Fast Patch Project Blueprints
+  around the pinned `factoru-default` and upstream packs, with fixed
+  `queue-reconcile`, `standard-build`, and `software-delivery` formulas;
 - keep the formula registry boundary replaceable;
 - expose no drag-and-drop graph editor;
 - add no arbitrary node-plugin system;

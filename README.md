@@ -215,10 +215,11 @@ docs/              Roadmap, architecture, and decision records
 ```
 
 `packages/ui` provides the visual tokens used by the renderer. `templates/`
-contains the built-in Software Project Factory Template, and
-`packs/factoru-default` contains the versioned Project Manager and Software
-Engineer roles plus the production Queue-reconciliation and software-delivery
-formulas.
+contains the built-in Standard Software Project and Fast Patch Project
+Blueprints. `packs/factoru-default` contains the versioned Project Manager and
+Software Engineer roles, Queue reconciliation, the proven Fast Patch
+`software-delivery` Formula, and Factoru's Standard Build overlay on the pinned
+upstream `gc.build-basic` workflow.
 
 ## Working in this repository
 

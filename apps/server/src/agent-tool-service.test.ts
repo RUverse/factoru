@@ -125,4 +125,64 @@ describe('AgentToolService', () => {
     expect(database.tasks.get(source.id)?.resolution).toBeNull()
     database.close()
   })
+
+  it('lets planning choose an allowed preset only when the user has not locked it', () => {
+    const { database, service, project } = fixture()
+    const unlocked = database.tasks.create({
+      projectId: project.id,
+      title: 'Small patch',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    const locked = database.tasks.create({
+      projectId: project.id,
+      title: 'Full build',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    database.tasks.update({
+      taskId: locked.id,
+      workflowPresetId: 'standard-build',
+      workflowSelectionSource: 'user',
+      workflowLockedByUser: true,
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    const session = service.createSession({
+      rigName: project.rig.rigName,
+      agentName: 'factoru.project-manager-planner',
+      sessionId: 'session-plan-workflow',
+    })
+
+    expect(
+      service.call(session.token, {
+        requestId: 'call-select-fast-patch',
+        tool: 'tasks.update',
+        arguments: { taskId: unlocked.id, workflowPresetId: 'fast-patch' },
+      }),
+    ).toMatchObject({
+      ok: true,
+      result: {
+        workflowPresetId: 'fast-patch',
+        workflowSelectionSource: 'pm',
+        workflowLockedByUser: false,
+      },
+    })
+    expect(
+      service.call(session.token, {
+        requestId: 'call-overwrite-locked',
+        tool: 'tasks.update',
+        arguments: { taskId: locked.id, workflowPresetId: 'fast-patch' },
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'invalid_tool_request' } })
+    expect(database.tasks.get(locked.id)).toMatchObject({
+      workflowPresetId: 'standard-build',
+      workflowLockedByUser: true,
+    })
+    database.close()
+  })
 })

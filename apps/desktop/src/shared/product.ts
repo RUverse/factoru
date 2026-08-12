@@ -77,6 +77,7 @@ export const IPC_PRODUCT_CHANGED = 'factoru:product:changed'
 export const IPC_PRODUCT_SELECT_PROJECT = 'factoru:product:select-project'
 export const IPC_PRODUCT_SEND_MESSAGE = 'factoru:product:send-message'
 export const IPC_PRODUCT_UPDATE_MODEL = 'factoru:product:update-model'
+export const IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT = 'factoru:product:update-workflow-default'
 export const IPC_PRODUCT_ADD_MEMORY = 'factoru:product:add-memory'
 export const IPC_PRODUCT_START_PLANNER = 'factoru:product:start-planner'
 export const IPC_PRODUCT_CANCEL_PLANNER = 'factoru:product:cancel-planner'
@@ -120,6 +121,7 @@ export interface ProductBridge {
     params: {
       name: string
       description?: string
+      blueprintId: 'standard-software-project' | 'fast-patch'
       repositories: Array<
         | {
             kind: 'local'
@@ -144,6 +146,10 @@ export interface ProductBridge {
     provider: string | null
     model: string | null
   }): Promise<WorkerType>
+  updateWorkflowDefault(
+    project: ProjectRef,
+    workflowPresetId: 'standard-build' | 'fast-patch',
+  ): Promise<Workspace['factory']>
   addMemory(input: {
     project: ProjectRef
     scope: MemoryEntry['scope']
@@ -166,6 +172,7 @@ export interface ProductBridge {
     title?: string
     description?: string
     priority?: number
+    workflowPresetId?: 'standard-build' | 'fast-patch' | null
   }): Promise<Task>
   moveTask(input: {
     project: ProjectRef

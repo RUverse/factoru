@@ -44,6 +44,7 @@ import {
   IPC_PRODUCT_SEND_MESSAGE,
   IPC_PRODUCT_START_PLANNER,
   IPC_PRODUCT_UPDATE_MODEL,
+  IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT,
   IPC_PRODUCT_CREATE_TASK,
   IPC_PRODUCT_UPDATE_TASK,
   IPC_PRODUCT_MOVE_TASK,
@@ -207,6 +208,11 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC_PRODUCT_UPDATE_MODEL,
     (_event, input: Parameters<ProductRuntime['updateModel']>[0]) => product.updateModel(input),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT,
+    (_event, project: ProjectRef, workflowPresetId: 'standard-build' | 'fast-patch') =>
+      product.updateWorkflowDefault(project, workflowPresetId),
   )
   ipcMain.handle(
     IPC_PRODUCT_ADD_MEMORY,

@@ -1,0 +1,159 @@
+description = """
+Factoru's full-lifecycle software workflow. It inherits the pinned Gas City
+build-basic requirements, design, decomposition, implementation, review,
+finalization, and disabled-by-default publishing stages. The overlay binds all
+implementation units to the Factoru task capsule and inserts Factoru's trusted
+verification before upstream implementation review.
+"""
+formula = "standard-build"
+version = 1
+contract = "graph.v2"
+extends = ["build-basic"]
+target_required = true
+
+[requires]
+formula_compiler = ">=2.0.0"
+
+[catalog]
+name = "standard-build"
+description = "Run requirements, design, decomposition, bounded implementation, trusted verification, review, and finalization in the Factoru capsule."
+
+[metadata.factoru]
+workflow_preset = "standard-build"
+upstream_formula = "build-basic"
+upstream_pack_commit = "3b3b89f2011e06d84459aa7bea1552382f13930a"
+publishing = "disabled"
+
+[vars.task_id]
+description = "Stable Factoru task identity."
+required = true
+type = "string"
+pattern = "^task_[0-9a-f]+$"
+
+[vars.run_id]
+description = "Stable Factoru task-run identity."
+required = true
+type = "string"
+pattern = "^run_[0-9a-f]+$"
+
+[vars.request]
+description = "The user request and accepted Project Manager plan."
+required = true
+type = "string"
+
+[vars.capsule_path]
+description = "Absolute Factoru-owned worktree for this run."
+required = true
+type = "string"
+pattern = "^/"
+
+[vars.evidence_path]
+description = "Absolute Factoru-owned evidence directory outside the worktree."
+required = true
+type = "string"
+pattern = "^/"
+
+[vars.verification_script]
+description = "Absolute server-generated verification executable for this capsule."
+required = true
+type = "string"
+pattern = "^/"
+
+[[steps]]
+id = "factoru-bind-capsule"
+title = "Bind implementation units to the Factoru capsule"
+needs = ["decompose"]
+metadata = { "gc.run_target" = "gc.run-operator", "factoru.task_id" = "{{task_id}}", "factoru.run_id" = "{{run_id}}", "factoru.stage" = "capsule_binding" }
+description = """
+Read the implementation convoy id created by the decompose stage from the
+workflow root. Enumerate its member work-item beads. On every member, set
+`work_dir={{capsule_path}}` and metadata `factoru.task_id={{task_id}}` and
+`factoru.run_id={{run_id}}`, then read every bead back and verify the exact
+absolute path and identities. Do not create a Gas City worktree and do not
+change the launcher's `gc.work_dir`. Fail closed if the convoy is empty, has
+more than 20 members, or any member cannot be bound. Close this step only after
+all members point to the same Factoru-owned capsule.
+"""
+
+[[steps]]
+id = "implement"
+title = "Drain build implementation"
+needs = ["factoru-bind-capsule"]
+condition = "{{drain_policy}} == separate"
+metadata = { "gc.run_target" = "{{implementation_target}}" }
+description = """
+Drain the approved implementation convoy using the pinned upstream `do-work`
+formula. Every member must use its Factoru-bound `work_dir`; never use the
+launcher checkout as an implementation worktree. Preserve upstream artifact
+and source-anchor semantics and stop after at most 20 units.
+"""
+
+[steps.drain]
+context = "separate"
+formula = "do-work"
+max_units = 20
+member_access = "exclusive"
+
+[[steps]]
+id = "implement-same-session"
+title = "Drain build implementation in one shared session"
+needs = ["factoru-bind-capsule"]
+condition = "{{drain_policy}} == same-session"
+metadata = { "gc.run_target" = "{{implementation_target}}" }
+description = """
+Drain the approved implementation convoy through the pinned upstream
+`do-work-item` formula in one shared session. Every member must use the exact
+Factoru-bound `work_dir={{capsule_path}}`; never edit the launcher checkout.
+Preserve upstream implementation-summary and source-anchor semantics and stop
+after at most 20 serial units.
+"""
+
+[steps.drain]
+context = "shared"
+formula = "do-work-item"
+max_units = 20
+on_item_failure = "skip_remaining"
+member_access = "exclusive"
+
+[steps.drain.item]
+single_lane = true
+
+[[steps]]
+id = "factoru-verify"
+title = "Run trusted Factoru verification"
+needs = ["summarize-implementation"]
+metadata = { "gc.run_target" = "{{implementation_target}}", "factoru.task_id" = "{{task_id}}", "factoru.run_id" = "{{run_id}}", "factoru.stage" = "verification" }
+description = """
+Verify the implementation only in {{capsule_path}} for this request:
+
+{{request}}
+
+Run the trusted executable at {{verification_script}}. Read its output from
+{{evidence_path}}/checks.log. On a failed check attempt, make only focused
+corrections in the capsule, commit them, and rerun the trusted executable. Do
+not push, open a pull request, or edit the launcher checkout. Record a concise
+verification summary at {{evidence_path}}/verification.md.
+"""
+
+[steps.check]
+max_attempts = 2
+
+[steps.check.check]
+mode = "exec"
+path = ".beads/factoru/run-delivery-check.sh"
+timeout = "20m"
+
+[[steps]]
+id = "review"
+title = "Run upstream implementation review"
+needs = ["factoru-verify"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer", "gc.build.artifact_schema" = "gc.build.review.v1", "gc.build.artifact_path_keys" = "gc.build.review_report_path" }
+expand = "build-basic-review"
+expand_vars = { implementation_target = "{{implementation_target}}" }
+description = """
+Run the pinned upstream `build-basic-review` expansion after Factoru's trusted
+verification succeeds. Review the implementation source anchors and the shared
+Factoru capsule, synthesize the required review artifact, and apply only the
+bounded upstream correction loop. Do not push, open a pull request, or mutate
+the launcher checkout.
+"""

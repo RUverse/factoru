@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import Database from 'better-sqlite3'
-import type { ServerId } from '@factoru/domain'
+import type { ProjectBlueprintId, ServerId } from '@factoru/domain'
 import { applyMigrations } from './migrations.js'
 import { initializeProjectProductModel, ProductStore } from './product-store.js'
 import { TaskStore } from './task-store.js'
@@ -99,6 +99,7 @@ export interface CreateProjectInput {
   projectId: string
   name: string
   description?: string
+  blueprintId?: ProjectBlueprintId
   projectDirectory?: string
   managedProjectDirectory?: boolean
   repositoryRootId: string
@@ -661,7 +662,12 @@ export class FactoruDatabase {
           now,
         )
       }
-      initializeProjectProductModel(this.connection, input.projectId, now)
+      initializeProjectProductModel(
+        this.connection,
+        input.projectId,
+        now,
+        input.blueprintId ?? 'standard-software-project',
+      )
       const event = this.#appendEvent(
         'project.created',
         input.projectId,

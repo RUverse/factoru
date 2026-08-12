@@ -10,6 +10,7 @@ import {
   memoryEntrySchema,
   plannerProbeSchema,
   workerTypeSchema,
+  factorySettingsSchema,
   workspaceSchema,
   taskSchema,
   taskMergeProposalSchema,
@@ -544,8 +545,24 @@ export class ProductRuntime {
     const result = workerTypeSchema.parse(
       await this.request(
         project.factoryId,
-        'workers.updateModelBinding',
+        'team.updateModelBinding',
         { ...values, projectId: project.projectId },
+        `cmd_${randomUUID()}`,
+      ),
+    )
+    await this.#refreshWorkspace(project)
+    return result
+  }
+
+  async updateWorkflowDefault(
+    project: ProjectRef,
+    workflowPresetId: 'standard-build' | 'fast-patch',
+  ) {
+    const result = factorySettingsSchema.parse(
+      await this.request(
+        project.factoryId,
+        'projects.updateWorkflowDefault',
+        { projectId: project.projectId, workflowPresetId },
         `cmd_${randomUUID()}`,
       ),
     )
@@ -625,6 +642,7 @@ export class ProductRuntime {
     title?: string
     description?: string
     priority?: number
+    workflowPresetId?: 'standard-build' | 'fast-patch' | null
   }): Promise<Task> {
     const { project, ...values } = input
     const result = taskSchema.parse(

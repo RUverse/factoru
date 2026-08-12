@@ -187,7 +187,7 @@ export const SOURCE_BOOTSTRAP_ARTIFACTS: Readonly<
   },
 }
 
-/** Agent harnesses Factoru supports binding a Worker Type model slot to. */
+/** Agent harnesses Factoru supports binding a Team model slot to. */
 export const SUPPORTED_HARNESSES = ['claude', 'codex'] as const
 
 export type SupportedHarness = (typeof SUPPORTED_HARNESSES)[number]

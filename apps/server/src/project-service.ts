@@ -119,6 +119,7 @@ export class ProjectService {
     params: {
       name: string
       description?: string
+      blueprintId?: 'standard-software-project' | 'fast-patch'
       repositories: ProjectRepositoryInput[]
     },
   ): Promise<Project> {
@@ -246,6 +247,7 @@ export class ProjectService {
           projectId,
           name: params.name,
           description: params.description,
+          blueprintId: params.blueprintId ?? 'standard-software-project',
           projectDirectory: projectDirectory.realPath,
           managedProjectDirectory: true,
           repositoryRootId: primary.repositoryRootId,

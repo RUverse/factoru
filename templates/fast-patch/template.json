@@ -1,10 +1,10 @@
 {
   "$schema": "../template.schema.json",
-  "id": "standard-software-project",
+  "id": "fast-patch",
   "version": 1,
-  "name": "Standard Software Project",
-  "description": "Full lifecycle delivery by default, with Fast Patch available per task.",
-  "recommended": true,
+  "name": "Fast Patch",
+  "description": "Bounded serial delivery by default, with Standard Build available when needed.",
+  "recommended": false,
   "pack": {
     "id": "factoru-default",
     "lock": "../../packs/factoru-default/packs.lock"
@@ -20,7 +20,7 @@
     },
     "software_engineer": {
       "modelSlots": ["design", "implementation", "review"],
-      "defaultFormula": "standard-build",
+      "defaultFormula": "software-delivery",
       "memoryPolicy": "provenance_required"
     }
   },
@@ -51,6 +51,6 @@
       "maxCorrectionAttempts": 2
     }
   },
-  "allowedWorkflowPresetIds": ["standard-build", "fast-patch"],
-  "defaultWorkflowPresetId": "standard-build"
+  "allowedWorkflowPresetIds": ["fast-patch", "standard-build"],
+  "defaultWorkflowPresetId": "fast-patch"
 }

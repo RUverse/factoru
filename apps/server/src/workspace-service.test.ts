@@ -130,6 +130,36 @@ describe('WorkspaceService', () => {
     db.close()
   })
 
+  it('changes the project Formula Preset default and reconciles unlocked Queue work', () => {
+    const { db, project } = fixture()
+    const service = new WorkspaceService(db, fakeOrchestrator())
+    const task = db.tasks.create({
+      projectId: project.id,
+      title: 'Use the project workflow',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    db.tasks.applyProjectWorkflowDefault(project.id)
+
+    expect(service.updateProjectWorkflowDefault(project.id, 'fast-patch')).toMatchObject({
+      defaultWorkflowPresetId: 'fast-patch',
+    })
+    expect(service.get(project.id)).toMatchObject({
+      factory: { defaultWorkflowPresetId: 'fast-patch' },
+      tasks: [
+        expect.objectContaining({
+          id: task.id,
+          workflowPresetId: 'fast-patch',
+          workflowSelectionSource: 'project_default',
+        }),
+      ],
+      queueReconciliation: expect.objectContaining({ coalescedThroughRevision: 2 }),
+    })
+    db.close()
+  })
+
   it('durably queues a turn, delivers it, and resumes transcript storage by cursor', async () => {
     const { db, project } = fixture()
     const orchestrator = fakeOrchestrator()
@@ -274,7 +304,9 @@ describe('WorkspaceService', () => {
       taskId: task.id,
       queuePhase: 'ready',
       workerTypeKind: 'software_engineer',
-      formulaName: 'software-delivery',
+      workflowPresetId: 'fast-patch',
+      workflowSelectionSource: 'pm',
+      workflowLockedByUser: false,
       actorKind: 'pm_planner',
       actorId: 'planner-session',
     })
@@ -319,7 +351,7 @@ describe('WorkspaceService', () => {
         branchName: prepared.branchName,
       })),
     }
-    const execution = { capsules, cityName: 'factoru-city', packVersion: '0.3.0' }
+    const execution = { capsules, cityName: 'factoru-city', packLockDigest: 'pack-lock-test' }
     const firstServer = new WorkspaceService(db, orchestrator, null, execution)
 
     await firstServer.process()
@@ -332,6 +364,7 @@ describe('WorkspaceService', () => {
     expect(orchestrator.startRun).toHaveBeenCalledWith(
       expect.objectContaining({
         formulaName: 'software-delivery',
+        launchMode: 'standalone',
         variables: expect.objectContaining({
           task_id: task.id,
           capsule_path: capsule.worktreePath,
@@ -383,6 +416,119 @@ describe('WorkspaceService', () => {
         }),
       ],
     })
+    db.close()
+  })
+
+  it('dispatches Standard Build as an attached run bound to the Factoru capsule', async () => {
+    const { db, project } = fixture()
+    const provisioning = db.claimDueOutbox()[0]!
+    db.completeProvisioning(provisioning.id, project.id)
+    const task = db.tasks.create({
+      projectId: project.id,
+      title: 'Design and build the feature',
+      description: 'Start with requirements and design.',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    db.tasks.applyProjectWorkflowDefault(project.id)
+    db.tasks.update({
+      taskId: task.id,
+      queuePhase: 'ready',
+      workerTypeKind: 'software_engineer',
+      actorKind: 'pm_planner',
+      actorId: 'planner-session',
+    })
+    const orchestrator = fakeOrchestrator()
+    vi.mocked(orchestrator.startRun).mockImplementation(async (request) => ({
+      cityName: 'factoru-city',
+      rigName: 'factoru-rig',
+      runId: request.formulaName === 'standard-build' ? 'standard-run-1' : 'reconcile-run-1',
+      workflowRootBeadId:
+        request.formulaName === 'standard-build' ? 'standard-root-1' : 'reconcile-root-1',
+      formulaName: request.formulaName,
+      formulaHash: request.formulaName === 'standard-build' ? 'standard-formula-hash' : undefined,
+      sourceBeadId: request.launchMode === 'attached' ? 'standard-source-1' : undefined,
+      startingEventSeq: 12,
+    }))
+    const capsule = {
+      id: 'capsule-standard',
+      runId: '',
+      taskId: task.id,
+      projectId: project.id,
+      rootPath: '/capsules/standard',
+      worktreePath: '/capsules/standard/worktree',
+      controlPath: '/capsules/standard/control',
+      evidencePath: '/capsules/standard/control/evidence',
+      verificationScript: '/capsules/standard/control/verify.sh',
+      branchName: 'factoru/task/standard',
+      baseBranch: 'dev',
+    }
+    const capsules: ExecutionCapsuleManager = {
+      prepare: vi.fn(async (_project, run) => ({ ...capsule, runId: run.id })),
+      readLogs: vi.fn(() => []),
+      finalize: vi.fn(async () => {
+        throw new Error('not reached')
+      }),
+    }
+    const service = new WorkspaceService(db, orchestrator, null, {
+      capsules,
+      cityName: 'factoru-city',
+      packLockDigest: 'pack-lock-test',
+    })
+
+    await service.process()
+
+    expect(orchestrator.startRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formulaName: 'standard-build',
+        launchMode: 'attached',
+        target: 'factoru-rig/gc.run-operator',
+        variables: expect.objectContaining({
+          task_id: task.id,
+          drain_policy: 'same-session',
+          max_iterations: 6,
+          push: false,
+          open_pr: false,
+          capsule_path: capsule.worktreePath,
+          evidence_path: capsule.evidencePath,
+        }),
+        capabilityPolicy: expect.objectContaining({
+          maxImplementationUnits: 20,
+          drainContext: 'shared',
+          requiredStepIds: expect.arrayContaining(['factoru-verify', 'review', 'finalize']),
+        }),
+        sourceBead: expect.objectContaining({
+          metadata: expect.objectContaining({
+            'factoru.project_id': project.id,
+            'factoru.task_id': task.id,
+            work_dir: capsule.worktreePath,
+          }),
+        }),
+      }),
+    )
+    expect(service.get(project.id).taskRuns[0]).toMatchObject({
+      formulaName: 'standard-build',
+      workflowPresetId: 'standard-build',
+      formulaHash: 'standard-formula-hash',
+      sourceBeadId: 'standard-source-1',
+      status: 'running',
+    })
+    const standardLaunchCount = vi
+      .mocked(orchestrator.startRun)
+      .mock.calls.filter(([request]) => request.formulaName === 'standard-build').length
+    const restarted = new WorkspaceService(db, orchestrator, null, {
+      capsules,
+      cityName: 'factoru-city',
+      packLockDigest: 'pack-lock-test',
+    })
+    await restarted.process()
+    expect(
+      vi
+        .mocked(orchestrator.startRun)
+        .mock.calls.filter(([request]) => request.formulaName === 'standard-build'),
+    ).toHaveLength(standardLaunchCount)
     db.close()
   })
 })
