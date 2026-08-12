@@ -140,6 +140,9 @@ const REQUIRED_SUPERVISOR_PATHS: readonly string[] = [
   '/v0/city/{cityName}/extmsg/outbound',
   '/v0/city/{cityName}/extmsg/transcript',
   '/v0/city/{cityName}/extmsg/transcript/ack',
+  '/v0/city/{cityName}/session/{id}/transcript',
+  '/v0/city/{cityName}/session/{id}/stream',
+  '/v0/city/{cityName}/session/{id}/close',
 ]
 
 const openApiSchema = z.object({
@@ -174,6 +177,31 @@ export interface ConversationMessage {
   /** The message this replies to, when Gas City correlated one. */
   readonly inReplyToMessageId: string | undefined
   readonly createdAt: string
+}
+
+export interface ConversationAttachment {
+  readonly providerId: string
+  readonly url: string
+  readonly mimeType: string
+}
+
+export interface ConversationDelivery {
+  readonly sessionId: string
+}
+
+export interface ConversationProjection {
+  readonly providerMessageId: string
+  readonly status: 'partial' | 'final'
+  readonly text: string
+  readonly tools: readonly {
+    readonly id: string
+    readonly name: string
+    readonly status: 'running' | 'completed' | 'failed'
+    readonly summary: string
+  }[]
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly createdAt: string | undefined
 }
 
 const transcriptSchema = z.object({
@@ -267,6 +295,32 @@ const structuredTranscriptSchema = z.object({
   format: z.literal('structured'),
   structured_messages: nullableArray(
     z.object({
+      id: z.string().default(''),
+      role: z.string().default(''),
+      status: z.enum(['unknown', 'final', 'partial', 'superseded']).default('unknown'),
+      timestamp: z.string().nullish(),
+      blocks: nullableArray(
+        z.object({
+          type: z.string().default(''),
+          text: z.string().nullish(),
+          content: z.string().nullish(),
+          id: z.string().nullish(),
+          tool_call_id: z.string().nullish(),
+          name: z.string().nullish(),
+          is_error: z.boolean().nullish(),
+          structured: z
+            .object({
+              kind: z.string().nullish(),
+              text: z.string().nullish(),
+              stdout: z.string().nullish(),
+              stderr: z.string().nullish(),
+              output: z.string().nullish(),
+              description: z.string().nullish(),
+            })
+            .passthrough()
+            .nullish(),
+        }),
+      ),
       usage: z
         .object({
           input_tokens: z.number().int().nonnegative().default(0),
@@ -276,6 +330,8 @@ const structuredTranscriptSchema = z.object({
     }),
   ),
 })
+
+const inboundResultSchema = z.object({ target_session_id: z.string().min(1) })
 
 const workflowSchema = z.object({
   workflow_id: z.string(),
@@ -649,17 +705,92 @@ export class GasCityAdapter {
       authorId: string
       authorDisplayName: string
       receivedAt: string
+      attachments?: readonly ConversationAttachment[]
     },
-  ): Promise<void> {
-    await this.#client.post(`/city/${this.#cityName}/extmsg/inbound`, {
+  ): Promise<ConversationDelivery> {
+    const raw = await this.#client.post(`/city/${this.#cityName}/extmsg/inbound`, {
       message: {
         provider_message_id: turn.messageId,
         conversation: toWireConversation(conversation),
         actor: { id: turn.authorId, display_name: turn.authorDisplayName, is_bot: false },
         text: turn.text,
         received_at: turn.receivedAt,
+        attachments: (turn.attachments ?? []).map((attachment) => ({
+          provider_id: attachment.providerId,
+          url: attachment.url,
+          mime_type: attachment.mimeType,
+        })),
       },
     })
+    const result = inboundResultSchema.parse(raw)
+    return { sessionId: result.target_session_id }
+  }
+
+  /** Read Gas City's provider-neutral projection for a live assistant turn. */
+  async readConversationProjection(sessionId: string): Promise<ConversationProjection | null> {
+    const raw = await this.#client.get(
+      `/city/${this.#cityName}/session/${encodeURIComponent(sessionId)}/transcript`,
+      { format: 'structured', tail: 0 },
+    )
+    const transcript = structuredTranscriptSchema.parse(raw)
+    const message = [...transcript.structured_messages]
+      .reverse()
+      .find((candidate) => candidate.role === 'assistant' && candidate.status !== 'superseded')
+    if (!message) return null
+
+    const results = new Map<string, { failed: boolean; summary: string }>()
+    for (const block of transcript.structured_messages.flatMap((candidate) => candidate.blocks)) {
+      if (block.type !== 'tool_result') continue
+      const summary =
+        block.content ??
+        block.text ??
+        block.structured?.output ??
+        block.structured?.stdout ??
+        block.structured?.stderr ??
+        block.structured?.text ??
+        ''
+      results.set(block.tool_call_id ?? block.id ?? '', {
+        failed: block.is_error === true,
+        summary,
+      })
+    }
+    const tools = message.blocks
+      .filter((block) => block.type === 'tool_use' || block.type === 'tool_call')
+      .map((block, index) => {
+        const id = block.id ?? block.tool_call_id ?? `${message.id}:tool:${index}`
+        const result = results.get(id)
+        return {
+          id,
+          name: block.name ?? block.structured?.description ?? 'Tool',
+          status: result
+            ? result.failed
+              ? ('failed' as const)
+              : ('completed' as const)
+            : ('running' as const),
+          summary: result?.summary ?? '',
+        }
+      })
+    const text = message.blocks
+      .filter((block) => block.type === 'text' || block.type === 'output_text')
+      .map((block) => block.text ?? block.content ?? block.structured?.text ?? '')
+      .join('')
+
+    return {
+      providerMessageId: message.id || sessionId,
+      status: message.status === 'final' ? 'final' : 'partial',
+      text,
+      tools,
+      inputTokens: message.usage?.input_tokens ?? 0,
+      outputTokens: message.usage?.output_tokens ?? 0,
+      createdAt: message.timestamp ?? undefined,
+    }
+  }
+
+  /** Request cancellation of the named provider session serving this turn. */
+  async cancelConversationTurn(sessionId: string): Promise<void> {
+    await this.#client.post(
+      `/city/${this.#cityName}/session/${encodeURIComponent(sessionId)}/close`,
+    )
   }
 
   /**

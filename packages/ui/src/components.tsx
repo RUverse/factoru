@@ -16,7 +16,7 @@ import {
 import { Dialog as BaseDialog } from '@base-ui/react/dialog'
 import { Tabs as BaseTabs } from '@base-ui/react/tabs'
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
-import { ArrowUp, Mic, Paperclip } from 'lucide-react'
+import { ArrowUp, Mic, Paperclip, Square } from 'lucide-react'
 
 function classes(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(' ')
@@ -362,6 +362,9 @@ export interface PromptComposerProps extends Omit<
   modelLabel?: string
   leadingActions?: ReactNode
   trailingActions?: ReactNode
+  onAttach?: () => void
+  onStop?: () => void
+  canSubmitEmpty?: boolean
 }
 
 export const PromptComposer = forwardRef<HTMLTextAreaElement, PromptComposerProps>(
@@ -375,6 +378,9 @@ export const PromptComposer = forwardRef<HTMLTextAreaElement, PromptComposerProp
       modelLabel = 'Project Manager',
       leadingActions,
       trailingActions,
+      onAttach,
+      onStop,
+      canSubmitEmpty = false,
       placeholder = 'Message Project Manager…',
       ...textareaProps
     },
@@ -399,7 +405,7 @@ export const PromptComposer = forwardRef<HTMLTextAreaElement, PromptComposerProp
       element.style.height = `${Math.min(element.scrollHeight, 180)}px`
     }, [value])
 
-    const canSend = !disabled && !busy && value.trim().length > 0
+    const canSend = !disabled && !busy && (value.trim().length > 0 || canSubmitEmpty)
     function submit(): void {
       if (canSend) onSubmit(value.trim())
     }
@@ -434,8 +440,12 @@ export const PromptComposer = forwardRef<HTMLTextAreaElement, PromptComposerProp
           }}
         />
         <div className="fui-prompt-toolbar">
-          <Tooltip label="Attachments are coming later">
-            <IconButton disabled aria-label="Attach files (coming later)">
+          <Tooltip label={onAttach ? 'Attach images' : 'Attachments unavailable'}>
+            <IconButton
+              disabled={!onAttach || disabled || busy}
+              aria-label="Attach images"
+              onClick={onAttach}
+            >
               <Paperclip size={15} aria-hidden="true" />
             </IconButton>
           </Tooltip>
@@ -455,14 +465,20 @@ export const PromptComposer = forwardRef<HTMLTextAreaElement, PromptComposerProp
                 <Mic size={15} aria-hidden="true" />
               </IconButton>
             </Tooltip>
-            <IconButton
-              className="fui-prompt-send"
-              aria-label={busy ? 'Sending message' : 'Send message'}
-              disabled={!canSend}
-              onClick={submit}
-            >
-              <ArrowUp size={15} aria-hidden="true" />
-            </IconButton>
+            {busy && onStop ? (
+              <IconButton className="fui-prompt-send" aria-label="Stop response" onClick={onStop}>
+                <Square size={13} aria-hidden="true" />
+              </IconButton>
+            ) : (
+              <IconButton
+                className="fui-prompt-send"
+                aria-label={busy ? 'Sending message' : 'Send message'}
+                disabled={!canSend}
+                onClick={submit}
+              >
+                <ArrowUp size={15} aria-hidden="true" />
+              </IconButton>
+            )}
           </div>
         </div>
       </div>

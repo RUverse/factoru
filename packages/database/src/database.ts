@@ -7,6 +7,7 @@ import { applyMigrations } from './migrations.js'
 import { initializeProjectProductModel, ProductStore } from './product-store.js'
 import { TaskStore } from './task-store.js'
 import { AgentToolStore } from './agent-tool-store.js'
+import { ConversationStore } from './conversation-store.js'
 
 export const OWNER_SCOPES = [
   'projects:read',
@@ -273,6 +274,7 @@ export class FactoruDatabase {
   readonly product: ProductStore
   readonly tasks: TaskStore
   readonly agentTools: AgentToolStore
+  readonly conversations: ConversationStore
   readonly #now: () => Date
   readonly #filePath: string
 
@@ -290,6 +292,7 @@ export class FactoruDatabase {
       this.product = new ProductStore(this.connection, this.#now)
       this.tasks = new TaskStore(this.connection, this.#now)
       this.agentTools = new AgentToolStore(this.connection, this.#now)
+      this.conversations = new ConversationStore(this.connection, this.#now)
     } catch (error) {
       this.connection.close()
       throw error

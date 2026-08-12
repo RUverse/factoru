@@ -25,6 +25,7 @@ import { AgentToolService } from './agent-tool-service.js'
 import { GAS_CITY_CALLBACK_BASE_PATH } from './gas-city-callback.js'
 import { writeLocalEnrollmentFile } from './local-enrollment.js'
 import { CapsuleService } from './capsule-service.js'
+import { ArtifactService } from './artifact-service.js'
 import { renderDoctorReport, runRemoteDoctor, systemDoctorEnvironment } from './doctor.js'
 import {
   listOperatorActivity,
@@ -246,6 +247,7 @@ async function main(): Promise<void> {
       )
     },
   })
+  const artifactService = new ArtifactService(database, config.artifactDirectory)
   const workspaceService = new WorkspaceService(
     database,
     gasCity,
@@ -271,6 +273,8 @@ async function main(): Promise<void> {
     }),
     {
       capsules: new CapsuleService(path.join(config.dataDir, 'capsules')),
+      artifacts: artifactService,
+      serverOrigin: serverUrl,
       cityName,
       packLockDigest: createHash('sha256')
         .update(fs.readFileSync(path.join(config.factoruPackPath, 'packs.lock')))
@@ -286,6 +290,7 @@ async function main(): Promise<void> {
     database,
     projectService,
     workspaceService,
+    artifactService,
     taskService: new TaskService(database),
     agentToolService: new AgentToolService(database),
     localEnrollmentProof: localEnrollment.proof,

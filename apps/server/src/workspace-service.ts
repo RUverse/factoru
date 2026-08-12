@@ -1,6 +1,6 @@
 import type {
-  ConversationMessageRecord,
   ConversationRecord,
+  RichMessageRecord,
   FactoruDatabase,
   PlannerProbeRecord,
   WorkerTypeRecord,
@@ -28,6 +28,9 @@ import type {
   FormulaVariableValue,
   InheritedFormulaCapabilityPolicy,
   ModelProvider,
+  ConversationAttachment,
+  ConversationDelivery,
+  ConversationProjection,
 } from '@factoru/gas-city'
 import {
   PROJECT_BLUEPRINTS,
@@ -39,6 +42,7 @@ import {
 } from '@factoru/domain'
 import { ApplicationError } from './project-service.js'
 import { CapsuleIntegrationError, type ExecutionCapsuleManager } from './capsule-service.js'
+import type { ArtifactService } from './artifact-service.js'
 
 async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -70,8 +74,11 @@ export interface ProjectManagerOrchestrator {
       authorId: string
       authorDisplayName: string
       receivedAt: string
+      attachments?: readonly ConversationAttachment[]
     },
-  ): Promise<void>
+  ): Promise<ConversationDelivery | void>
+  readConversationProjection?(sessionId: string): Promise<ConversationProjection | null>
+  cancelConversationTurn?(sessionId: string): Promise<void>
   readConversation(
     conversation: ConversationRef,
     afterSequence: number,
@@ -106,7 +113,7 @@ export interface ProjectManagerOrchestrator {
   cancelRun(runId: string): Promise<void>
 }
 
-function messageProjection(record: ConversationMessageRecord): ConversationMessage {
+function messageProjection(record: RichMessageRecord): ConversationMessage {
   return {
     id: record.id,
     role: record.role,
@@ -118,7 +125,61 @@ function messageProjection(record: ConversationMessageRecord): ConversationMessa
       record.tokenInput !== null && record.tokenOutput !== null
         ? { input: record.tokenInput, output: record.tokenOutput }
         : null,
-    toolActivity: record.toolActivity as ConversationMessage['toolActivity'],
+    toolActivity: record.parts
+      .filter((part) => part.kind === 'tool')
+      .map((part) => ({
+        id: part.id,
+        name: part.name,
+        status: part.status,
+        ...(part.startedAt ? { startedAt: part.startedAt } : {}),
+        ...(part.finishedAt ? { finishedAt: part.finishedAt } : {}),
+        ...(part.summary ? { summary: part.summary } : {}),
+      })),
+    turnId: record.turnId,
+    state: record.state,
+    contentVersion: record.contentVersion,
+    parts: record.parts.map((part) => {
+      if (part.kind === 'text') {
+        return { version: 1 as const, id: part.id, type: 'text' as const, text: part.text }
+      }
+      if (part.kind === 'image') {
+        const artifact = part.artifact
+        return {
+          version: 1 as const,
+          id: part.id,
+          type: 'image' as const,
+          alt: artifact.fileName,
+          artifact: {
+            id: artifact.id,
+            projectId: artifact.projectId,
+            conversationId: artifact.conversationId,
+            fileName: artifact.fileName,
+            mimeType: artifact.mimeType,
+            sizeBytes: artifact.sizeBytes,
+            width: artifact.width,
+            height: artifact.height,
+            contentHash: artifact.contentHash,
+            provenance: artifact.provenance,
+            status: artifact.status,
+            createdAt: artifact.createdAt,
+            retentionExpiresAt: artifact.retentionExpiresAt,
+          },
+        }
+      }
+      return {
+        version: 1 as const,
+        id: part.id,
+        type: 'tool' as const,
+        tool: {
+          id: part.id,
+          name: part.name,
+          status: part.status,
+          summary: part.summary,
+          startedAt: part.startedAt,
+          finishedAt: part.finishedAt,
+        },
+      }
+    }),
     createdAt: record.createdAt,
   }
 }
@@ -231,6 +292,8 @@ export class WorkspaceService {
   readonly #cityName: string
   readonly #packLockDigest: string
   readonly #conversationCallbackUrl: string | undefined
+  readonly #artifacts: ArtifactService | null
+  readonly #serverOrigin: string | undefined
   #adapterRegistered = false
 
   constructor(
@@ -242,6 +305,8 @@ export class WorkspaceService {
       cityName: string
       packLockDigest: string
       conversationCallbackUrl?: string
+      artifacts?: ArtifactService
+      serverOrigin?: string
     } | null = null,
   ) {
     this.#database = database
@@ -251,6 +316,8 @@ export class WorkspaceService {
     this.#cityName = execution?.cityName ?? ''
     this.#packLockDigest = execution?.packLockDigest ?? ''
     this.#conversationCallbackUrl = execution?.conversationCallbackUrl
+    this.#artifacts = execution?.artifacts ?? null
+    this.#serverOrigin = execution?.serverOrigin
   }
 
   get(projectId: string): Workspace {
@@ -341,10 +408,89 @@ export class WorkspaceService {
     }
   }
 
-  sendMessage(projectId: string, text: string, authorDisplayName: string): ConversationMessage {
+  sendMessage(
+    projectId: string,
+    text: string,
+    artifactIdsOrAuthor: readonly string[] | string,
+    authorDisplayName?: string,
+  ): ConversationMessage {
     const conversation = this.#requireConversation(projectId)
+    const artifactIds = Array.isArray(artifactIdsOrAuthor) ? artifactIdsOrAuthor : []
+    const author = typeof artifactIdsOrAuthor === 'string' ? artifactIdsOrAuthor : authorDisplayName
+    try {
+      return messageProjection(
+        this.#database.conversations.addUserTurn({
+          conversationId: conversation.id,
+          text,
+          artifactIds,
+          authorDisplayName: author ?? 'Owner',
+        }).message,
+      )
+    } catch (error) {
+      if (error instanceof Error && error.message === 'conversation_turn_active') {
+        throw new ApplicationError(
+          'conversation_turn_active',
+          'Stop the current Project Manager response before sending another message',
+        )
+      }
+      if (error instanceof Error && error.message === 'artifact_not_found') {
+        throw new ApplicationError(
+          'artifact_not_found',
+          'One of the selected images is unavailable',
+        )
+      }
+      throw error
+    }
+  }
+
+  conversationHistory(projectId: string, conversationId: string, before?: string, limit = 50) {
+    const conversation = this.#requireConversation(projectId)
+    if (conversation.id !== conversationId)
+      throw new ApplicationError('not_found', 'Conversation not found')
+    const page = this.#database.conversations.listMessages(conversationId, { before, limit })
+    return { ...page, conversationId, messages: page.messages.map(messageProjection) }
+  }
+
+  async cancelConversation(projectId: string, conversationId: string, turnId: string) {
+    const conversation = this.#requireConversation(projectId)
+    const turn = this.#database.conversations.getTurn(turnId)
+    if (!turn || turn.conversationId !== conversation.id || conversation.id !== conversationId) {
+      throw new ApplicationError('not_found', 'Conversation turn not found')
+    }
+    this.#database.conversations.requestCancellation(turn.id)
+    if (turn.gasCitySessionId && this.#orchestrator.cancelConversationTurn) {
+      await this.#orchestrator.cancelConversationTurn(turn.gasCitySessionId)
+    }
+    return this.#database.conversations.finishCancellation(turn.id)
+  }
+
+  retryConversation(projectId: string, conversationId: string, messageId: string, author: string) {
+    const conversation = this.#requireConversation(projectId)
+    const message = this.#database.conversations.getMessage(messageId)
+    if (
+      !message ||
+      message.conversationId !== conversation.id ||
+      conversation.id !== conversationId
+    ) {
+      throw new ApplicationError('not_found', 'Conversation message not found')
+    }
+    const source =
+      message.role === 'user'
+        ? message
+        : message.inReplyToMessageId
+          ? this.#database.conversations.getMessage(message.inReplyToMessageId)
+          : null
+    if (!source)
+      throw new ApplicationError('invalid_retry', 'The original user message is unavailable')
     return messageProjection(
-      this.#database.product.addUserMessage(conversation.id, text, authorDisplayName),
+      this.#database.conversations.addUserTurn({
+        conversationId,
+        text: source.text,
+        artifactIds: source.parts
+          .filter((part) => part.kind === 'image')
+          .map((part) => part.artifact.id),
+        authorDisplayName: author,
+      }).message,
     )
   }
 
@@ -599,22 +745,64 @@ export class WorkspaceService {
       const project = conversation ? this.#database.getProject(conversation.projectId) : null
       if (!conversation || !project) continue
       try {
+        const message = this.#database.conversations.getMessage(delivery.message.id)
+        if (!message || !message.turnId) throw new Error('conversation_turn_not_found')
+        const imageParts = message.parts.filter((part) => part.kind === 'image')
+        const chatProvider = this.#database.product
+          .listWorkerTypes(project.id)
+          .find((worker) => worker.kind === 'project_manager')
+          ?.modelBindings.find((binding) => binding.slot === 'chat')?.provider
+        if (imageParts.length > 0 && !chatProvider) {
+          throw new ApplicationError(
+            'image_model_required',
+            'Choose a Claude or Codex Project Manager chat model before sending images',
+          )
+        }
+        if (imageParts.length > 0 && !/(claude|anthropic|codex|openai)/i.test(chatProvider!)) {
+          throw new ApplicationError(
+            'model_does_not_support_images',
+            `The configured Project Manager provider (${chatProvider}) has not been validated for image input`,
+          )
+        }
+        if (imageParts.length > 0 && (!this.#artifacts || !this.#serverOrigin)) {
+          throw new ApplicationError(
+            'image_delivery_unavailable',
+            'Image delivery is unavailable on this Factoru Server',
+          )
+        }
         const ref = this.#conversationRef(conversation, project.rig.rigName)
         await this.#orchestrator.bindConversation(ref, conversation.agentName)
-        await this.#orchestrator.sendConversationTurn(ref, {
+        if (this.#database.conversations.getTurn(message.turnId)?.state === 'cancelled') continue
+        const sent = await this.#orchestrator.sendConversationTurn(ref, {
           messageId: delivery.message.id,
           text: delivery.message.text,
           authorId: 'factoru-owner',
           authorDisplayName: delivery.message.authorDisplayName,
           receivedAt: delivery.message.createdAt,
+          attachments: imageParts.map((part) => ({
+            providerId: part.artifact.id,
+            url: this.#artifacts!.attachmentUrl(part.artifact.id, this.#serverOrigin!),
+            mimeType: part.artifact.mimeType,
+          })),
         })
+        if (this.#database.conversations.getTurn(message.turnId)?.state === 'cancelled') {
+          if (sent?.sessionId && this.#orchestrator.cancelConversationTurn) {
+            await this.#orchestrator.cancelConversationTurn(sent.sessionId)
+          }
+          continue
+        }
         this.#database.product.completeConversationDelivery(delivery.outboxId, delivery.message.id)
+        this.#database.conversations.markUserDelivered(delivery.message.id)
+        if (sent?.sessionId)
+          this.#database.conversations.attachSession(message.turnId, sent.sessionId)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         const retryable =
-          typeof error === 'object' && error !== null && 'retryable' in error
-            ? error.retryable === true
-            : true
+          error instanceof ApplicationError
+            ? false
+            : typeof error === 'object' && error !== null && 'retryable' in error
+              ? error.retryable === true
+              : true
         this.#database.product.failConversationDelivery(
           delivery.outboxId,
           delivery.message.id,
@@ -622,6 +810,14 @@ export class WorkspaceService {
           'conversation_delivery_failed',
           message,
         )
+        const rich = this.#database.conversations.getMessage(delivery.message.id)
+        if (rich?.turnId && (!retryable || delivery.attemptCount >= 6)) {
+          this.#database.conversations.failTurn(
+            rich.turnId,
+            'conversation_delivery_failed',
+            message,
+          )
+        }
       }
     }
   }
@@ -631,17 +827,50 @@ export class WorkspaceService {
     const project = this.#database.getProject(projectId)!
     try {
       const ref = this.#conversationRef(conversation, project.rig.rigName)
+      const active = this.#database.conversations.activeTurn(conversation.id)
+      if (
+        active?.gasCitySessionId &&
+        active.state !== 'cancelling' &&
+        this.#orchestrator.readConversationProjection
+      ) {
+        const projection = await this.#orchestrator.readConversationProjection(
+          active.gasCitySessionId,
+        )
+        if (projection) {
+          this.#database.conversations.upsertAssistantProjection({
+            turnId: active.id,
+            providerMessageId: projection.providerMessageId,
+            text: projection.text,
+            tools: projection.tools,
+            tokenInput: projection.inputTokens,
+            tokenOutput: projection.outputTokens,
+            ...(projection.createdAt ? { createdAt: projection.createdAt } : {}),
+          })
+        }
+      }
       const messages = await this.#orchestrator.readConversation(ref, conversation.transcriptCursor)
       for (const message of messages) {
-        this.#database.product.storeTranscriptMessage(conversation.id, {
-          sequence: message.sequence,
-          providerMessageId: message.providerMessageId,
-          role: message.role,
-          text: message.text,
-          authorDisplayName: message.authorDisplayName,
-          inReplyToMessageId: message.inReplyToMessageId,
-          createdAt: message.createdAt,
-        })
+        if (message.role === 'user' && message.providerMessageId) {
+          const stored = this.#database.conversations.getMessage(message.providerMessageId)
+          if (stored?.conversationId === conversation.id) {
+            this.#database.conversations.markUserDelivered(stored.id, message.sequence)
+          }
+          this.#database.conversations.advanceTranscriptCursor(conversation.id, message.sequence)
+          continue
+        }
+        const turn = this.#database.conversations.activeTurn(conversation.id)
+        if (message.role === 'assistant' && turn) {
+          this.#database.conversations.completeAssistantTurn({
+            turnId: turn.id,
+            sequence: message.sequence,
+            providerMessageId: message.providerMessageId,
+            text: message.text,
+            authorDisplayName: message.authorDisplayName,
+            createdAt: message.createdAt,
+          })
+        } else {
+          this.#database.conversations.advanceTranscriptCursor(conversation.id, message.sequence)
+        }
       }
       this.#database.product.setConversationStatus(conversation.id, 'ready')
     } catch (error) {
@@ -973,6 +1202,8 @@ export class WorkspaceService {
   }
 
   #conversationProjection(record: ConversationRecord) {
+    const page = this.#database.conversations.listMessages(record.id, { limit: 50 })
+    const activeTurn = this.#database.conversations.activeTurn(record.id)
     return {
       id: record.id,
       status: record.status,
@@ -980,8 +1211,11 @@ export class WorkspaceService {
         record.errorCode && record.errorMessage
           ? { code: record.errorCode, message: record.errorMessage }
           : null,
-      messages: this.#database.product.listMessages(record.id).map(messageProjection),
+      messages: page.messages.map(messageProjection),
       transcriptCursor: record.transcriptCursor,
+      streamCursor: this.#database.conversations.currentStreamCursor(record.id),
+      hasMoreHistory: page.hasMore,
+      activeTurnId: activeTurn?.id ?? null,
       updatedAt: record.updatedAt,
     }
   }

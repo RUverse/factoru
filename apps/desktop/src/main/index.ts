@@ -46,6 +46,14 @@ import {
   IPC_PRODUCT_ROOTS,
   IPC_PRODUCT_SELECT_PROJECT,
   IPC_PRODUCT_SEND_MESSAGE,
+  IPC_PRODUCT_UPLOAD_IMAGE,
+  IPC_PRODUCT_CANCEL_IMAGE_UPLOAD,
+  IPC_PRODUCT_IMAGE_UPLOAD_PROGRESS,
+  IPC_PRODUCT_LOAD_IMAGE,
+  IPC_PRODUCT_REMOVE_IMAGE,
+  IPC_PRODUCT_CANCEL_CONVERSATION,
+  IPC_PRODUCT_RETRY_CONVERSATION,
+  IPC_PRODUCT_LOAD_CONVERSATION_HISTORY,
   IPC_PRODUCT_START_PLANNER,
   IPC_PRODUCT_UPDATE_MODEL,
   IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT,
@@ -214,8 +222,51 @@ function registerIpc(): void {
   ipcMain.handle(IPC_PRODUCT_SELECT_PROJECT, (_event, project: ProjectRef) =>
     product.selectProject(project),
   )
-  ipcMain.handle(IPC_PRODUCT_SEND_MESSAGE, (_event, project: ProjectRef, message: string) =>
-    product.sendMessage(project, message),
+  ipcMain.handle(
+    IPC_PRODUCT_SEND_MESSAGE,
+    (_event, project: ProjectRef, message: string, artifactIds?: string[]) =>
+      product.sendMessage(project, message, artifactIds),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_UPLOAD_IMAGE,
+    (event, input: Parameters<ProductRuntime['uploadImage']>[0]) =>
+      product.uploadImage(input, (uploadedBytes, totalBytes) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(IPC_PRODUCT_IMAGE_UPLOAD_PROGRESS, {
+            uploadId: input.uploadId,
+            uploadedBytes,
+            totalBytes,
+          })
+        }
+      }),
+  )
+  ipcMain.handle(IPC_PRODUCT_CANCEL_IMAGE_UPLOAD, (_event, uploadId: string) =>
+    product.cancelImageUpload(uploadId),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_LOAD_IMAGE,
+    (_event, project: ProjectRef, conversationId: string, artifactId: string) =>
+      product.loadImage(project, conversationId, artifactId),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_REMOVE_IMAGE,
+    (_event, project: ProjectRef, conversationId: string, artifactId: string) =>
+      product.removeImage(project, conversationId, artifactId),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_CANCEL_CONVERSATION,
+    (_event, project: ProjectRef, conversationId: string, turnId: string) =>
+      product.cancelConversation(project, conversationId, turnId),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_RETRY_CONVERSATION,
+    (_event, project: ProjectRef, conversationId: string, messageId: string) =>
+      product.retryConversation(project, conversationId, messageId),
+  )
+  ipcMain.handle(
+    IPC_PRODUCT_LOAD_CONVERSATION_HISTORY,
+    (_event, project: ProjectRef, conversationId: string, before?: string) =>
+      product.loadConversationHistory(project, conversationId, before),
   )
   ipcMain.handle(
     IPC_PRODUCT_UPDATE_MODEL,

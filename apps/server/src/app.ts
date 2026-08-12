@@ -22,6 +22,9 @@ import {
   CAPABILITY_TASKS,
   CAPABILITY_QUEUE_RECONCILIATION,
   CAPABILITY_SOFTWARE_DELIVERY,
+  CAPABILITY_SCOPED_STREAMS,
+  CAPABILITY_RICH_CONVERSATIONS,
+  CAPABILITY_IMAGE_ARTIFACTS,
   CONNECTION_TICKET_PATH,
   HANDSHAKE_PATH,
   HEALTH_PATH,
@@ -66,6 +69,13 @@ import {
   taskResolveParamsSchema,
   taskSearchParamsSchema,
   taskUpdateParamsSchema,
+  artifactSchema,
+  conversationCancelParamsSchema,
+  conversationHistoryParamsSchema,
+  conversationRetryParamsSchema,
+  streamSubscribeParamsSchema,
+  streamUnsubscribeParamsSchema,
+  type StreamResource,
 } from '@factoru/protocol'
 import type { ServerConfig } from './config.js'
 import { SERVER_VERSION } from './version.js'
@@ -86,6 +96,7 @@ import {
   gasCityCallbackMessageId,
   gasCityOutboundCallbackSchema,
 } from './gas-city-callback.js'
+import type { ArtifactService } from './artifact-service.js'
 
 export interface BuildServerOptions {
   serverId: ServerId
@@ -99,6 +110,7 @@ export interface BuildServerOptions {
   workspaceService?: WorkspaceService
   taskService?: TaskService
   agentToolService?: AgentToolService
+  artifactService?: ArtifactService
   /** Restart-scoped same-user proof. Never expose this through health or handshake. */
   localEnrollmentProof?: string
 }
@@ -140,6 +152,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   const workspaces = options.workspaceService
   const tasks = options.taskService
   const agentTools = options.agentToolService
+  const artifacts = options.artifactService
   const capabilities =
     projects && database
       ? [
@@ -159,6 +172,9 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
                 CAPABILITY_WORKFLOW_PRESETS,
                 CAPABILITY_MODEL_CATALOG,
                 CAPABILITY_SOFTWARE_DELIVERY,
+                CAPABILITY_SCOPED_STREAMS,
+                CAPABILITY_RICH_CONVERSATIONS,
+                ...(artifacts ? [CAPABILITY_IMAGE_ARTIFACTS] : []),
               ]
             : []),
           ...(tasks ? [CAPABILITY_TASKS, CAPABILITY_QUEUE_RECONCILIATION] : []),
@@ -166,6 +182,10 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       : BASE_SERVER_CAPABILITIES
   const tickets = new TicketStore()
   const subscribers = new Map<WebSocket, { deviceId: string; cursor: number }>()
+  const streamSubscribers = new Map<
+    WebSocket,
+    Map<string, { deviceId: string; resource: StreamResource; cursor: number }>
+  >()
   const activeSockets = new Map<WebSocket, string>()
   const pairingAttempts = new Map<string, number[]>()
 
@@ -180,9 +200,15 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     // WebSocket tickets are intentionally passed in the upgrade URL. Fastify's
     // default request logging would otherwise persist those one-time secrets.
     logController: new LogController({ disableRequestLogging: true }),
-    bodyLimit: 64 * 1024,
+    bodyLimit: 9 * 1024 * 1024,
     trustProxy: options.trustProxy === true ? ['127.0.0.1', '::1'] : false,
   })
+
+  app.addContentTypeParser(
+    /^(?:application\/octet-stream|image\/(?:png|jpeg|gif|webp))$/,
+    { parseAs: 'buffer', bodyLimit: 8 * 1024 * 1024 },
+    (_request, body, done) => done(null, body),
+  )
 
   function currentHealth(): HealthResponse {
     const storage = database?.storageHealth()
@@ -211,6 +237,186 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       for (const event of events) {
         socket.send(JSON.stringify({ type: 'project.event', event }))
         subscription.cursor = event.sequence
+      }
+    }
+  }
+
+  function sendStream(socket: WebSocket, value: unknown): boolean {
+    if (socket.readyState !== socket.OPEN) return false
+    if (socket.bufferedAmount > 1024 * 1024) {
+      socket.close(1013, 'stream backpressure')
+      return false
+    }
+    socket.send(JSON.stringify(value))
+    return true
+  }
+
+  function streamCursor(resource: StreamResource): number {
+    if (!database) return 0
+    if (resource.kind !== 'conversation') return database.currentSequence()
+    const conversation = database.product.getConversationById(resource.conversationId)
+    if (!conversation || conversation.projectId !== resource.projectId) {
+      throw new ApplicationError('not_found', 'Conversation not found')
+    }
+    return database.conversations.currentStreamCursor(resource.conversationId)
+  }
+
+  async function streamData(resource: StreamResource, includeCatalog = false): Promise<unknown> {
+    if (!projects) throw new ApplicationError('unavailable', 'Stream service is unavailable')
+    if (resource.kind === 'shell') return { projects: projects.listProjects() }
+    if (!workspaces) throw new ApplicationError('unavailable', 'Stream service is unavailable')
+    const workspace = includeCatalog
+      ? await workspaces.getWithModelCatalog(resource.projectId)
+      : workspaces.get(resource.projectId)
+    if (resource.kind === 'workspace') return { workspace }
+    if (resource.kind === 'conversation') {
+      if (workspace.conversation.id !== resource.conversationId) {
+        throw new ApplicationError('not_found', 'Conversation not found')
+      }
+      return { conversation: workspace.conversation }
+    }
+    const run = workspace.taskRuns.find((candidate) => candidate.id === resource.runId)
+    if (!run) throw new ApplicationError('not_found', 'Run not found')
+    return { run }
+  }
+
+  async function subscribeStream(
+    socket: WebSocket,
+    deviceId: string,
+    input: { subscriptionId: string; resource: StreamResource; afterCursor: number },
+  ): Promise<{ cursor: number; resynchronized: boolean }> {
+    if (!database) throw new ApplicationError('unavailable', 'Stream service is unavailable')
+    const current = streamCursor(input.resource)
+    const oldest = Math.max(0, current - 500)
+    const initial = input.afterCursor === 0
+    const resynchronized = !initial && (input.afterCursor < oldest || input.afterCursor > current)
+    const reason = input.afterCursor === 0 ? 'initial' : 'cursor_gap'
+    if (initial || resynchronized) {
+      sendStream(socket, {
+        type: 'stream.snapshot',
+        subscriptionId: input.subscriptionId,
+        resource: input.resource,
+        cursor: current,
+        resynchronized,
+        reason,
+        data: await streamData(input.resource, true),
+      })
+    } else if (input.resource.kind === 'conversation') {
+      for (const event of database.conversations.streamEventsAfter(
+        input.resource.conversationId,
+        input.afterCursor,
+        500,
+      )) {
+        if (
+          !sendStream(socket, {
+            type: 'stream.delta',
+            subscriptionId: input.subscriptionId,
+            resource: input.resource,
+            cursor: event.sequence,
+            eventId: event.eventId,
+            eventType: event.type,
+            data: { event: event.payload, ...((await streamData(input.resource)) as object) },
+            occurredAt: event.occurredAt,
+          })
+        )
+          break
+      }
+    } else {
+      for (const event of database.eventsAfter(input.afterCursor, 500)) {
+        const relevant =
+          input.resource.kind === 'shell' || event.aggregateId === input.resource.projectId
+        if (!relevant) continue
+        if (
+          !sendStream(socket, {
+            type: 'stream.delta',
+            subscriptionId: input.subscriptionId,
+            resource: input.resource,
+            cursor: event.sequence,
+            eventId: event.eventId,
+            eventType: event.type,
+            data: { event: event.payload, ...((await streamData(input.resource)) as object) },
+            occurredAt: event.occurredAt,
+          })
+        )
+          break
+      }
+    }
+    const subscriptions = streamSubscribers.get(socket) ?? new Map()
+    subscriptions.set(input.subscriptionId, { deviceId, resource: input.resource, cursor: current })
+    streamSubscribers.set(socket, subscriptions)
+    sendStream(socket, {
+      type: 'stream.live',
+      subscriptionId: input.subscriptionId,
+      resource: input.resource,
+      cursor: current,
+    })
+    return { cursor: current, resynchronized }
+  }
+
+  async function publishScopedEvents(): Promise<void> {
+    if (!database || !projects) return
+    for (const [socket, subscriptions] of streamSubscribers) {
+      for (const [subscriptionId, subscription] of subscriptions) {
+        const current = streamCursor(subscription.resource)
+        if (current <= subscription.cursor) continue
+        const resource = subscription.resource
+        if (resource.kind === 'conversation') {
+          const events = database.conversations.streamEventsAfter(
+            resource.conversationId,
+            subscription.cursor,
+            501,
+          )
+          if (events.length > 500) {
+            await subscribeStream(socket, subscription.deviceId, {
+              subscriptionId,
+              resource,
+              afterCursor: 0,
+            })
+            continue
+          }
+          for (const event of events) {
+            if (
+              !sendStream(socket, {
+                type: 'stream.delta',
+                subscriptionId,
+                resource,
+                cursor: event.sequence,
+                eventId: event.eventId,
+                eventType: event.type,
+                data: { event: event.payload, ...((await streamData(resource)) as object) },
+                occurredAt: event.occurredAt,
+              })
+            )
+              break
+          }
+        } else {
+          const events = database.eventsAfter(subscription.cursor, 501)
+          if (events.length > 500) {
+            await subscribeStream(socket, subscription.deviceId, {
+              subscriptionId,
+              resource,
+              afterCursor: 0,
+            })
+            continue
+          }
+          for (const event of events) {
+            if (resource.kind !== 'shell' && event.aggregateId !== resource.projectId) continue
+            if (
+              !sendStream(socket, {
+                type: 'stream.delta',
+                subscriptionId,
+                resource,
+                cursor: event.sequence,
+                eventId: event.eventId,
+                eventType: event.type,
+                data: { event: event.payload, ...((await streamData(resource)) as object) },
+                occurredAt: event.occurredAt,
+              })
+            )
+              break
+          }
+        }
+        subscription.cursor = current
       }
     }
   }
@@ -314,6 +520,152 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   })
 
   if (database && projects) {
+    if (artifacts) {
+      const artifactPath = '/api/v1/projects/:projectId/conversations/:conversationId/artifacts'
+      app.post(artifactPath, async (request, reply) => {
+        const device = bearerDevice(database, request.headers.authorization)
+        if (!device)
+          return reply
+            .code(401)
+            .send(problem('unauthorized', 'Device credential is invalid or revoked'))
+        try {
+          requireScope(device, 'projects:write')
+          const params = request.params as { projectId: string; conversationId: string }
+          const provenance = request.headers['x-artifact-provenance']
+          if (!['picker', 'paste', 'drop'].includes(String(provenance))) {
+            return reply.code(400).send(problem('invalid_request', 'Image provenance is required'))
+          }
+          if (!Buffer.isBuffer(request.body)) {
+            return reply.code(400).send(problem('invalid_request', 'Image body must be binary'))
+          }
+          const artifact = artifacts.upload({
+            projectId: params.projectId,
+            conversationId: params.conversationId,
+            deviceId: device.id,
+            fileName: (() => {
+              try {
+                return decodeURIComponent(String(request.headers['x-file-name'] ?? 'image'))
+              } catch {
+                throw new ApplicationError('invalid_file_name', 'Image file name is invalid')
+              }
+            })(),
+            mimeType: String(request.headers['content-type'] ?? ''),
+            provenance: provenance as 'picker' | 'paste' | 'drop',
+            bytes: request.body,
+          })
+          return reply.code(201).send(artifactSchema.parse(artifact))
+        } catch (error) {
+          if (error instanceof ApplicationError) {
+            return reply
+              .code(error.code === 'not_found' ? 404 : 400)
+              .send(
+                problem(
+                  error.code === 'not_found' ? 'not_found' : 'invalid_request',
+                  error.message,
+                  { code: error.code },
+                ),
+              )
+          }
+          if (error instanceof Error && error.message === 'forbidden') {
+            return reply
+              .code(403)
+              .send(problem('forbidden', 'Device is not authorized for this operation'))
+          }
+          throw error
+        }
+      })
+      app.get(`${artifactPath}/:artifactId`, async (request, reply) => {
+        const device = bearerDevice(database, request.headers.authorization)
+        if (!device)
+          return reply
+            .code(401)
+            .send(problem('unauthorized', 'Device credential is invalid or revoked'))
+        try {
+          requireScope(device, 'projects:read')
+          const params = request.params as {
+            projectId: string
+            conversationId: string
+            artifactId: string
+          }
+          const result = artifacts.readScoped(
+            params.projectId,
+            params.conversationId,
+            params.artifactId,
+          )
+          return reply
+            .header('content-type', result.artifact.mimeType)
+            .header('cache-control', 'private, max-age=300')
+            .header('x-content-type-options', 'nosniff')
+            .send(result.bytes)
+        } catch (error) {
+          if (error instanceof ApplicationError)
+            return reply.code(404).send(problem('not_found', error.message))
+          if (error instanceof Error && error.message === 'forbidden') {
+            return reply
+              .code(403)
+              .send(problem('forbidden', 'Device is not authorized for this operation'))
+          }
+          throw error
+        }
+      })
+      app.delete(`${artifactPath}/:artifactId`, async (request, reply) => {
+        const device = bearerDevice(database, request.headers.authorization)
+        if (!device)
+          return reply
+            .code(401)
+            .send(problem('unauthorized', 'Device credential is invalid or revoked'))
+        try {
+          requireScope(device, 'projects:write')
+          const params = request.params as {
+            projectId: string
+            conversationId: string
+            artifactId: string
+          }
+          artifacts.remove(params.projectId, params.conversationId, params.artifactId)
+          return reply.code(204).send()
+        } catch (error) {
+          if (error instanceof ApplicationError) {
+            return reply
+              .code(error.code === 'artifact_in_use' ? 409 : 404)
+              .send(
+                problem(
+                  error.code === 'artifact_in_use' ? 'invalid_request' : 'not_found',
+                  error.message,
+                  { code: error.code },
+                ),
+              )
+          }
+          if (error instanceof Error && error.message === 'forbidden') {
+            return reply
+              .code(403)
+              .send(problem('forbidden', 'Device is not authorized for this operation'))
+          }
+          throw error
+        }
+      })
+      app.get('/internal/v1/artifacts/:artifactId', async (request, reply) => {
+        if (!isLoopbackIp(request.ip)) {
+          return reply.code(403).send(problem('forbidden', 'Artifact grants are host-local'))
+        }
+        const params = request.params as { artifactId: string }
+        const query = request.query as { token?: string }
+        if (!query.token)
+          return reply.code(401).send(problem('unauthorized', 'Artifact grant is required'))
+        try {
+          const result = artifacts.readWithGrant(params.artifactId, query.token)
+          return reply
+            .header('content-type', result.artifact.mimeType)
+            .header('cache-control', 'private, no-store')
+            .header('x-content-type-options', 'nosniff')
+            .send(result.bytes)
+        } catch (error) {
+          if (error instanceof ApplicationError)
+            return reply.code(404).send(problem('not_found', error.message))
+          throw error
+        }
+      })
+    }
+
     if (options.localEnrollmentProof) {
       app.post(LOCAL_ENROLLMENT_PATH, async (request, reply) => {
         if (!isLoopbackIp(request.ip)) {
@@ -409,6 +761,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         socket.on('close', () => {
           activeSockets.delete(socket)
           subscribers.delete(socket)
+          streamSubscribers.delete(socket)
         })
       })
     })
@@ -438,10 +791,15 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
       'projects.create': 'projects:write',
       'projects.retrySetup': 'projects:write',
       'projects.subscribe': 'events:read',
+      'streams.subscribe': 'events:read',
+      'streams.unsubscribe': 'events:read',
       'devices.list': 'devices:read',
       'devices.revoke': 'devices:revoke',
       'workspaces.get': 'projects:read',
       'conversations.send': 'projects:write',
+      'conversations.history': 'projects:read',
+      'conversations.cancel': 'projects:write',
+      'conversations.retry': 'projects:write',
       'team.updateModelBinding': 'projects:write',
       'workers.updateModelBinding': 'projects:write',
       'projects.updateWorkflowDefault': 'projects:write',
@@ -528,6 +886,18 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
           })
           break
         }
+        case 'streams.subscribe': {
+          const params = streamSubscribeParamsSchema.parse(request.params)
+          result = await subscribeStream(socket, currentDevice.id, params)
+          break
+        }
+        case 'streams.unsubscribe': {
+          const params = streamUnsubscribeParamsSchema.parse(request.params)
+          result = {
+            removed: streamSubscribers.get(socket)?.delete(params.subscriptionId) ?? false,
+          }
+          break
+        }
         case 'devices.list':
           result = database.listDevices()
           break
@@ -567,7 +937,74 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
             currentDevice.id,
             request.method,
             params,
-            () => workspaces.sendMessage(params.projectId, params.text, currentDevice.name),
+            () =>
+              workspaces.sendMessage(
+                params.projectId,
+                params.text,
+                params.artifactIds,
+                currentDevice.name,
+              ),
+          )
+          break
+        }
+        case 'conversations.history': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = conversationHistoryParamsSchema.parse(request.params)
+          result = workspaces.conversationHistory(
+            params.projectId,
+            params.conversationId,
+            params.before,
+            params.limit,
+          )
+          break
+        }
+        case 'conversations.cancel': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = conversationCancelParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Cancelling a response requires commandId',
+            )
+          const replay = database.replayCommand(request.commandId, request.method, params)
+          result =
+            replay ??
+            database.recordCommand(
+              request.commandId,
+              currentDevice.id,
+              request.method,
+              params,
+              await workspaces.cancelConversation(
+                params.projectId,
+                params.conversationId,
+                params.turnId,
+              ),
+            )
+          break
+        }
+        case 'conversations.retry': {
+          if (!workspaces)
+            throw new ApplicationError('unavailable', 'Workspace service is unavailable')
+          const params = conversationRetryParamsSchema.parse(request.params)
+          if (!request.commandId)
+            throw new ApplicationError(
+              'command_id_required',
+              'Retrying a response requires commandId',
+            )
+          result = database.executeCommand(
+            request.commandId,
+            currentDevice.id,
+            request.method,
+            params,
+            () =>
+              workspaces.retryConversation(
+                params.projectId,
+                params.conversationId,
+                params.messageId,
+                currentDevice.name,
+              ),
           )
           break
         }
@@ -839,6 +1276,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         request.method === 'projects.create' ||
         request.method === 'projects.retrySetup' ||
         request.method === 'conversations.send' ||
+        request.method === 'conversations.cancel' ||
+        request.method === 'conversations.retry' ||
         request.method === 'team.updateModelBinding' ||
         request.method === 'workers.updateModelBinding' ||
         request.method === 'projects.updateWorkflowDefault' ||
@@ -857,6 +1296,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         request.method === 'runs.archive'
       )
         publishEvents()
+      await publishScopedEvents()
     } catch (error) {
       if (error instanceof ApplicationError || error instanceof RepositoryError) {
         return responseError(
@@ -894,6 +1334,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   }
 
   let outboxTimer: ReturnType<typeof setInterval> | undefined
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined
   let processingOutbox = false
   app.addHook('onReady', async () => {
     if (!projects) return
@@ -904,6 +1345,8 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
         await projects.processOutbox()
         await workspaces?.process()
         publishEvents()
+        await publishScopedEvents()
+        artifacts?.cleanup()
       } catch (error) {
         app.log.error({ err: error }, 'background reactor pass failed')
       } finally {
@@ -913,9 +1356,15 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     setTimeout(() => void process(), 0)
     outboxTimer = setInterval(() => void process(), 1_000)
     outboxTimer.unref()
+    heartbeatTimer = setInterval(() => {
+      const heartbeat = { type: 'stream.heartbeat', serverTime: now().toISOString() }
+      for (const socket of streamSubscribers.keys()) sendStream(socket, heartbeat)
+    }, 15_000)
+    heartbeatTimer.unref()
   })
   app.addHook('onClose', async () => {
     if (outboxTimer) clearInterval(outboxTimer)
+    if (heartbeatTimer) clearInterval(heartbeatTimer)
   })
 
   app.setNotFoundHandler(async (request, reply) =>

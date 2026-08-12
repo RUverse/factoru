@@ -27,6 +27,14 @@ import {
   IPC_PRODUCT_ROOTS,
   IPC_PRODUCT_SELECT_PROJECT,
   IPC_PRODUCT_SEND_MESSAGE,
+  IPC_PRODUCT_UPLOAD_IMAGE,
+  IPC_PRODUCT_CANCEL_IMAGE_UPLOAD,
+  IPC_PRODUCT_IMAGE_UPLOAD_PROGRESS,
+  IPC_PRODUCT_LOAD_IMAGE,
+  IPC_PRODUCT_REMOVE_IMAGE,
+  IPC_PRODUCT_CANCEL_CONVERSATION,
+  IPC_PRODUCT_RETRY_CONVERSATION,
+  IPC_PRODUCT_LOAD_CONVERSATION_HISTORY,
   IPC_PRODUCT_START_PLANNER,
   IPC_PRODUCT_UPDATE_MODEL,
   IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT,
@@ -68,7 +76,28 @@ const product: ProductBridge = {
   devices: (factoryId) => ipcRenderer.invoke(IPC_PRODUCT_DEVICES, factoryId),
   revoke: (factoryId, deviceId) => ipcRenderer.invoke(IPC_PRODUCT_REVOKE, factoryId, deviceId),
   selectProject: (project) => ipcRenderer.invoke(IPC_PRODUCT_SELECT_PROJECT, project),
-  sendMessage: (project, message) => ipcRenderer.invoke(IPC_PRODUCT_SEND_MESSAGE, project, message),
+  sendMessage: (project, message, artifactIds) =>
+    ipcRenderer.invoke(IPC_PRODUCT_SEND_MESSAGE, project, message, artifactIds),
+  uploadImage: (input) => ipcRenderer.invoke(IPC_PRODUCT_UPLOAD_IMAGE, input),
+  cancelImageUpload: (uploadId) => ipcRenderer.invoke(IPC_PRODUCT_CANCEL_IMAGE_UPLOAD, uploadId),
+  subscribeImageUploadProgress: (listener) => {
+    const handler = (
+      _event: unknown,
+      progress: { uploadId: string; uploadedBytes: number; totalBytes: number },
+    ) => listener(progress)
+    ipcRenderer.on(IPC_PRODUCT_IMAGE_UPLOAD_PROGRESS, handler)
+    return () => ipcRenderer.off(IPC_PRODUCT_IMAGE_UPLOAD_PROGRESS, handler)
+  },
+  loadImage: (project, conversationId, artifactId) =>
+    ipcRenderer.invoke(IPC_PRODUCT_LOAD_IMAGE, project, conversationId, artifactId),
+  removeImage: (project, conversationId, artifactId) =>
+    ipcRenderer.invoke(IPC_PRODUCT_REMOVE_IMAGE, project, conversationId, artifactId),
+  cancelConversation: (project, conversationId, turnId) =>
+    ipcRenderer.invoke(IPC_PRODUCT_CANCEL_CONVERSATION, project, conversationId, turnId),
+  retryConversation: (project, conversationId, messageId) =>
+    ipcRenderer.invoke(IPC_PRODUCT_RETRY_CONVERSATION, project, conversationId, messageId),
+  loadConversationHistory: (project, conversationId, before) =>
+    ipcRenderer.invoke(IPC_PRODUCT_LOAD_CONVERSATION_HISTORY, project, conversationId, before),
   updateModel: (input) => ipcRenderer.invoke(IPC_PRODUCT_UPDATE_MODEL, input),
   updateWorkflowDefault: (project, workflowPresetId) =>
     ipcRenderer.invoke(IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT, project, workflowPresetId),

@@ -7,6 +7,8 @@ import {
   projectSnapshotSchema,
   trustedDeviceSchema,
   conversationMessageSchema,
+  conversationSchema,
+  conversationHistoryPageSchema,
   memoryEntrySchema,
   plannerProbeSchema,
   workerTypeSchema,
@@ -17,6 +19,9 @@ import {
   executionRunSchema,
   repositoryAccessCheckSchema,
   repositoryAccessErrorCodeSchema,
+  artifactSchema,
+  CAPABILITY_SCOPED_STREAMS,
+  scopedStreamEventSchema,
   type MemoryEntry,
   type PairingExchangeResponse,
   type PlannerProbe,
@@ -48,6 +53,7 @@ export interface ProductRuntimeOptions {
   readonly setTimer?: (handler: () => void, milliseconds: number) => unknown
   readonly clearTimer?: (timer: unknown) => void
   readonly now?: () => Date
+  readonly fetch?: typeof globalThis.fetch
 }
 
 export interface ProductLiveClient {
@@ -70,6 +76,7 @@ interface ServerSession {
   state: ServerConnectionState
   error: string | null
   generation: number
+  scopedStreams: boolean
 }
 
 class BlockedServerConnectionError extends Error {}
@@ -83,6 +90,7 @@ interface ResolvedProductRuntimeOptions {
   setTimer: (handler: () => void, milliseconds: number) => unknown
   clearTimer: (timer: unknown) => void
   now: () => Date
+  fetch: typeof globalThis.fetch
 }
 
 export class ProductRuntime {
@@ -94,6 +102,7 @@ export class ProductRuntime {
   readonly #options: ResolvedProductRuntimeOptions
   #disposed = false
   #initialized = false
+  readonly #uploads = new Map<string, AbortController>()
 
   constructor(
     profiles: ProfileStore,
@@ -110,6 +119,7 @@ export class ProductRuntime {
       clearTimer:
         options.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)),
       now: options.now ?? (() => new Date()),
+      fetch: options.fetch ?? globalThis.fetch,
     }
     for (const profile of profiles.list()) this.#ensureSession(profile.serverId)
     this.#snapshot = this.#snapshotFromStore()
@@ -319,6 +329,8 @@ export class ProductRuntime {
         throw new BlockedServerConnectionError(
           'This endpoint now identifies as another Factoru Server',
         )
+      session.scopedStreams =
+        handshake.response.server.capabilities.includes(CAPABILITY_SCOPED_STREAMS)
       const live = this.#options.createLiveClient({
         baseUrl: profile.url,
         token,
@@ -332,7 +344,10 @@ export class ProductRuntime {
         live.close()
         return this.#snapshot
       }
-      live.onEvent(() => void this.synchronize(serverId))
+      live.onEvent((event) => {
+        if (this.#applyStreamEvent(serverId, event)) return
+        if (!session.scopedStreams) void this.synchronize(serverId)
+      })
       live.onClose(() => {
         if (session.live !== live) return
         session.live = null
@@ -408,6 +423,7 @@ export class ProductRuntime {
     profile.cursor = snapshot.cursor
     profile.lastConnectedAt = this.#options.now().toISOString()
     this.#profiles.update(profile)
+    if (session.scopedStreams) await this.#subscribeScopes(profile, live)
     if (
       active?.factoryId === serverId &&
       !profile.projects.some((item) => item.id === active.projectId)
@@ -512,26 +528,192 @@ export class ProductRuntime {
     this.#profiles.selectProject(reference)
     const live = this.#sessions.get(profile.serverId)?.live
     if (live) {
+      if (this.#sessions.get(profile.serverId)?.scopedStreams) {
+        await Promise.allSettled([
+          live.request('streams.unsubscribe', { subscriptionId: 'workspace' }),
+          live.request('streams.unsubscribe', { subscriptionId: 'conversation' }),
+        ])
+      }
       profile.workspaces[reference.projectId] = workspaceSchema.parse(
         await live.request('workspaces.get', { projectId: reference.projectId }),
       )
       profile.lastConnectedAt = this.#options.now().toISOString()
+      if (this.#sessions.get(profile.serverId)?.scopedStreams) {
+        await this.#subscribeScopes(profile, live)
+      }
     }
     this.#profiles.update(profile)
     return this.#updateFromStore()
   }
 
-  async sendMessage(project: ProjectRef, text: string) {
+  async sendMessage(project: ProjectRef, text: string, artifactIds: readonly string[] = []) {
     const result = conversationMessageSchema.parse(
       await this.request(
         project.factoryId,
         'conversations.send',
-        { projectId: project.projectId, text },
+        { projectId: project.projectId, text, artifactIds },
         `cmd_${randomUUID()}`,
       ),
     )
     await this.#refreshWorkspace(project)
     return result
+  }
+
+  async uploadImage(
+    input: {
+      uploadId: string
+      project: ProjectRef
+      conversationId: string
+      fileName: string
+      mimeType: string
+      provenance: 'picker' | 'paste' | 'drop'
+      bytes: Uint8Array
+    },
+    onProgress?: (uploadedBytes: number, totalBytes: number) => void,
+  ) {
+    const profile = this.#profiles.get(input.project.factoryId)
+    const token = profile ? this.#credentials.get(profile.serverId) : null
+    if (!profile || !token) throw new Error('Not connected')
+    const controller = new AbortController()
+    this.#uploads.set(input.uploadId, controller)
+    try {
+      const bytes = new Uint8Array(input.bytes)
+      let offset = 0
+      const body = new ReadableStream<Uint8Array>({
+        pull(stream) {
+          if (offset >= bytes.byteLength) {
+            stream.close()
+            return
+          }
+          const end = Math.min(offset + 64 * 1024, bytes.byteLength)
+          stream.enqueue(bytes.slice(offset, end))
+          offset = end
+          onProgress?.(offset, bytes.byteLength)
+        },
+      })
+      const url = new URL(
+        `/api/v1/projects/${encodeURIComponent(input.project.projectId)}/conversations/${encodeURIComponent(input.conversationId)}/artifacts`,
+        profile.url,
+      )
+      const response = await this.#options.fetch(url, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': input.mimeType,
+          'x-file-name': encodeURIComponent(input.fileName),
+          'x-artifact-provenance': input.provenance,
+        },
+        body,
+        signal: controller.signal,
+        duplex: 'half',
+      } as RequestInit)
+      if (!response.ok) throw new Error(`Image upload failed (${response.status})`)
+      return artifactSchema.parse(await response.json())
+    } finally {
+      this.#uploads.delete(input.uploadId)
+    }
+  }
+
+  cancelImageUpload(uploadId: string): boolean {
+    const controller = this.#uploads.get(uploadId)
+    controller?.abort()
+    return Boolean(controller)
+  }
+
+  async loadImage(project: ProjectRef, conversationId: string, artifactId: string) {
+    const profile = this.#profiles.get(project.factoryId)
+    const token = profile ? this.#credentials.get(profile.serverId) : null
+    if (!profile || !token) throw new Error('Not connected')
+    const url = new URL(
+      `/api/v1/projects/${encodeURIComponent(project.projectId)}/conversations/${encodeURIComponent(conversationId)}/artifacts/${encodeURIComponent(artifactId)}`,
+      profile.url,
+    )
+    const response = await this.#options.fetch(url, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) throw new Error(`Image download failed (${response.status})`)
+    return {
+      mimeType: response.headers.get('content-type') ?? 'application/octet-stream',
+      bytes: new Uint8Array(await response.arrayBuffer()),
+    }
+  }
+
+  async removeImage(
+    project: ProjectRef,
+    conversationId: string,
+    artifactId: string,
+  ): Promise<void> {
+    const profile = this.#profiles.get(project.factoryId)
+    const token = profile ? this.#credentials.get(profile.serverId) : null
+    if (!profile || !token) throw new Error('Not connected')
+    const url = new URL(
+      `/api/v1/projects/${encodeURIComponent(project.projectId)}/conversations/${encodeURIComponent(conversationId)}/artifacts/${encodeURIComponent(artifactId)}`,
+      profile.url,
+    )
+    const response = await this.#options.fetch(url, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Image removal failed (${response.status})`)
+    }
+  }
+
+  cancelConversation(project: ProjectRef, conversationId: string, turnId: string) {
+    return this.request(
+      project.factoryId,
+      'conversations.cancel',
+      { projectId: project.projectId, conversationId, turnId },
+      `cmd_${randomUUID()}`,
+    )
+  }
+
+  async retryConversation(project: ProjectRef, conversationId: string, messageId: string) {
+    return conversationMessageSchema.parse(
+      await this.request(
+        project.factoryId,
+        'conversations.retry',
+        { projectId: project.projectId, conversationId, messageId },
+        `cmd_${randomUUID()}`,
+      ),
+    )
+  }
+
+  async loadConversationHistory(
+    project: ProjectRef,
+    conversationId: string,
+    before?: string,
+  ): Promise<ProductSnapshot> {
+    const page = conversationHistoryPageSchema.parse(
+      await this.request(project.factoryId, 'conversations.history', {
+        projectId: project.projectId,
+        conversationId,
+        ...(before ? { before } : {}),
+        limit: 50,
+      }),
+    )
+    const messages = conversationMessageSchema.array().parse(page.messages)
+    const profile = this.#profiles.get(project.factoryId)
+    const workspace = profile?.workspaces[project.projectId]
+    if (!profile || !workspace || workspace.conversation.id !== conversationId) {
+      throw new Error('Conversation not found')
+    }
+    const merged = new Map(
+      [...messages, ...workspace.conversation.messages].map((message) => [message.id, message]),
+    )
+    profile.workspaces[project.projectId] = {
+      ...workspace,
+      conversation: {
+        ...workspace.conversation,
+        messages: [...merged.values()].sort(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        ),
+        hasMoreHistory: page.hasMore,
+      },
+    }
+    this.#profiles.update(profile)
+    return this.#updateFromStore()
   }
 
   async updateModel(input: {
@@ -885,6 +1067,94 @@ export class ProductRuntime {
     }
   }
 
+  async #subscribeScopes(profile: ServerProfile, live: ProductLiveClient): Promise<void> {
+    await live.request('streams.subscribe', {
+      subscriptionId: 'shell',
+      resource: { kind: 'shell' },
+      afterCursor: profile.cursor,
+    })
+    const active = this.#profiles.activeProjectRef
+    if (active?.factoryId !== profile.serverId) return
+    const workspace = profile.workspaces[active.projectId]
+    await live.request('streams.subscribe', {
+      subscriptionId: 'workspace',
+      resource: { kind: 'workspace', projectId: active.projectId },
+      afterCursor: profile.cursor,
+    })
+    if (!workspace) return
+    await live.request('streams.subscribe', {
+      subscriptionId: 'conversation',
+      resource: {
+        kind: 'conversation',
+        projectId: active.projectId,
+        conversationId: workspace.conversation.id,
+      },
+      afterCursor: workspace.conversation.streamCursor,
+    })
+    const run = workspace.taskRuns.find((candidate) =>
+      ['pending', 'running', 'cancelling'].includes(candidate.status),
+    )
+    if (run) {
+      await live.request('streams.subscribe', {
+        subscriptionId: 'run',
+        resource: { kind: 'run', projectId: active.projectId, runId: run.id },
+        afterCursor: profile.cursor,
+      })
+    }
+  }
+
+  #applyStreamEvent(serverId: string, input: unknown): boolean {
+    const parsed = scopedStreamEventSchema.safeParse(input)
+    if (!parsed.success) return false
+    const event = parsed.data
+    if (event.type === 'stream.heartbeat' || event.type === 'stream.live') return true
+    const profile = this.#profiles.get(serverId)
+    if (!profile) return true
+    const data = event.data as Record<string, unknown>
+    if (event.resource.kind !== 'conversation') {
+      profile.cursor = Math.max(profile.cursor, event.cursor)
+    }
+    if ('projects' in data) {
+      profile.projects = projectSchema.array().parse(data.projects)
+    }
+    if ('workspace' in data) {
+      let workspace = workspaceSchema.parse(data.workspace)
+      const previous = profile.workspaces[workspace.projectId]
+      if (
+        previous?.modelCatalog.status === 'ready' &&
+        workspace.modelCatalog.status === 'unavailable'
+      ) {
+        workspace = { ...workspace, modelCatalog: previous.modelCatalog }
+      }
+      profile.workspaces[workspace.projectId] = workspace
+    }
+    if ('conversation' in data && event.resource.kind === 'conversation') {
+      const workspace = profile.workspaces[event.resource.projectId]
+      if (workspace) {
+        profile.workspaces[event.resource.projectId] = {
+          ...workspace,
+          conversation: conversationSchema.parse(data.conversation),
+        }
+      }
+    }
+    if ('run' in data && event.resource.kind === 'run') {
+      const workspace = profile.workspaces[event.resource.projectId]
+      if (workspace) {
+        const run = executionRunSchema.parse(data.run)
+        profile.workspaces[event.resource.projectId] = {
+          ...workspace,
+          taskRuns: workspace.taskRuns.some((candidate) => candidate.id === run.id)
+            ? workspace.taskRuns.map((candidate) => (candidate.id === run.id ? run : candidate))
+            : [...workspace.taskRuns, run],
+        }
+      }
+    }
+    profile.lastConnectedAt = this.#options.now().toISOString()
+    this.#profiles.update(profile)
+    this.#updateFromStore()
+    return true
+  }
+
   #ensureSession(serverId: string): ServerSession {
     const existing = this.#sessions.get(serverId)
     if (existing) return existing
@@ -896,6 +1166,7 @@ export class ProductRuntime {
       state: this.#credentials.get(serverId) ? 'offline' : 'pairing_required',
       error: this.#credentials.get(serverId) ? null : 'Pairing required',
       generation: 0,
+      scopedStreams: false,
     }
     this.#sessions.set(serverId, session)
     return session

@@ -66,6 +66,51 @@ describe('authenticated live API', () => {
       result: { projects: [], cursor: 0, resynchronized: false, events: [] },
     })
 
+    const streamed = new Promise<unknown[]>((resolve) => {
+      const messages: unknown[] = []
+      const listener = (raw: WebSocket.RawData) => {
+        messages.push(JSON.parse(raw.toString()))
+        if (messages.length === 3) {
+          socket.off('message', listener)
+          resolve(messages)
+        }
+      }
+      socket.on('message', listener)
+    })
+    socket.send(
+      JSON.stringify({
+        id: 'stream-shell',
+        method: 'streams.subscribe',
+        params: {
+          subscriptionId: 'shell',
+          resource: { kind: 'shell' },
+          afterCursor: 0,
+        },
+      }),
+    )
+    expect(await streamed).toEqual([
+      {
+        type: 'stream.snapshot',
+        subscriptionId: 'shell',
+        resource: { kind: 'shell' },
+        cursor: 0,
+        resynchronized: false,
+        reason: 'initial',
+        data: { projects: [] },
+      },
+      {
+        type: 'stream.live',
+        subscriptionId: 'shell',
+        resource: { kind: 'shell' },
+        cursor: 0,
+      },
+      {
+        id: 'stream-shell',
+        ok: true,
+        result: { cursor: 0, resynchronized: false },
+      },
+    ])
+
     const revokedTicket = await app.inject({
       method: 'POST',
       url: CONNECTION_TICKET_PATH,

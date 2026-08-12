@@ -7,6 +7,7 @@ export const CAPABILITY_LIVE = 'live-v1'
 export const CAPABILITY_PROJECTS = 'projects-v2'
 export const CAPABILITY_REPOSITORY_ACCESS_CHECK = 'repository-access-check-v1'
 export const CAPABILITY_TRUSTED_DEVICES = 'trusted-devices-v1'
+export const ARTIFACTS_PATH_PREFIX = '/api/v1/projects'
 export const PAIRING_EXCHANGE_PATH = '/api/v1/pairing/exchange'
 export const LOCAL_ENROLLMENT_PATH = '/api/v1/pairing/local'
 export const CONNECTION_TICKET_PATH = '/api/v1/auth/ticket'
@@ -161,10 +162,15 @@ export const liveMethodSchema = z.enum([
   'projects.create',
   'projects.retrySetup',
   'projects.subscribe',
+  'streams.subscribe',
+  'streams.unsubscribe',
   'devices.list',
   'devices.revoke',
   'workspaces.get',
   'conversations.send',
+  'conversations.history',
+  'conversations.cancel',
+  'conversations.retry',
   'team.updateModelBinding',
   // Protocol-v2 command alias for protocol-v1 Desktop builds.
   'workers.updateModelBinding',
@@ -199,7 +205,7 @@ export const liveResponseSchema = z.discriminatedUnion('ok', [
     error: z.object({ code: z.string(), message: z.string(), details: z.unknown().optional() }),
   }),
 ])
-export const liveEventSchema = z.object({
+export const projectLiveEventSchema = z.object({
   type: z.literal('project.event'),
   event: projectEventSchema,
 })

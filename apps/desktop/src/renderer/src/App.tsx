@@ -552,11 +552,13 @@ export function App() {
     void run(() => window.factoru.product.retry(activeProjectRef))
   }
 
-  const sendMessage = (text: string) => {
-    if (!activeProjectRef) return
-    void run(() => window.factoru.product.sendMessage(activeProjectRef, text)).then(
-      (sent) => sent && setMessageDraft(''),
+  const sendMessage = async (text: string, artifactIds: string[]): Promise<boolean> => {
+    if (!activeProjectRef) return false
+    const sent = await run(() =>
+      window.factoru.product.sendMessage(activeProjectRef, text, artifactIds),
     )
+    if (sent) setMessageDraft('')
+    return Boolean(sent)
   }
 
   const updateModel = (
@@ -1532,12 +1534,35 @@ factoru-server providers configure --provider codex`}</code>
           </section>
         ) : (
           <ConversationSurface
+            project={activeProjectRef!}
+            conversation={snapshot.workspace.conversation}
             messages={snapshot.workspace.conversation.messages}
             draft={messageDraft}
             connected={snapshot.connected}
             busy={busy}
             onDraftChange={setMessageDraft}
             onSend={sendMessage}
+            onStop={(turnId) =>
+              window.factoru.product.cancelConversation(
+                activeProjectRef!,
+                snapshot.workspace!.conversation.id,
+                turnId,
+              )
+            }
+            onRetry={(messageId) =>
+              window.factoru.product.retryConversation(
+                activeProjectRef!,
+                snapshot.workspace!.conversation.id,
+                messageId,
+              )
+            }
+            onLoadHistory={(before) =>
+              window.factoru.product.loadConversationHistory(
+                activeProjectRef!,
+                snapshot.workspace!.conversation.id,
+                before,
+              )
+            }
           />
         )}
       </section>

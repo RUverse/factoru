@@ -2,11 +2,10 @@
 
 > Document type: living implementation map
 > Last reviewed: 2026-08-12
-> Runtime implementation status: Delivered Foundation complete through the
-> development-from-source serial path; provider-backed Fast Patch acceptance
-> passed and the Blueprint-driven Formula catalog is connected with Standard
-> Build provider acceptance pending; Milestone 7 live conversation and resilient
-> client synchronization are next
+> Runtime implementation status: Milestone 7 production paths are connected and
+> automated-test covered; provider-backed Fast Patch acceptance passed, while
+> Standard Build plus live Claude/Codex image-delivery and remote reconnect
+> acceptance remain pending; Milestone 8 is next
 
 This document describes both the architecture Factoru intends to build and the
 parts that actually exist. It must change with the code. Product scope and
@@ -33,23 +32,23 @@ inventory below is authoritative.
 | Area | Status | Current reality | Next proof |
 | --- | --- | --- | --- |
 | Monorepo | **Implemented** | pnpm workspace with a pnpm-managed Node 22.13.0 development runtime, both applications, protocol/domain/config/database/Gas City/UI packages, versioned templates and pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, isolated per-worktree state/ports/pairing, a source-preview `factoru-server` operator launcher, an explicit provider-selected city bootstrap, a read-only 64-bit Linux remote-host preflight, an idempotent checksum-pinned Debian-family source bootstrap, plus a disposable-repository-root override for safe project acceptance. | Add only milestone-owned boundaries as their real paths connect. |
-| Factoru Server | **Implemented** | Fastify connects SQLite-backed remote pairing and private loopback enrollment, trusted devices, authenticated one-time WebSocket tickets, scoped live methods, durable projects/workspaces/tasks, idempotent product commands, event/outbox reactors, Project Manager conversation delivery, Queue reconciliation, and restart observation while remaining loopback-bound. The serial delivery reactor resolves an allowed Formula Preset, snapshots it at admission, prepares/adopts one capsule, and dispatches either attached `standard-build` or standalone `software-delivery` before collecting evidence, usage, integration checks, and run decisions. Fast Patch completed ten benchmark runs plus one conversation-originated run across service restart; Standard Build is connected but lacks real-provider acceptance. The operator CLI covers foreground start/version, status, provider/city setup and readiness, repository diagnostics, correlated activity, pairing/SSH-forward details, doctor, and verified SQLite backup. | Milestone 7 adds scoped stream resources and image-artifact endpoints; Milestone 8 completes Standard Build acceptance, packaged lifecycle, restore/recovery, logs, service management, and operational hardening. |
-| Shared protocol | **Implemented** | Protocol v2 in `packages/protocol` owns runtime-validated health/handshake, pairing/enrollment, named multi-repository projects, Blueprint/Team/Formula-Preset catalog and selection, the normalized safe model catalog, devices, workspaces, conversations, tasks, Queue/run evidence, live events, cursor snapshots, compatibility, and typed clients. The former Factory Template and Worker Type response fields remain read-only v2 aliases. Projects-v2 carries an ordered repository/rig collection plus the primary execution binding, while repository-access-check-v1 reports sanitized server-side URL readiness. Older cached workspaces receive safe collection, Team, and unavailable-model-catalog fallbacks. | Milestone 7 adds bounded shell/workspace/conversation/run subscriptions, message lifecycle/content parts, and opaque artifact contracts. Remove compatibility aliases only in a later negotiated version. |
-| Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles, encrypted credentials, per-profile caches/cursors, a compound active-project reference, and one authenticated live session per saved server. It aggregates every cached project with its authoritative home factory and routes named IPC explicitly by factory/project identity rather than presentation selection ([ADR 0016](./adr/0016-concurrent-desktop-server-connections.md), [ADR 0017](./adr/0017-factory-independent-project-catalog.md)). Local enrollment is automatic when the private descriptor is available; Local Factory remains a protected built-in entry. The renderer uses a frameless native-control shell with live system appearance, a narrow fullscreen/platform bridge, persisted resizable pane presentation state, responsive focus-managed drawers, shared React primitives, and a controlled prompt composer ([ADR 0020](./adr/0020-desktop-shell-and-ui-foundation.md)). It reports aggregate factory health, filters a merged project catalog, manages each factory independently, supports Blueprint project creation, linked configured-provider/model Team selectors with effective configured defaults, project workflow defaults, and locked task overrides, and retains cached/offline board behavior with progressively disclosed run evidence. Conversation messages are complete plain-text records, attachment controls are disabled, and generic project events currently trigger broad project/workspace synchronization. | Milestone 7 adds scoped incremental synchronization, rich streaming messages/tool state, bounded history, and image composition; managed launch, packaged acceptance, and Standard Build UX move to Milestone 8. |
-| Gas City adapter | **Partial** | `packages/gas-city` is verified against Gas City 1.4.0 for compatibility/readiness, browser-safe configured-provider/model discovery, loopback supervisor transport, durable cursors, guarded rig registration that attaches the pinned Factoru pack before model patches, standalone run dispatch/observation/cancellation, usage folding, and project-runtime configuration. Preset-declared launch now adds rig-scope inherited-formula preview and idempotent source-bead attachment while standalone launches retain strict local Formula validation. Both contracts are adapter-tested, but attached Standard Build has not run against the pinned executable/provider. Raw DTOs and provider options stay inside the package; only safe model value/label/default metadata crosses into Factoru. | Milestone 7 validates served output-stream/attachment capabilities for Claude and Codex; Milestone 8 completes attached-launch provider/restart acceptance, and Milestone 9 adds deeper run/session/convoy projections. |
+| Factoru Server | **Implemented** | Fastify connects SQLite-backed remote pairing and private loopback enrollment, trusted devices, authenticated one-time WebSocket tickets, durable projects/workspaces/tasks, idempotent product commands, and event/outbox reactors while remaining loopback-bound. One connection now carries authorized shell/workspace/conversation/run subscriptions with snapshots, 500-event replay, live markers, 15-second heartbeats, scoped gap fallback, and 1 MiB socket backpressure. Rich PM turns reconcile structured Gas City projections to the authoritative transcript; authenticated HTTP image routes validate and store bytes externally behind opaque metadata and short-lived host-local grants. The serial delivery path and operator CLI remain as previously accepted. | Milestone 8 completes Standard Build acceptance, packaged lifecycle, restore/recovery, logs, service management, and operational hardening; remote mid-response and both-provider image acceptance remain explicit carry-over evidence. |
+| Shared protocol | **Implemented** | Protocol v3 in `packages/protocol` owns runtime-validated health/handshake, pairing/enrollment, projects, Blueprint/Team/Formula-Preset catalog, model catalog, devices, workspaces, tasks, Queue/run evidence, and typed clients. It adds scoped stream resources/events, rich conversation lifecycle/content parts, bounded history/cancel/retry, and opaque image-artifact contracts. The project-v2 aliases and generic project subscription remain negotiated compatibility surfaces. | Remove compatibility aliases only in a later negotiated version and compress stream payloads only from measured pressure. |
+| Factoru Desktop | **Partial** | Electron main persists server-ID-bound profiles, encrypted credentials, per-profile caches/cursors, a compound active-project reference, and one authenticated live session per saved server ([ADR 0016](./adr/0016-concurrent-desktop-server-connections.md), [ADR 0017](./adr/0017-factory-independent-project-catalog.md)). Protocol-v3 snapshots/deltas patch only the named shell/workspace/conversation/run cache; older servers retain the broad-refetch fallback. The frameless responsive shell ([ADR 0020](./adr/0020-desktop-shell-and-ui-foundation.md)) now renders sanitized rich text, code, lists, tables, safe links, structured tools, streaming/error/usage state, stop/retry, stable autoscroll/unread behavior, and reduced motion. Its composer supports picker/paste/drop, validation, previews, upload state/retry/cancel, mixed turns, and image-only turns through narrow preload methods; credentials and server paths remain outside the renderer. | Managed launch, packaged/remote visual acceptance, Standard Build UX, and live remote reconnect evidence move to Milestone 8. |
+| Gas City adapter | **Partial** | `packages/gas-city` remains pinned to 1.4.0 and keeps raw DTOs/provider options inside the boundary. It now contract-checks structured session transcript/stream/close paths, sends external-message attachments, retains the target session for cancellation, and maps provider-neutral partial text/tool/usage blocks while discarding thinking blocks. Final extmsg transcript records remain authoritative. Recorded 1.4.0 contract fixtures cover Codex/Claude-neutral shapes, but live image delivery through both harnesses is not yet accepted. The 2026-08-12 attempt was blocked by missing Claude authentication and a Homebrew Beads/Dolt cross-era initialization failure. | Complete the pinned compatible dependency and both-provider live attachment/reconnect matrix; Milestone 8 also completes attached-launch provider/restart acceptance. |
 | Agent-tool bridge | **Implemented** | Factoru installs both harness MCP configs from `session_setup_script`. The server projects its current loopback origin into private, schema-versioned city runtime state so isolated ports reach the correct bootstrap. Setup requests a short-lived credential bound by the server to the exact rig, project, role, and Gas City session; the model never supplies it as an argument. The bridge exposes structured task tools, while server policy enforces role/project scope, request replay, and a redacted audit record ([ADR 0010](./adr/0010-agent-tool-transport.md)). The live PM path completed audited search/create/update/queue calls. | Revalidate tool bootstrap from packaged installations in Milestone 8. |
 | Factoru Gas City pack | **Partial** | `packs/factoru-default` 0.4.2 retains the accepted bounded `software-delivery` path for Fast Patch, adds a thin `standard-build` overlay on pinned upstream `gc.build-basic`, and supplies the scoped PM conversation reply command. The overlay binds decomposed work to Factoru's capsule, caps serial units at 20, and inserts trusted verification before upstream review; both pack imports are SHA-locked. Fast Patch completed 10/10 benchmark tasks plus the conversation-originated loop, while Standard Build currently has static and adapter verification only. | Lint and run Standard Build with pinned Gas City 1.4.0 and a real provider. |
-| Factoru database | **Implemented** | `@factoru/database` uses `better-sqlite3`, WAL/foreign keys/busy handling, forward-only SQL migrations, identity binding, transactional receipts/events/outbox, checkpoint, and online backup. Migrations 0005–0006 add ordered repositories and managed project directories. Migration 0007 adds Blueprint/project defaults, task preset selection source and user locks, immutable Formula Run snapshot fields, and compatibility migration of active legacy runs and queued tasks. Admission, observation, failure/retry, cancellation, review handoff, and acceptance remain transactional. | Milestone 7 adds conversation-turn/content-part and artifact metadata migrations; Milestone 8 completes packaged backup/restore and operational recovery drills. |
-| Authentication and pairing | **Partial** | Hashed one-time remote pairing codes, private restart-scoped same-machine enrollment proofs, hashed revocable owner tokens, method scopes, 60-second one-time connection tickets, rate limiting, active-socket revocation, and OS-encrypted desktop storage are connected and tested ([ADR 0013](./adr/0013-local-desktop-enrollment.md)). The renderer never receives either enrollment proof or long-lived token. | Milestone 7 adds project/conversation-scoped artifact authorization; Milestone 8 validates the HTTPS proxy path and packaged local-service lifecycle. |
+| Factoru database | **Implemented** | `@factoru/database` uses `better-sqlite3`, WAL/foreign keys/busy handling, forward-only SQL migrations, identity binding, transactional receipts/events/outbox, checkpoint, and online backup. Migration 0008 adds durable conversation turns, versioned content parts, monotonic conversation stream events, opaque artifact metadata, and expiring delivery grants while preserving older messages. Turn start/projection/final/cancel/fail transitions and replay cursors are transactional and tested. | Milestone 8 completes packaged backup/restore and operational recovery drills. |
+| Authentication and pairing | **Partial** | Hashed one-time remote pairing codes, private restart-scoped same-machine enrollment proofs, hashed revocable owner tokens, method scopes, 60-second one-time connection tickets, rate limiting, active-socket revocation, and OS-encrypted desktop storage are connected and tested ([ADR 0013](./adr/0013-local-desktop-enrollment.md)). Artifact reads/writes recheck project/conversation ownership; Gas City receives only an expiring host-local grant. The renderer never receives enrollment proof, long-lived token, server path, or delivery grant. | Milestone 8 validates the HTTPS proxy path and packaged local-service lifecycle. |
 | Projects | **Partial** | Named projects contain an ordered repository collection and, for new projects, one stable server-owned directory under `$HOME/factoru-projects`. Every remote clone and clean local import is placed below that directory's `repositories/` child, leaving the project root available for later project-level instruction files. HTTPS/SSH URLs receive a bounded non-interactive access check before persistence; Git/OpenSSH credentials remain owned by the unprivileged server account. Existing projects keep their recorded paths as unmanaged legacy projects. Each repository has its own branch/index preview, rig binding, durable outbox item, and bounded setup retry. Failed attempts publish their error, attempt count, and next retry time; a partial managed-clone registration may unstage only known Gas City-generated paths before retrying, while unrelated staged work remains blocked. The first repository is the primary serial execution rig ([ADR 0018](./adr/0018-managed-project-directories.md)). | Validate packaged multi-rig creation/removal, service-account credential lifecycle, backup recovery, and explicit per-task rig routing. |
 | Multi-factory project execution | **Deferred** | Desktop identifies each project by its one authoritative home factory and server-local project ID; additional factories are not replicas or execution targets yet. | Define server-to-server trust, per-factory repository mappings, task placement, cancellation, health, and recovery before attaching execution factories. |
-| Project Manager chat | **Partial** | Every project receives one deterministic conversation and city-local Gas City chat identity. Authenticated text-only Desktop sends are persisted before a bounded delivery outbox, complete transcript replies resume by Gas City sequence, status/errors publish to cached clients, and a separate serialized planner dispatches and observes production Queue reconciliation without blocking chat. A live provider conversation created and queued the Milestone 6 acceptance task through audited tools. Token deltas, structured message parts, image attachments, bounded history pagination, and turn cancellation are not connected. | Milestone 7 implements and reconnect-tests rich streaming conversation; packaged lifecycle validation follows in Milestone 8. |
+| Project Manager chat | **Partial** | Every project receives one deterministic conversation and city-local Gas City chat identity. User turns and image parts persist before bounded delivery; assistant start/text/tool/usage projections stream from Gas City's structured transcript and reconcile to the final extmsg sequence. Bounded history, stop/cancel, retry, terminal late-frame protection, and exact turn/message/content-part IDs are connected. A separate serialized planner remains responsive. Automated lifecycle and adapter tests pass; real two-harness image and remote mid-response reconnect acceptance remain pending. | Complete that operational matrix, then revalidate packaged lifecycle in Milestone 8. |
 | Four-state tasks | **Implemented** | The domain and protocol admit exactly `backlog`, `queue`, `in_progress`, and `needs_you`; SQLite persists active tasks, terminal resolutions, exact Needs-you actions, dependencies, history, run correlations, simple duplicate scores, WIP one, and coalesced Queue intent. Authenticated idempotent direct and PM tool commands are connected. The responsive desktop board supports Backlog capture/editing, Queue movement and phase badges, exact Needs-you requests, terminal resolution, and explicit merge decisions. Queue work dispatches with an idempotency key to one serialized Formula and is observed to terminal state; the provider-backed conversation path reached acceptance without manual board management. | Tune only from packaged usability and production evidence. |
 | Blueprint and Team catalog | **Implemented** | Versioned `Standard Software Project` and `Fast Patch` Project Blueprints compose fixed Project Manager/Software Engineer Team profiles, pinned packs, allowed Formula Presets, recommended defaults, role-scoped tools, memory, and serial capacity. Desktop edits Blueprint-seeded project defaults, task overrides, and every Team model slot through linked choices loaded from the factory's configured Gas City providers; the server enforces allowlists and user locks. Legacy Factory Template/Worker Type responses are protocol-v2 aliases only ([ADR 0019](./adr/0019-blueprints-formula-presets-and-project-manager-boundary.md)). | Add roles, presets, providers, or capacity only from measured need and in milestone order. |
 | Internal review | **Implemented** | The production formula routes review to a distinct agent binding and persists its report; capsule finalization includes it in the review package. Eleven live runs produced specific independent verification notes and no unresolved risks. | Tune reviewer policy from production findings. |
 | Human review | **Implemented** | Completed runs move to `needs_you` with a diff/check/review/usage package and explicit approve/request-changes/archive controls. Eleven real provider-produced packages were adjudicated and accepted. | Validate packaged UI ergonomics in Milestone 8 and richer Gas City-native run evidence in Milestone 9. |
 | Task-run capsule | **Implemented** | Factoru Server owns one deterministic branch/worktree and external control/evidence directory per run, passes the same capsule to implementer/reviewer, safely adopts it after restart, rebases, reruns trusted checks, and refuses dirty/conflicted/invalid capsules. Eleven live runs left the source repository head and worktree unchanged. | Add complete non-Git leases and service-container isolation only when Milestone 10 concurrency requires them. |
-| Conversation artifact storage | **Planned** | Milestone 7 uses opaque project/conversation-scoped IDs, SQLite metadata and authorization, and binary server artifact storage; no upload/download route or schema exists today. | Prove image signature/limit enforcement, ownership, retention, reconnect, and Claude/Codex delivery without exposing paths or credentials. |
+| Conversation artifact storage | **Implemented** | Opaque project/conversation-scoped IDs and SQLite metadata own content hash, MIME, dimensions, provenance, creator, status, quota accounting, and 30-day retention. Bytes live in mode-restricted server storage outside SQLite. Authenticated binary upload/download/delete plus expiring host-local delivery grants enforce signature/MIME, 8 MiB, 8192px, four-images-per-turn, 256 MiB project quota, ownership, and no path disclosure; referenced artifacts cannot be deleted and unused expired bytes are collected. | Complete live Claude/Codex delivery plus packaged backup/retention acceptance. |
 | Service-container isolation | **Deferred** | Tier-two task-specific project services are defined but not scheduled before concurrency. | In Milestone 10, run two capsules with distinct Compose, port, and database identities under resource limits. |
 | Full-worker container | **Deferred** | Optional tier three, not the default or one container per session. | Prove provider hooks, credentials, caches, tools, ownership, and security on Linux. |
 | Parallel orchestration | **Deferred** | The initial WIP limit is one. | Milestone 10 must run two and then three isolated tasks without increasing user effort. |
@@ -58,29 +57,28 @@ inventory below is authoritative.
 
 ## Current implementation sequence
 
-The former Milestones 0–6 are now the **Delivered Foundation**: one connected
+The former Milestones 0–7 are now the **Delivered Foundation implementation**: one connected
 development-from-source path covering the walking skeleton, real Gas City gate,
 persistence and authenticated remote protocol, Desktop shell, persistent PM
 chat/planner, four-state tasks, the provider-backed Fast Patch operational spike,
 and the serial production loop. The Blueprint-driven catalog extends that
 foundation with Project Blueprints, selectable Formula Presets, and the attached
-Standard Build path. Standard Build remains connected but not provider-accepted.
+Standard Build path plus scoped resilient streams, rich conversation turns, and
+image artifacts. Standard Build, remote mid-response reconnect, and live image
+delivery through both initial harnesses remain operational acceptance gaps.
 
 The forward sequence is:
 
-1. **Milestone 7 — Live Conversation and Resilient Client Sync:** bounded
-   shell/workspace/conversation/run subscriptions, resumable assistant and tool
-   streams, rich rendering, and image artifacts.
-2. **Milestone 8 — Packaging and Dependable Operation:** signed Desktop and
+1. **Milestone 8 — Packaging and Dependable Operation:** signed Desktop and
    packaged Server/CLI, Standard Build provider acceptance, supported-host
    installation, backup/restore, recovery, diagnostics, and upgrades.
-3. **Milestone 9 — Gas City-Native Orchestration Depth:** run/session/Formula
+2. **Milestone 9 — Gas City-Native Orchestration Depth:** run/session/Formula
    projections, durable decomposition, specialist review and synthesis, and
    improved PM reconciliation while WIP remains one.
-4. **Milestone 10 — Safe Concurrency and Capsules:** complete resource leases and
+3. **Milestone 10 — Safe Concurrency and Capsules:** complete resource leases and
    service isolation, then raise independently admitted task workflows from two
    to three with serialized integration.
-5. **Milestone 11 — Adaptive Workflows and Trusted Extensibility:** independently
+4. **Milestone 11 — Adaptive Workflows and Trusted Extensibility:** independently
    scheduled Formula units, curated specialist roles, safe preset customization,
    trusted pack import, and opt-in maintenance Orders.
 
@@ -297,11 +295,11 @@ flowchart TD
 | --- | --- | --- |
 | `apps/desktop` | **Partial** | Electron main owns kind-aware friendly-name profiles, automatic protected local enrollment, encrypted credentials, authenticated per-factory live transport, compound project references, aggregate workspace/run caches and cursors, first-launch preference state, frameless native window configuration, live system-theme synchronization, and explicitly targeted named IPC. Preload adds only typed platform/fullscreen state beside the existing product bridge. The renderer owns versioned pane preferences and implements the responsive shell, aggregate factory management, one-home-factory multi-repository onboarding, merged project/PM/Team surfaces, Blueprint creation choices, workflow defaults/overrides, the four-state board, and progressively disclosed run evidence. Packaged local install remains later. |
 | `apps/server` | **Implemented** | Fastify serves health/auth/live methods, project/workspace/task services, idempotent commands, outbox/reactors, the loopback agent-tool gateway, Queue planning, and the serial execution loop. The server owns Blueprint/default resolution, task user-lock enforcement, immutable admission snapshots, preset capability validation, capsule creation/adoption, trusted checks, final integration validation, review packaging, and decision transitions. Standard Build's real-provider proof remains pending. |
-| `packages/protocol` | **Implemented** | Protocol v2 runtime-validates compatibility, authentication, Blueprint/Team/Formula-Preset catalog and selection, projects, workspaces, conversations, tasks, Queue/run evidence, commands, snapshots/cursors, live events, and explicit run actions. Former Factory Template and Worker Type response fields are read-only compatibility aliases for this version. |
+| `packages/protocol` | **Implemented** | Protocol v3 runtime-validates compatibility, authentication, Blueprint/Team/Formula-Preset catalog and selection, projects, workspaces, rich conversations/content parts, opaque artifacts, bounded resource subscriptions, tasks, Queue/run evidence, commands, snapshots/cursors, and explicit run actions. Former Factory Template and Worker Type response fields remain compatibility aliases. |
 | `packages/domain` | **Implemented** | Server identity, client connection state, built-in Project Blueprint/Formula Preset/Team invariants, allowlist and default-precedence rules, Formula capability policy, the four task states, Queue phases, exact Needs-you actions, terminal resolutions, and deterministic candidate scoring are implemented. |
 | `packages/config` | **Implemented** | Shared TypeScript compiler configuration for every workspace package. |
 | `packages/database` | **Implemented** | SQLite connection policy, seven forward migrations, transactional event/outbox writes, backup/reopen recovery, Blueprint/project/task workflow selection, immutable run snapshots, and full serial execution evidence plus transition persistence. |
-| `packages/gas-city` | **Partial** | Factoru-owned orchestration port over Gas City 1.4.0. In addition to compatibility, cursors, registration, conversation, configuration, observation/cancellation, and usage folding, it supports preset-declared standalone and attached launches. Standalone validates local Formula v2; attached previews inherited formulas at rig scope, idempotently creates a source bead, then attaches it. The attached path is adapter-tested but not provider-accepted. |
+| `packages/gas-city` | **Partial** | Factoru-owned orchestration port over Gas City 1.4.0. It adds provider-neutral structured conversation projection, external-message attachment delivery, session correlation/cancellation, and required served paths without terminal parsing or direct provider sessions. Contract fixtures pass; live two-harness image acceptance and attached Standard Build provider acceptance remain. |
 | `packages/ui` | **Implemented** | Semantic system-theme tokens, owned component styles, and compiled React Button/IconButton, Tabs, Badge, Card, Field, Dialog, Drawer, Tooltip, EmptyState, SplitView/ResizeHandle, and PromptComposer primitives. Base UI supplies accessible composite behavior, Lucide supplies icons, and React is a peer dependency. The package contains no transport, Electron, product-state, or server logic. |
 | `packs/factoru-default` | **Partial** | Version 0.4.0 contains Factoru's roles, probes, scoped task tools, Queue reconciliation, the provider-accepted `software-delivery` formula, and a thin SHA-pinned `standard-build` extension of upstream `gc.build-basic`. Static tests cover locks, caps, verification ordering, and publishing policy; pinned-runtime/provider acceptance for the inherited overlay is pending. |
 | `templates/` | **Implemented** | The versioned Blueprint schema plus `Standard Software Project` and `Fast Patch` manifests define pinned pack locks, fixed Team profiles, allowed Formula Presets, recommended defaults, model slots, memory/tool policy, and WIP-one capacity. Catalog invariants and manifest/domain synchronization are tested. |
@@ -672,8 +670,9 @@ bootstrap. Raw tools are never granted merely because a model requested them.
 
 ## Protocol architecture
 
-**Implemented for the Delivered Foundation; Milestone 7 expansion planned;
-recorded in [ADR 0003](./adr/0003-api-transport-and-protocol.md).**
+**Implemented for the Delivered Foundation; recorded in
+[ADR 0003](./adr/0003-api-transport-and-protocol.md) and
+[ADR 0021](./adr/0021-scoped-streams-over-existing-websocket.md).**
 Use a small HTTP surface for health, pairing, token exchange, and operational
 or artifact transfer plus a typed live connection for commands, queries, and
 subscriptions.
@@ -687,21 +686,15 @@ carries scoped queries, idempotent commands, project/workspace snapshots,
 conversation/Worker/model/memory/planner operations, cursor replay, and live
 product events.
 
-The current subscription is project-event-oriented: Desktop responds to a
-generic project event by refreshing the cached project list and the entire
-active workspace. Conversation replies arrive as complete text messages, and
-the message schema has no content parts or attachment references. This is
-working Delivered Foundation behavior, not the Milestone 7 target.
-
-**Planned for Milestone 7:** retain one supervised authenticated connection per
-factory and introduce separately authorized, bounded resources for:
+Protocol-v3 peers retain one supervised authenticated connection per factory
+and use separately authorized, bounded resources for:
 
 - the factory/project shell and its aggregate health/project changes;
 - one active project workspace;
 - one conversation with bounded historical turn pagination; and
 - one active Formula run with user-facing stage/tool/evidence deltas.
 
-Each stream contract defines its snapshot, sequence cursor, replay window,
+Each implemented stream contract defines its snapshot, sequence cursor, replay window,
 catch-up-complete/live marker, heartbeat, buffer/backpressure limit, gap
 response, and scoped snapshot fallback. Conversation events use stable turn,
 message, content-part, and tool-operation IDs and distinguish assistant
@@ -709,12 +702,12 @@ message, content-part, and tool-operation IDs and distinguish assistant
 are projections; the completed Factoru message is authoritative and replaces
 the partial projection idempotently.
 
-Image bytes cross authenticated HTTP endpoints as opaque artifact handles.
+Image bytes cross implemented authenticated HTTP endpoints as opaque artifact handles.
 The live protocol carries only versioned content-part metadata, upload state,
 and authorized download references. Upload and download methods are scoped to
 the exact project/conversation and never reveal server paths, provider URLs, or
-credentials. Capability negotiation must make older peers ignore unsupported
-content parts safely or reject an incompatible mutation before upload/send.
+credentials. Capability negotiation keeps older peers on the protocol-v2
+generic event/refetch path and advertises rich stream/artifact support explicitly.
 
 The protocol must provide:
 
@@ -849,7 +842,7 @@ identity/config decision is in
 [ADR 0012](./adr/0012-project-manager-runtime-identities.md); the transport is in
 [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md).
 
-**Planned for Milestone 7:** Factoru adds a durable turn lifecycle above this
+**Implemented:** Factoru adds a durable turn lifecycle above this
 transcript path. Versioned message content parts carry text, image-artifact
 references, and structured tool activity. Assistant and tool deltas are
 resumable projections with stable IDs; the final Factoru transcript record is
@@ -865,6 +858,8 @@ server path. Only the Gas City adapter may translate an authorized artifact into
 the served runtime's supported attachment shape, after a validated
 harness/model capability check. An unsupported or unproven vision path blocks
 dispatch with a specific action rather than silently dropping the image.
+Contract fixtures cover the served provider-neutral shapes; real Claude/Codex
+image delivery remains an explicit operational acceptance gap.
 
 The Project Manager uses a Factoru-owned, project-scoped tool surface to inspect
 a bounded set of active/recent reconciliation candidates and request structured
@@ -930,15 +925,17 @@ the Software Engineer profile, not a third top-level Team role.
 
 ### Gas City boundary
 
-**Implemented for the serial development path; Milestone 7 capability and
+**Implemented for the serial development path; live attachment acceptance and
 Milestone 8 packaged-host validation remain.** Factoru uses Gas City's native
 model rather than treating it as a generic job runner. The adapter performs guarded, adoptive
 `rig add → import install → reload` reconciliation, real provider dispatch and
-observation, restart adoption, cancellation, usage folding, and strict Formula
-validation. Milestone 7 validates supported output streams and image attachments
-against the served OpenAPI for both initial harnesses; if the pinned range cannot
-satisfy that path, an upgrade is accepted only with the full compatibility
-suite. Milestone 8 revalidates installation, recovery, and upgrades on packaged
+observation, restart adoption, cancellation, usage folding, structured session
+transcripts, external-message attachments, and strict Formula validation. The
+adapter requires the served transcript/stream/close paths and has recorded
+contract coverage for partial text/tool/usage plus attachment delivery. Live
+Claude/Codex image delivery remains pending; if the pinned range cannot satisfy
+that path, an upgrade is accepted only with the full compatibility suite.
+Milestone 8 revalidates installation, recovery, and upgrades on packaged
 macOS and Linux targets. Milestone 9 then adds run, Formula, bead, convoy,
 session-stream, structured-transcript, stage, usage, and cost projections without
 leaking raw DTOs or creating a second orchestrator.
@@ -1353,7 +1350,7 @@ connected serial path:
 - cancellation is a durable requested state followed by a confirmed outcome;
 - task completion is not inferred solely from a provider stream ending;
 
-Milestone 7 adds client-stream recovery requirements:
+Implemented Milestone 7 client-stream recovery rules:
 
 - each shell/workspace/conversation/run subscription resumes from a monotonic
   cursor within a bounded replay window and explicitly announces when it is
@@ -1510,9 +1507,9 @@ Desktop shell/UI foundation.
 | Decision | Status | Required evidence |
 | --- | --- | --- |
 | Server framework and runtime | **Accepted** — [ADR 0002](./adr/0002-server-framework.md) | Fastify now serves the full authenticated serial application path, including live updates and cancellation. Packaged macOS/Linux lifecycle validation remains. |
-| Protocol/RPC library | **Accepted for the current protocol; Milestone 7 transport expansion Validate** — [ADR 0003](./adr/0003-api-transport-and-protocol.md) | HTTP/JSON plus authenticated WebSocket methods use shared runtime-validated schemas; generic project events, cursor recovery, authentication, and idempotent commands are connected and tested. A focused spike must choose between extending this connection and the smallest suitable typed streaming RPC for bounded resource subscriptions; Effect RPC is not adopted merely because T3 Code uses it. |
-| Conversation stream lifecycle | **Planned** | Stable turn/message/content-part/tool IDs, snapshot → cursor replay → live delivery, bounded history, gap fallback, and final-message reconciliation must pass local and remote mid-response reconnect tests without whole-workspace refetch. |
-| Conversation image artifacts | **Planned** | Authenticated binary HTTP transfer, opaque project/conversation-scoped handles, external byte storage, SQLite metadata/authorization, validation/quotas/retention, and proven Gas City Claude/Codex delivery are Milestone 7 evidence. |
+| Protocol/RPC library | **Accepted, implemented** — [ADR 0003](./adr/0003-api-transport-and-protocol.md), [ADR 0021](./adr/0021-scoped-streams-over-existing-websocket.md) | HTTP/JSON plus the existing authenticated WebSocket use shared runtime-validated schemas. Protocol v3 adds bounded resource subscriptions, cursor replay/gap fallback, live markers, heartbeat, and backpressure without a second Effect/RPC stack. |
+| Conversation stream lifecycle | **Implemented; remote acceptance pending** | Stable turn/message/content-part/tool IDs, snapshot → cursor replay → live delivery, bounded history, gap fallback, cancellation/retry, terminal late-frame protection, and authoritative final reconciliation are connected and automated-test covered. Remote mid-response reconnect remains operational evidence. |
+| Conversation image artifacts | **Implemented; provider acceptance pending** | Authenticated binary HTTP transfer, opaque scoped handles, external byte storage, SQLite metadata/authorization, validation/quotas/retention, Desktop composition, and adapter delivery are connected and tested. Live Gas City delivery through both Claude and Codex remains explicit evidence. |
 | SQLite driver and migration tool | **Accepted, partially proven** — [ADR 0004](./adr/0004-database-and-migrations.md) | `better-sqlite3` with hand-written forward-only migrations now passes WAL, foreign-key, busy handling, rollback, identity binding, checkpoint, online-backup, integrity-restore, and restart tests. Native packaging and recovery benchmarks on every early target remain. |
 | Desktop and server packaging | **Accepted, partially implemented** — [ADR 0005](./adr/0005-packaging.md) | The Server has one operator command surface and the Linux bootstrap installs its source-bound launcher. electron-builder, bundled per-platform Server archives, container image, RUverse Homebrew formula, signing, notarization, service lifecycle, and packaged acceptance remain Milestone 8 evidence. |
 | Desktop shell and UI foundation | **Accepted, implemented** — [ADR 0020](./adr/0020-desktop-shell-and-ui-foundation.md) | Hidden native-control window chrome, live system appearance, the narrow platform/fullscreen bridge, central pane constraints, versioned renderer-local preferences, keyboard/pointer resizing, responsive focus-managed drawers, shared React primitives, and controlled composer semantics are connected and covered by unit/component tests. Rich streaming/image UX is Milestone 7 evidence; packaged macOS and Linux visual acceptance is Milestone 8 evidence. |

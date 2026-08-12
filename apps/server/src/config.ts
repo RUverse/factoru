@@ -17,6 +17,7 @@ export interface ServerConfig {
   /** Directory that owns this server's durable state, including its identity. */
   readonly dataDir: string
   readonly databaseFile: string
+  readonly artifactDirectory: string
   /** Private restart-scoped proof used only for same-machine desktop enrollment. */
   readonly localEnrollmentFile: string
   readonly gasCityPath: string
@@ -171,6 +172,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     port: parsePort(env.FACTORU_PORT),
     dataDir,
     databaseFile: path.join(dataDir, 'factoru.sqlite'),
+    artifactDirectory: path.join(dataDir, 'artifacts'),
     localEnrollmentFile,
     gasCityPath: env.FACTORU_GAS_CITY_PATH?.trim() || path.join(dataDir, 'gas-city'),
     gasCitySupervisorUrl,

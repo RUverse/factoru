@@ -38,7 +38,10 @@ export {
 
 export {
   GasCityAdapter,
+  type ConversationAttachment,
+  type ConversationDelivery,
   type ConversationMessage,
+  type ConversationProjection,
   type ConversationRef,
   type GasCityAdapterOptions,
   type InheritedFormulaCapabilityPolicy,

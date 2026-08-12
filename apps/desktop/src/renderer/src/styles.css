@@ -846,6 +846,18 @@ html[data-platform='linux'] .workspace-shell.project-setup-open .pane-header {
   padding: 18px clamp(16px, 4vw, 48px);
 }
 
+.load-history {
+  display: block;
+  margin: 0 auto 8px;
+  border: 1px solid var(--factoru-border);
+  border-radius: 999px;
+  background: var(--factoru-panel);
+  padding: 5px 10px;
+  color: var(--factoru-text-muted);
+  cursor: pointer;
+  font-size: 10px;
+}
+
 .conversation-empty,
 .empty-state {
   display: grid;
@@ -902,6 +914,83 @@ html[data-platform='linux'] .workspace-shell.project-setup-open .pane-header {
   font-size: 10px;
 }
 
+.message footer button,
+.attachment-preview button,
+.unread-messages {
+  border: 0;
+  background: transparent;
+  color: var(--factoru-accent);
+  cursor: pointer;
+  font: inherit;
+}
+
+.message-markdown {
+  min-width: 0;
+  line-height: 1.65;
+}
+
+.message-markdown p,
+.message-markdown ul {
+  margin: 4px 0;
+}
+
+.message-markdown pre,
+.tool-operation pre {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  background: var(--factoru-bg);
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.message-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.message-markdown th,
+.message-markdown td {
+  border: 1px solid var(--factoru-border);
+  padding: 5px 7px;
+  text-align: left;
+}
+
+.message-image,
+.message-image-placeholder {
+  width: auto;
+  max-width: min(100%, 560px);
+  height: auto;
+  max-height: 420px;
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  object-fit: contain;
+}
+
+.message-image-placeholder {
+  padding: 24px;
+  color: var(--factoru-text-muted);
+}
+
+.tool-operation {
+  border-left: 2px solid var(--factoru-border);
+  padding: 5px 8px;
+  color: var(--factoru-text-muted);
+  font-size: 11px;
+}
+
+.unread-messages {
+  position: sticky;
+  bottom: 4px;
+  display: block;
+  margin: 0 auto;
+  border: 1px solid var(--factoru-border);
+  border-radius: 999px;
+  background: var(--factoru-panel);
+  padding: 5px 10px;
+}
+
 .composer {
   flex: 0 0 auto;
   border-top: 1px solid var(--factoru-border);
@@ -911,6 +1000,45 @@ html[data-platform='linux'] .workspace-shell.project-setup-open .pane-header {
 .composer > .fui-prompt-composer {
   margin: 0 auto;
   max-width: 820px;
+}
+
+.attachment-tray {
+  display: flex;
+  max-width: 820px;
+  gap: 8px;
+  margin: 0 auto 8px;
+  overflow-x: auto;
+}
+
+.attachment-preview {
+  display: grid;
+  min-width: 180px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--factoru-border);
+  border-radius: var(--factoru-radius-sm);
+  padding: 5px;
+  color: var(--factoru-text-muted);
+  font-size: 10px;
+}
+
+.attachment-preview[data-state='failed'] {
+  border-color: var(--factoru-warn);
+}
+
+.attachment-preview img {
+  width: 42px;
+  height: 42px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.attachment-error {
+  max-width: 820px;
+  margin: 0 auto 7px;
+  color: var(--factoru-warn);
+  font-size: 11px;
 }
 
 .setup-panel {

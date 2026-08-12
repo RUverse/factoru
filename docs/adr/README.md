@@ -28,6 +28,7 @@ the historical reasoning behind one decision.
 | [0018](./0018-managed-project-directories.md) | One server-owned directory per project with managed repository imports | Accepted, implemented for new projects |
 | [0019](./0019-blueprints-formula-presets-and-project-manager-boundary.md) | Project Blueprints, selectable Formula Presets, and the Factoru Project Manager boundary | Accepted, implemented; Standard Build acceptance pending |
 | [0020](./0020-desktop-shell-and-ui-foundation.md) | Frameless native-control Desktop shell, responsive panes, and shared React UI foundation | Accepted, implemented |
+| [0021](./0021-scoped-streams-over-existing-websocket.md) | Bounded resource subscriptions over the existing authenticated WebSocket | Accepted, implemented |
 
 ## Writing a new ADR
 

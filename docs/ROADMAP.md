@@ -1,6 +1,6 @@
 # Factoru Roadmap
 
-> Status: Delivered Foundation complete; Milestone 7 is next
+> Status: Milestone 7 implementation complete; provider/remote acceptance pending; Milestone 8 is next
 > Last updated: 2026-08-12
 
 This is the single delivery roadmap for Factoru. It intentionally starts with a
@@ -680,7 +680,7 @@ because the earlier UI looks complete.
 the original milestone names and evidence remain in ADRs and spike reports.
 
 - **Implemented:** the pnpm/TypeScript monorepo, Electron/Desktop and Fastify
-  Server boundary, protocol v2, SQLite migrations and transactional outbox,
+  Server boundary, protocol v3, SQLite migrations and transactional outbox,
   remote pairing/authentication, managed multi-repository projects, guarded Gas
   City rig provisioning, Project Blueprints, Team model slots, Formula Presets,
   PM chat/planner identities, four-state tasks, audited role-scoped tools,
@@ -691,19 +691,32 @@ the original milestone names and evidence remain in ADRs and spike reports.
   across Factoru service reconstruction. The run left source repositories and
   user worktrees intact and recorded review, checks, usage, and failure evidence.
 - **Implemented with acceptance pending:** the Blueprint-driven catalog,
-  immutable Formula Run snapshot, and attached Standard Build adapter path are
-  connected and automated-test covered, but Standard Build has not completed
-  the pinned-runtime real-provider acceptance matrix.
+  immutable Formula Run snapshot, attached Standard Build adapter path, and
+  Milestone 7 scoped-stream/rich-conversation/image-artifact path are connected
+  and automated-test covered. Standard Build and live Claude/Codex image
+  delivery have not completed their pinned-runtime real-provider matrices.
 - **Partial operational surfaces:** Desktop packaging, managed Server lifecycle,
-  restore/recovery drills, remote-host acceptance, rich streaming conversation,
-  attachment delivery, and concurrency remain future milestones.
+  restore/recovery drills, remote-host acceptance, and concurrency remain future
+  milestones.
 
 Evidence: [Gas City feasibility gate](./spikes/milestone-1-gas-city-gate.md),
 [Milestones 5–6 acceptance](./spikes/milestones-5-6-acceptance.md),
+[Milestone 7 implementation and acceptance](./spikes/milestone-7-acceptance.md),
 [Blueprint and Formula Preset boundary](./adr/0019-blueprints-formula-presets-and-project-manager-boundary.md),
 and [current implementation inventory](./ARCHITECTURE.md#current-implementation-inventory).
 
 ### Milestone 7 — Live Conversation and Resilient Client Sync
+
+**Implementation status:** Complete in production code and automated contract,
+migration, lifecycle, adapter, HTTP, Desktop, and component tests. The existing
+authenticated WebSocket was selected in
+[ADR 0021](./adr/0021-scoped-streams-over-existing-websocket.md). Operational
+exit evidence remains pending for mid-response remote reconnect and real image
+delivery through both Claude and Codex. The 2026-08-12 local acceptance attempt
+found Claude unauthenticated and the Homebrew Gas City dependency set
+(`dolt 2.2.3`, `bd 1.2.1`) unable to initialize a fresh Gas City 1.4.0 city due
+to Beads' cross-era Dolt-workspace guard; no provider result was inferred from
+that failed environment.
 
 #### Transport and synchronization
 

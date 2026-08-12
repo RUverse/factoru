@@ -214,6 +214,9 @@ describe('GasCityAdapter.verifySupervisorContract', () => {
             '/v0/city/{cityName}/extmsg/outbound',
             '/v0/city/{cityName}/extmsg/transcript',
             '/v0/city/{cityName}/extmsg/transcript/ack',
+            '/v0/city/{cityName}/session/{id}/transcript',
+            '/v0/city/{cityName}/session/{id}/stream',
+            '/v0/city/{cityName}/session/{id}/close',
           ].map((p) => [p, {}]),
         ),
       },
@@ -693,6 +696,74 @@ describe('GasCityAdapter conversation delivery', () => {
       sequence: 2,
       authorDisplayName: 'mayor',
       inReplyToMessageId: 'm1',
+    })
+  })
+
+  it('delivers image attachments and retains the target session correlation', async () => {
+    const { fn, calls } = fakeFetch(() => ({ body: { target_session_id: 'session-chat-1' } }))
+    const delivered = await adapterWith(fn).sendConversationTurn(conversation, {
+      messageId: 'msg-1',
+      text: '',
+      authorId: 'owner',
+      authorDisplayName: 'Owner',
+      receivedAt: '2026-08-12T12:00:00Z',
+      attachments: [
+        {
+          providerId: 'art_0123456789abcdef0123456789abcdef',
+          url: 'http://127.0.0.1:8787/internal/v1/artifacts/art?token=grant',
+          mimeType: 'image/png',
+        },
+      ],
+    })
+
+    expect(delivered).toEqual({ sessionId: 'session-chat-1' })
+    expect(JSON.parse(String(calls[0]!.init.body)).message.attachments).toEqual([
+      {
+        provider_id: 'art_0123456789abcdef0123456789abcdef',
+        url: 'http://127.0.0.1:8787/internal/v1/artifacts/art?token=grant',
+        mime_type: 'image/png',
+      },
+    ])
+  })
+
+  it('maps partial text and tool activity from the provider-neutral transcript', async () => {
+    const { fn } = fakeFetch(() => ({
+      body: {
+        provider: 'claude',
+        format: 'structured',
+        structured_messages: [
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            status: 'partial',
+            timestamp: '2026-08-12T12:00:01Z',
+            blocks: [
+              { type: 'thinking', text: 'private' },
+              { type: 'text', text: 'I checked it.' },
+              { type: 'tool_use', id: 'tool-1', name: 'factoru.read_task' },
+              {
+                type: 'tool_result',
+                tool_call_id: 'tool-1',
+                content: 'Task loaded',
+                is_error: false,
+              },
+            ],
+            usage: { input_tokens: 12, output_tokens: 8 },
+          },
+        ],
+      },
+    }))
+
+    expect(await adapterWith(fn).readConversationProjection('session-chat-1')).toEqual({
+      providerMessageId: 'assistant-1',
+      status: 'partial',
+      text: 'I checked it.',
+      tools: [
+        { id: 'tool-1', name: 'factoru.read_task', status: 'completed', summary: 'Task loaded' },
+      ],
+      inputTokens: 12,
+      outputTokens: 8,
+      createdAt: '2026-08-12T12:00:01Z',
     })
   })
 

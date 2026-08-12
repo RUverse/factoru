@@ -2,7 +2,8 @@
 
 Factoru's server-only orchestration port over the pinned Gas City 1.4 runtime.
 It owns compatibility/readiness checks, configured-provider model discovery,
-project runtime configuration, rig registration, Project Manager messaging,
+project runtime configuration, rig registration, Project Manager external
+messaging and provider-neutral structured transcript projection,
 Formula validation and launch, run observation/cancellation, event cursors, and
 usage folding.
 
@@ -14,4 +15,5 @@ Desktop.
 
 The real integration boundary and its remaining validation work are tracked in
 [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) and the
-[Milestone 1 gate record](../../docs/spikes/milestone-1-gas-city-gate.md).
+[Milestone 1 gate record](../../docs/spikes/milestone-1-gas-city-gate.md), and
+[Milestone 7 acceptance record](../../docs/spikes/milestone-7-acceptance.md).

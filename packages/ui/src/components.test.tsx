@@ -115,7 +115,7 @@ describe('PromptComposer', () => {
 
   it('shows honest disabled future affordances', () => {
     render(<Composer />)
-    expect(screen.getByRole('button', { name: 'Attach files (coming later)' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Attach images' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Start dictation (coming later)' })).toBeDisabled()
     expect(
       screen.getByRole('button', { name: 'Project Manager model selection (coming later)' }),

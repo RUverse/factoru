@@ -504,10 +504,10 @@ export class ProductStore {
       this.#db
         .prepare(
           `INSERT INTO conversation_messages(
-             id, conversation_id, role, text, author_display_name, delivery_state, created_at
-           ) VALUES (?, ?, 'user', ?, ?, 'pending', ?)`,
+             id, conversation_id, role, text, author_display_name, delivery_state, created_at, updated_at
+           ) VALUES (?, ?, 'user', ?, ?, 'pending', ?, ?)`,
         )
-        .run(id, conversationId, normalized, authorDisplayName, now)
+        .run(id, conversationId, normalized, authorDisplayName, now, now)
       this.#db
         .prepare(
           `INSERT INTO outbox_items(
@@ -740,8 +740,8 @@ export class ProductStore {
         .prepare(
           `INSERT INTO conversation_messages(
              id, conversation_id, role, text, author_display_name, in_reply_to_message_id,
-             gas_city_sequence, delivery_state, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'delivered', ?)`,
+             gas_city_sequence, delivery_state, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'delivered', ?, ?)`,
         )
         .run(
           id,
@@ -751,6 +751,7 @@ export class ProductStore {
           input.authorDisplayName,
           input.inReplyToMessageId ?? null,
           input.sequence,
+          input.createdAt,
           input.createdAt,
         )
       this.#advanceConversationCursor(conversationId, input.sequence)

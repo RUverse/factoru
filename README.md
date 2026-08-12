@@ -9,13 +9,14 @@ connected together and present one project catalog. See
 [docs/ROADMAP.md](./docs/ROADMAP.md) for the product and
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the living system map.
 
-> **Status: Delivered Foundation complete; Milestone 7 is next.** The development app
+> **Status: Milestone 7 implementation complete; Milestone 8 is next.** The development app
 > connects durable projects and Project Manager chat to the four-state task
 > board, serialized Queue reconciliation, one-at-a-time software delivery,
 > independent review, and human acceptance. The real provider path completed
 > ten benchmark tasks plus one conversation-originated task across a server
-> restart. Live conversation/resilient sync is next; packaging and
-> dependable-operation follow in Milestone 8.
+> restart. Scoped resilient streams, rich conversation turns, and image
+> artifacts are connected; their remote reconnect and live Claude/Codex image
+> acceptance matrix remains pending alongside Milestone 8 packaging work.
 
 ## Requirements
 
@@ -152,9 +153,9 @@ checks, independent review, risks, and model usage.
 
 ## Current limitations
 
-- Project Manager replies currently arrive as complete plain-text messages;
-  resumable deltas, rich rendering, structured tool activity, and image
-  attachments arrive in Milestone 7.
+- Rich conversation and image paths are automated-test covered, but live image
+  delivery through both Claude and Codex and remote mid-response reconnect still
+  require an acceptance host with the pinned compatible Gas City dependency set.
 - Development-from-source is the supported path; signed/notarized Desktop and
   packaged Server distributions arrive in Milestone 8.
 - The serial execution limit is one. Parallel capsules and service-container

@@ -12,6 +12,7 @@ import type {
   ExecutionRun,
   RepositoryAccessCheck,
   RepositoryAccessErrorCode,
+  Artifact,
 } from '@factoru/protocol'
 
 export interface ServerProfileSummary {
@@ -76,6 +77,14 @@ export const IPC_PRODUCT_REVOKE = 'factoru:product:revoke'
 export const IPC_PRODUCT_CHANGED = 'factoru:product:changed'
 export const IPC_PRODUCT_SELECT_PROJECT = 'factoru:product:select-project'
 export const IPC_PRODUCT_SEND_MESSAGE = 'factoru:product:send-message'
+export const IPC_PRODUCT_UPLOAD_IMAGE = 'factoru:product:upload-image'
+export const IPC_PRODUCT_CANCEL_IMAGE_UPLOAD = 'factoru:product:cancel-image-upload'
+export const IPC_PRODUCT_IMAGE_UPLOAD_PROGRESS = 'factoru:product:image-upload-progress'
+export const IPC_PRODUCT_LOAD_IMAGE = 'factoru:product:load-image'
+export const IPC_PRODUCT_REMOVE_IMAGE = 'factoru:product:remove-image'
+export const IPC_PRODUCT_CANCEL_CONVERSATION = 'factoru:product:cancel-conversation'
+export const IPC_PRODUCT_RETRY_CONVERSATION = 'factoru:product:retry-conversation'
+export const IPC_PRODUCT_LOAD_CONVERSATION_HISTORY = 'factoru:product:load-conversation-history'
 export const IPC_PRODUCT_UPDATE_MODEL = 'factoru:product:update-model'
 export const IPC_PRODUCT_UPDATE_WORKFLOW_DEFAULT = 'factoru:product:update-workflow-default'
 export const IPC_PRODUCT_ADD_MEMORY = 'factoru:product:add-memory'
@@ -138,7 +147,44 @@ export interface ProductBridge {
   devices(factoryId: string): Promise<TrustedDevice[]>
   revoke(factoryId: string, deviceId: string): Promise<unknown>
   selectProject(project: ProjectRef): Promise<ProductSnapshot>
-  sendMessage(project: ProjectRef, text: string): Promise<ConversationMessage>
+  sendMessage(
+    project: ProjectRef,
+    text: string,
+    artifactIds?: string[],
+  ): Promise<ConversationMessage>
+  uploadImage(input: {
+    uploadId: string
+    project: ProjectRef
+    conversationId: string
+    fileName: string
+    mimeType: string
+    provenance: 'picker' | 'paste' | 'drop'
+    bytes: Uint8Array
+  }): Promise<Artifact>
+  cancelImageUpload(uploadId: string): Promise<boolean>
+  subscribeImageUploadProgress(
+    listener: (progress: { uploadId: string; uploadedBytes: number; totalBytes: number }) => void,
+  ): () => void
+  loadImage(
+    project: ProjectRef,
+    conversationId: string,
+    artifactId: string,
+  ): Promise<{
+    mimeType: string
+    bytes: Uint8Array
+  }>
+  removeImage(project: ProjectRef, conversationId: string, artifactId: string): Promise<void>
+  cancelConversation(project: ProjectRef, conversationId: string, turnId: string): Promise<unknown>
+  retryConversation(
+    project: ProjectRef,
+    conversationId: string,
+    messageId: string,
+  ): Promise<ConversationMessage>
+  loadConversationHistory(
+    project: ProjectRef,
+    conversationId: string,
+    before?: string,
+  ): Promise<ProductSnapshot>
   updateModel(input: {
     project: ProjectRef
     workerTypeKind: WorkerType['kind']

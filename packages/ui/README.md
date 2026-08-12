@@ -15,7 +15,8 @@ The package root exports:
   UI behavior;
 - `EmptyState`, `SplitView`, and `ResizeHandle` layout primitives; and
 - the controlled, autosizing `PromptComposer`, including Enter/Shift+Enter/IME
-  behavior and optional action slots.
+  behavior, attachment/stop callbacks, image-only submission enablement, and
+  optional action slots.
 
 Import `@factoru/ui/styles.css` once at the renderer entry point. The stylesheet
 includes the token layer. The legacy `@factoru/ui/tokens.css` export remains

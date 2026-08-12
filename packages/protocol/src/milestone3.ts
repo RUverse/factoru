@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { queueReconciliationSchema, taskMergeProposalSchema, taskSchema } from './milestone4.js'
 import { executionRunSchema } from './milestone5.js'
+import { artifactSchema, messageContentPartSchema } from './milestone7.js'
 
 export const CAPABILITY_WORKSPACES = 'workspaces-v1'
 export const CAPABILITY_CONVERSATIONS = 'conversations-v1'
@@ -119,7 +120,7 @@ export const toolActivitySchema = z.object({
 export const conversationMessageSchema = z.object({
   id: z.string(),
   role: z.enum(['user', 'assistant']),
-  text: z.string().min(1),
+  text: z.string(),
   authorDisplayName: z.string(),
   inReplyToMessageId: z.string().nullable(),
   deliveryState: z.enum(['pending', 'delivered', 'failed']),
@@ -127,6 +128,12 @@ export const conversationMessageSchema = z.object({
     .object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative() })
     .nullable(),
   toolActivity: z.array(toolActivitySchema),
+  turnId: z.string().nullable().default(null),
+  state: z
+    .enum(['pending', 'streaming', 'completed', 'cancelling', 'cancelled', 'failed'])
+    .default('completed'),
+  contentVersion: z.number().int().positive().default(1),
+  parts: z.array(messageContentPartSchema).default([]),
   createdAt: z.iso.datetime(),
 })
 
@@ -136,6 +143,9 @@ export const conversationSchema = z.object({
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
   messages: z.array(conversationMessageSchema),
   transcriptCursor: z.number().int().nonnegative(),
+  streamCursor: z.number().int().nonnegative().default(0),
+  hasMoreHistory: z.boolean().default(false),
+  activeTurnId: z.string().nullable().default(null),
   updatedAt: z.iso.datetime(),
 })
 
@@ -201,9 +211,14 @@ export const workspaceSchema = z
   }))
 
 export const workspaceParamsSchema = z.object({ projectId: z.string().min(1) })
-export const conversationSendParamsSchema = workspaceParamsSchema.extend({
-  text: z.string().trim().min(1).max(32_000),
-})
+export const conversationSendParamsSchema = workspaceParamsSchema
+  .extend({
+    text: z.string().trim().max(32_000).default(''),
+    artifactIds: z.array(artifactSchema.shape.id).max(4).default([]),
+  })
+  .refine((value) => value.text.length > 0 || value.artifactIds.length > 0, {
+    message: 'A conversation message requires text or at least one image',
+  })
 export const modelBindingUpdateParamsSchema = workspaceParamsSchema
   .extend({
     workerTypeKind: workerTypeKindSchema,

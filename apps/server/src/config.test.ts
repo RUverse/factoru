@@ -29,6 +29,7 @@ describe('server configuration', () => {
       port: 41234,
       dataDir: '/tmp/factoru-test/worktree',
       databaseFile: '/tmp/factoru-test/worktree/factoru.sqlite',
+      artifactDirectory: '/tmp/factoru-test/worktree/artifacts',
       localEnrollmentFile: '/tmp/factoru-test/worktree/local-enrollment.json',
       gasCityPath: '/tmp/factoru-test/worktree/gas-city',
       gasCitySupervisorUrl: 'http://127.0.0.1:8372',

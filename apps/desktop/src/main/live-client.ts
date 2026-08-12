@@ -102,7 +102,7 @@ export class LiveFactoruClient {
     }
     const event = liveEventSchema.safeParse(body)
     if (event.success) {
-      this.#eventListener?.(event.data.event)
+      this.#eventListener?.(event.data.type === 'project.event' ? event.data.event : event.data)
       return
     }
     const response = liveResponseSchema.safeParse(body)
