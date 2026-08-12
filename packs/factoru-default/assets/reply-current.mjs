@@ -12,16 +12,18 @@ function required(value, label) {
 function parseBody(argv) {
   let body = ''
   let bodyFile = ''
+  let conversationId = ''
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--body') body = argv[++index] ?? ''
     else if (argv[index] === '--body-file') bodyFile = argv[++index] ?? ''
+    else if (argv[index] === '--conversation-id') conversationId = argv[++index] ?? ''
     else throw new Error(`Unknown argument: ${argv[index]}`)
   }
   if (body && bodyFile) throw new Error('Use either --body or --body-file, not both')
   const value = bodyFile ? fs.readFileSync(bodyFile, 'utf8') : body
   if (!value.trim()) throw new Error('Factoru reply body must not be empty')
   if (value.length > 60_000) throw new Error('Factoru reply body is too large')
-  return value
+  return { body: value, conversationId: conversationId.trim() }
 }
 
 function runtimeConfiguration(cityPath) {
@@ -91,14 +93,18 @@ export async function publishCurrentReply({
   env = process.env,
   fetchImpl = globalThis.fetch,
 } = {}) {
-  const body = parseBody(argv)
+  const input = parseBody(argv)
   const cityPath = required(env.GC_CITY_PATH ?? env.GC_CITY, 'GC_CITY_PATH')
   const sessionId = required(env.GC_SESSION_ID, 'GC_SESSION_ID')
+  const conversationId = required(env.FACTORU_CONVERSATION_ID, 'conversation ID')
+  if (input.conversationId && input.conversationId !== conversationId) {
+    throw new Error('Conversation ID does not match the current Factoru session')
+  }
   const conversation = {
     scope_id: required(env.FACTORU_CONVERSATION_SCOPE_ID, 'conversation scope'),
     provider: 'factoru',
     account_id: required(env.FACTORU_CONVERSATION_ACCOUNT_ID, 'conversation account'),
-    conversation_id: required(env.FACTORU_CONVERSATION_ID, 'conversation ID'),
+    conversation_id: conversationId,
     kind: 'dm',
   }
   const runtime = runtimeConfiguration(cityPath)
@@ -107,7 +113,7 @@ export async function publishCurrentReply({
   const cityName = required(runtime.cityName, 'Gas City city name')
   const replyTo = await latestInboundMessageId(fetchImpl, baseUrl, cityName, conversation)
   const idempotencyKey = createHash('sha256')
-    .update([sessionId, replyTo, body].join('\0'))
+    .update([sessionId, replyTo, input.body].join('\0'))
     .digest('hex')
   const result = await jsonRequest(
     fetchImpl,
@@ -118,7 +124,7 @@ export async function publishCurrentReply({
       body: JSON.stringify({
         session_id: sessionId,
         conversation,
-        text: body,
+        text: input.body,
         reply_to_message_id: replyTo,
         idempotency_key: idempotencyKey,
       }),

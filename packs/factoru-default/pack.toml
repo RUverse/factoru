@@ -1,10 +1,11 @@
 [pack]
 name = "factoru-default"
-version = "0.4.1"
+version = "0.4.2"
 schema = 2
 
 # Factoru's versioned default orchestration pack.
 #
+# Version 0.4.2 accepts and validates Gas City's conversation hint on replies.
 # Version 0.4.1 adds the Project Manager external-message reply command.
 # Version 0.4 adds the Blueprint workflow catalog. `standard-build` is a thin
 # Factoru overlay on the pinned upstream `build-basic`; `software-delivery`

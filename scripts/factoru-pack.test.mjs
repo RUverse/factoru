@@ -26,7 +26,7 @@ describe('portable Factoru agent contracts', () => {
       path.join(root, 'packs/factoru-default/formulas/standard-build.formula.toml'),
       'utf8',
     )
-    assert.match(pack, /version = "0\.4\.1"/)
+    assert.match(pack, /version = "0\.4\.2"/)
     assert.match(pack, /gascity\/roles/)
     assert.match(pack, /tree\/main\/gascity"/)
     assert.equal(lock.match(/3b3b89f2011e06d84459aa7bea1552382f13930a/g)?.length, 4)
@@ -225,7 +225,7 @@ describe('Factoru conversation reply command', () => {
     }
 
     const result = await publishCurrentReply({
-      argv: ['--body', 'Inspect the entrypoint.'],
+      argv: ['--conversation-id', 'conv-1', '--body', 'Inspect the entrypoint.'],
       env: {
         GC_CITY_PATH: city,
         GC_SESSION_ID: 'fc-chat-1',
@@ -254,6 +254,34 @@ describe('Factoru conversation reply command', () => {
     assert.equal(outbound.reply_to_message_id, 'msg-user-1')
     assert.match(outbound.idempotency_key, /^[a-f0-9]{64}$/)
     assert.equal(calls[1].init.headers['X-GC-Request'], 'factoru-reply')
+  })
+
+  it('rejects a conversation hint outside the current session scope', async (context) => {
+    const city = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-reply-city-'))
+    context.after(() => fs.rmSync(city, { recursive: true }))
+    fs.mkdirSync(path.join(city, '.gc'))
+    fs.writeFileSync(
+      path.join(city, '.gc/factoru-server.json'),
+      JSON.stringify({
+        version: 2,
+        gasCitySupervisorUrl: 'http://127.0.0.1:38372',
+        cityName: 'factoru-test',
+      }),
+      { mode: 0o600 },
+    )
+    await assert.rejects(
+      publishCurrentReply({
+        argv: ['--conversation-id', 'conv-other', '--body', 'Do not send this.'],
+        env: {
+          GC_CITY_PATH: city,
+          GC_SESSION_ID: 'fc-chat-1',
+          FACTORU_CONVERSATION_SCOPE_ID: 'factoru-rig',
+          FACTORU_CONVERSATION_ACCOUNT_ID: 'factoru-server',
+          FACTORU_CONVERSATION_ID: 'conv-1',
+        },
+      }),
+      /does not match the current Factoru session/,
+    )
   })
 
   it('rejects a supervisor origin outside the host-local trust boundary', async (context) => {

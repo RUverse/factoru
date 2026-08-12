@@ -769,7 +769,9 @@ deduplicates replay, and publishes product events. The generated chat identity
 carries only its own Factoru conversation reference. Its versioned
 `gc factoru reply-current` pack command resolves the latest delivered inbound
 turn, posts the answer to `extmsg/outbound`, and uses a stable per-turn/body
-idempotency key. Factoru registers the host-local callback **base**; Gas City
+idempotency key. It accepts Gas City's delivery-time conversation hint only
+when it matches the generated session scope. Factoru registers the host-local
+callback **base**; Gas City
 appends its provider-owned `/publish` suffix before calling the Factoru
 acceptance route. Registering the suffixed route itself would incorrectly target
 `/publish/publish`. Gas City records the accepted reply in its durable
