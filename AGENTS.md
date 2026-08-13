@@ -47,8 +47,10 @@ These instructions apply to the entire repository.
 - Every agent runtime, including Project Manager chat, is managed through Gas
   City. Do not add a parallel provider/session runtime in Factoru Server.
 - One Factoru Server initially manages one dedicated Gas City city; each
-  repository-backed Factoru project maps to one rig. Factoru must coexist with
-  unrelated cities hosted by the machine-level supervisor.
+  Factoru project contains one or more repository-backed rigs. The first is the
+  primary execution rig until explicit per-task rig routing is implemented.
+  Factoru must coexist with unrelated cities hosted by the machine-level
+  supervisor.
 - The Gas City supervisor and all of its host-reachable cities form one trusted,
   single-operator runtime domain from the perspective of host-running agents.
   Rig prefixes provide logical routing and accidental-crossing protection, not
@@ -232,16 +234,19 @@ templates/         Factoru Factory Template manifests that compose pinned packs 
 
 ### Git workflow
 
-- Use `dev` as the integration branch. Create each feature or fix branch from
-  the latest `dev`; do not implement feature work directly on `dev`.
-- After the requested work is complete and proportionately verified, commit it,
-  push the feature branch, and open a merge request targeting `dev` by default.
-- Do not push feature commits directly to `dev` or merge the merge request
-  yourself unless the user explicitly asks. If the user specifies another
-  target branch or asks not to push or open a merge request, follow that request.
-- If the remote, credentials, or merge-request tooling is unavailable, keep the
-  completed work on the local feature branch and report the exact remaining
-  push or merge-request step.
+- Until this temporary policy is explicitly changed, use `dev` as both the
+  working branch and integration branch. Start from the latest `dev` and do not
+  create a feature or fix branch by default.
+- After the requested work is complete and proportionately verified, commit all
+  in-scope changes directly to `dev` and push `dev`. Do not include unrelated
+  user changes in the commit, and leave the requested work committed rather
+  than only in the working tree.
+- Do not open a merge request by default. Do not push or merge directly to
+  `main`; it remains outside this temporary direct-to-`dev` workflow.
+- If the user explicitly requests a different branch, merge request, no commit,
+  or no push, follow that request instead.
+- If the remote or credentials are unavailable, keep the completed commit on
+  local `dev` and report the exact remaining push step.
 
 The toolchain is pnpm workspaces, TypeScript, Fastify, Electron, and React on
 Node 22 ([ADR 0001](./docs/adr/0001-monorepo-toolchain.md)). Do not introduce a
@@ -267,11 +272,22 @@ Vitest per package; server integration tests use a real listener and the shared
 protocol client. Development scripts under `scripts/` are plain ESM and use
 Node's built-in test runner.
 
-Packaging commands do not exist yet; they arrive with Milestone 7 as decided in
+Packaging commands do not exist yet; they arrive with Milestone 9 as decided in
 [ADR 0005](./docs/adr/0005-packaging.md).
 
 ## Documentation expectations
 
+- Documentation synchronization is part of every change, not optional follow-up
+  work. Before considering a task complete, review `docs/ROADMAP.md`,
+  `docs/ARCHITECTURE.md`, ADRs, protocol and deployment documentation, READMEs,
+  configuration examples, and any other affected documentation; update every
+  document whose scope, status, behavior, commands, or examples changed in the
+  same commit as the implementation.
+- Always keep `docs/ROADMAP.md` and all other affected documentation accurate
+  after changes. If a change does not require a documentation edit, verify that
+  the existing documentation still describes the resulting system correctly.
+- Do not commit or push a change while relevant documentation is known to be
+  stale or contradictory.
 - Update `docs/ROADMAP.md` when product scope, milestone order, or a product invariant
   changes.
 - Update `docs/ARCHITECTURE.md` in the same change as any implemented or planned

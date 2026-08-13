@@ -22,6 +22,13 @@ rules that live only in prose decay.
   packages are ESM with `NodeNext` resolution and are consumed from their build
   output through the `exports` field. `apps/desktop` is bundled by electron-vite
   and therefore compiles with `bundler` resolution.
+- **Development runtime:** the root manifest pins Node 22.13.0 through pnpm's
+  `devEngines.runtime` with download fallback. Project scripts therefore use
+  one Node ABI even when the pnpm launcher was installed under another Node
+  release; this is required by native dependencies such as `better-sqlite3`.
+  pnpm's pre-run dependency verification is disabled because pnpm 11.20 treats
+  the downloaded runtime as a reason to purge a current modules directory;
+  explicit installs and the frozen lockfile remain the dependency gate.
 - **Shared compiler options** live in `packages/config`. Each package sets only
   its own `rootDir`/`outDir`, because TypeScript resolves paths in an extended
   config relative to the file that declares them.
@@ -48,6 +55,8 @@ no package manifest, so nothing implies capability that does not exist.
 - Shared packages must be built before dependents typecheck. `pnpm typecheck`
   runs `pnpm build` first, and `pnpm dev` builds the shared packages before
   starting the watchers.
+- A first pnpm invocation may download the pinned Node runtime. The resolved
+  runtime is captured by the lockfile and reused by subsequent commands.
 - A boundary violation is a lint failure with a message that explains the rule,
   rather than a review comment.
 - Adding a package means adding its manifest, its `tsconfig.json` extending

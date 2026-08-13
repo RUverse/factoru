@@ -25,6 +25,12 @@ export interface SupervisorClientOptions {
   readonly fetch?: typeof globalThis.fetch
 }
 
+export interface ServerSentEvent {
+  readonly event: string
+  readonly data: string
+  readonly id: string | undefined
+}
+
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 /**
@@ -96,6 +102,103 @@ export class SupervisorClient {
     options?: { idempotencyKey?: string },
   ): Promise<unknown> {
     return this.#request('POST', path, { body, idempotencyKey: options?.idempotencyKey })
+  }
+
+  /** Open a versioned SSE endpoint and yield complete frames until aborted. */
+  async *stream(
+    path: string,
+    query: Record<string, string | number | undefined>,
+    signal: AbortSignal,
+  ): AsyncGenerator<ServerSentEvent> {
+    const url = new URL(`${this.#baseUrl}${SUPERVISOR_API_PREFIX}${path}`)
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined) url.searchParams.set(key, String(value))
+    }
+
+    let response: Response
+    try {
+      response = await this.#fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream' },
+        signal,
+      })
+    } catch (cause) {
+      if (signal.aborted) return
+      throw new GasCityError(`Gas City supervisor stream is unreachable at ${this.#baseUrl}`, {
+        kind: 'transport',
+        cause,
+      })
+    }
+    const requestId = response.headers.get('X-GC-Request-Id') ?? undefined
+    if (!response.ok) {
+      const body = await response.text()
+      throw problemToError(
+        response.status,
+        body.length > 0 ? safeJsonParse(body) : undefined,
+        requestId,
+      )
+    }
+    if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
+      throw new GasCityError('Gas City returned a non-SSE response for an event stream', {
+        kind: 'transport',
+      })
+    }
+    if (!response.body) {
+      throw new GasCityError('Gas City returned an empty event stream body', { kind: 'transport' })
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let eventName = ''
+    let eventId: string | undefined
+    let data: string[] = []
+    const dispatch = (): ServerSentEvent | null => {
+      if (data.length === 0) {
+        eventName = ''
+        eventId = undefined
+        return null
+      }
+      const frame = { event: eventName || 'message', data: data.join('\n'), id: eventId }
+      eventName = ''
+      eventId = undefined
+      data = []
+      return frame
+    }
+    const consumeLine = (line: string): ServerSentEvent | null => {
+      if (line === '') return dispatch()
+      if (line.startsWith(':')) return null
+      const separator = line.indexOf(':')
+      const field = separator === -1 ? line : line.slice(0, separator)
+      let value = separator === -1 ? '' : line.slice(separator + 1)
+      if (value.startsWith(' ')) value = value.slice(1)
+      if (field === 'event') eventName = value
+      else if (field === 'data') data.push(value)
+      else if (field === 'id' && !value.includes('\0')) eventId = value
+      return null
+    }
+
+    try {
+      while (!signal.aborted) {
+        const next = await reader.read()
+        buffer += decoder.decode(next.value, { stream: !next.done })
+        let match: RegExpExecArray | null
+        const lineBreak = /\r\n|\r|\n/g
+        let start = 0
+        while ((match = lineBreak.exec(buffer)) !== null) {
+          const frame = consumeLine(buffer.slice(start, match.index))
+          if (frame) yield frame
+          start = match.index + match[0].length
+        }
+        buffer = buffer.slice(start)
+        if (next.done) break
+      }
+      if (buffer.length > 0) consumeLine(buffer)
+      const finalFrame = dispatch()
+      if (finalFrame) yield finalFrame
+    } finally {
+      reader.releaseLock()
+    }
   }
 
   async #request(

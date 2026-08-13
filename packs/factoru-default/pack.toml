@@ -1,16 +1,19 @@
 [pack]
 name = "factoru-default"
-version = "0.3.0"
+version = "0.5.0"
 schema = 2
 
 # Factoru's versioned default orchestration pack.
 #
-# Milestone 5 adds the production software-delivery Formula v2 candidate and
-# canonical compiler requirements while retaining earlier probes as pinned
-# operational evidence.
+# Version 0.5 adds fixed specialist review lanes and trusted mutation checks.
+# Version 0.4.2 accepts and validates Gas City's conversation hint on replies.
+# Version 0.4.1 adds the Project Manager external-message reply command.
+# Version 0.4 adds the Blueprint workflow catalog. `standard-build` is a thin
+# Factoru overlay on the pinned upstream `build-basic`; `software-delivery`
+# remains the bounded fast-patch implementation.
 #
 # Agent role names are stable because Factoru's adapter routes to them, but
-# their provider/model bindings are projected from Factoru Worker Types into
+# their provider/model bindings are projected from Factoru Team profiles into
 # the dedicated city's validated deployment configuration.
 
 # Every agent that executes a Formula v2 step must include Gas City's
@@ -20,10 +23,14 @@ schema = 2
 # step's bead stays open, the `needs` edge never releases, and the workflow
 # stalls with no error anywhere — the most expensive possible failure mode.
 #
-# The fragment is imported rather than copied. It is roughly two hundred lines
-# of claim-protocol shell that Gas City owns and revises; a copy in this pack
-# would drift silently and break exactly the same way.
+# The official role subpack and complete workflow pack are imported rather than
+# copied. This keeps role fragments, workflow assets, helper formulas, and the
+# build-basic inheritance graph on one reviewed pin.
 [imports]
 [imports.gc]
 source = "https://github.com/gastownhall/gascity-packs/tree/main/gascity/roles"
+version = "sha:3b3b89f2011e06d84459aa7bea1552382f13930a"
+
+[imports.gc-build]
+source = "https://github.com/gastownhall/gascity-packs/tree/main/gascity"
 version = "sha:3b3b89f2011e06d84459aa7bea1552382f13930a"

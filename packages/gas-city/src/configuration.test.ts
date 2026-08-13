@@ -28,6 +28,8 @@ function fixture() {
     configurator: new GasCityProjectConfigurator({
       cityPath: root,
       factoruServerUrl: 'http://127.0.0.1:8787',
+      gasCitySupervisorUrl: 'http://127.0.0.1:8372',
+      cityName: 'factoru-test',
       projectManagerPromptPath: prompt,
       executor,
     }),
@@ -39,8 +41,11 @@ const project = {
   projectName: 'Factoru',
   rigName: 'factoru-rig',
   chatAgentName: 'project-manager-chat-111111111111',
+  conversationAccountId: 'factoru-server',
+  conversationId: 'conv_11111111111111111111111111111111',
   chat: { provider: 'anthropic', model: 'claude-sonnet' },
   planning: { provider: 'openai', model: 'codex' },
+  design: { provider: 'google', model: 'gemini-design' },
   implementation: { provider: 'anthropic', model: 'claude-sonnet' },
   review: { provider: 'openai', model: 'codex' },
 }
@@ -64,11 +69,21 @@ describe('GasCityProjectConfigurator', () => {
     ).toContain('option_defaults = { model = "claude-sonnet" }')
     const city = fs.readFileSync(path.join(root, 'city.toml'), 'utf8')
     expect(city).toContain('agent = "project-manager-planner"')
+    expect(city).toContain('agent = "requirements-planner"')
+    expect(city).toContain('option_defaults = { model = "gemini-design" }')
+    expect(city).toContain('agent = "software-implementer"')
     expect(city).toContain('agent = "software-reviewer"')
     expect(run).toHaveBeenCalledWith('gc', ['reload', '--city', root])
+    expect(run).toHaveBeenCalledWith('gc', ['config', 'show', '--validate', '--city', root])
     expect(fs.readFileSync(path.join(root, '.gc/factoru-server.json'), 'utf8')).toBe(
-      '{\n  "version": 1,\n  "serverUrl": "http://127.0.0.1:8787"\n}\n',
+      '{\n  "version": 2,\n  "serverUrl": "http://127.0.0.1:8787",\n  "gasCitySupervisorUrl": "http://127.0.0.1:8372",\n  "cityName": "factoru-test"\n}\n',
     )
+    expect(
+      fs.readFileSync(
+        path.join(root, 'agents/project-manager-chat-111111111111/agent.toml'),
+        'utf8',
+      ),
+    ).toContain('FACTORU_CONVERSATION_ID = "conv_11111111111111111111111111111111"')
     expect(fs.statSync(path.join(root, '.gc/factoru-server.json')).mode & 0o777).toBe(0o600)
   })
 
@@ -80,7 +95,18 @@ describe('GasCityProjectConfigurator', () => {
     expect(await configurator.reconcile([project])).toBe(false)
     expect(fs.readFileSync(path.join(root, 'pack.toml'), 'utf8')).toBe(firstPack)
     expect(fs.readFileSync(path.join(root, 'city.toml'), 'utf8')).toBe(firstCity)
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports the bounded validation command and never reloads invalid generated config', async () => {
+    const { root, run, configurator } = fixture()
+    run.mockRejectedValueOnce(new Error('invalid generated table'))
+
+    await expect(configurator.reconcile([project])).rejects.toThrow(
+      `gc config show --validate --city ${root}`,
+    )
     expect(run).toHaveBeenCalledTimes(1)
+    expect(run).not.toHaveBeenCalledWith('gc', ['reload', '--city', root])
   })
 
   it('adopts chat sessions normalized outside its markers by Gas City import install', async () => {
@@ -100,7 +126,7 @@ describe('GasCityProjectConfigurator', () => {
     const repaired = fs.readFileSync(packFile, 'utf8')
     expect(repaired.match(/template = "project-manager-chat-111111111111"/g)).toHaveLength(1)
     expect(await configurator.reconcile([project])).toBe(false)
-    expect(run).toHaveBeenCalledTimes(2)
+    expect(run).toHaveBeenCalledTimes(4)
   })
 
   it('refuses malformed managed blocks and unsafe identities', async () => {
@@ -119,6 +145,8 @@ describe('GasCityProjectConfigurator', () => {
         new GasCityProjectConfigurator({
           cityPath: root,
           factoruServerUrl: 'https://factoru.example.com',
+          gasCitySupervisorUrl: 'http://127.0.0.1:8372',
+          cityName: 'factoru-test',
           projectManagerPromptPath: prompt,
           executor,
         }),
@@ -129,6 +157,8 @@ describe('GasCityProjectConfigurator', () => {
       new GasCityProjectConfigurator({
         cityPath: root,
         factoruServerUrl: 'http://localhost:8787',
+        gasCitySupervisorUrl: 'http://127.0.0.1:8372',
+        cityName: 'factoru-test',
         projectManagerPromptPath: prompt,
         executor,
       }).reconcile([project]),

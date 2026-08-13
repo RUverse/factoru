@@ -1,5 +1,8 @@
 import { z } from 'zod'
 
+const workflowPresetIdSchema = z.enum(['standard-build', 'fast-patch'])
+const projectBlueprintIdSchema = z.enum(['standard-software-project', 'fast-patch'])
+
 export const CAPABILITY_SOFTWARE_DELIVERY = 'software-delivery-v1'
 
 export const executionRunStatusSchema = z.enum([
@@ -40,6 +43,7 @@ export const executionUsageSchema = z.object({
   outputTokens: z.number().int().nonnegative(),
   estimatedCostUsd: z.number().nonnegative(),
   pricing: z.enum(['pending', 'priced', 'unpriced']).default('pending'),
+  partial: z.boolean().default(false),
 })
 export const executionReviewPackageSchema = z.object({
   request: z.string(),
@@ -59,6 +63,15 @@ export const executionRunSchema = z.object({
   formulaName: z.string(),
   formulaVersion: z.string().nullable(),
   formulaHash: z.string().nullable(),
+  workflowPresetId: workflowPresetIdSchema.nullable().default(null),
+  workflowPresetVersion: z.number().int().positive().nullable().default(null),
+  resolvedVariables: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+    .default({}),
+  blueprintId: projectBlueprintIdSchema.nullable().default(null),
+  blueprintVersion: z.number().int().positive().nullable().default(null),
+  packLockDigest: z.string().nullable().default(null),
+  sourceBeadId: z.string().nullable().default(null),
   status: executionRunStatusSchema,
   stage: executionStageSchema,
   capsule: z

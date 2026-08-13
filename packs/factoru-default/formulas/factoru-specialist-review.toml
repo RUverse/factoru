@@ -1,0 +1,163 @@
+description = """
+Factoru's fixed three-lane implementation review with separate read-only
+contexts, synthesis, and bounded correction through the existing implementer.
+"""
+formula = "factoru-specialist-review"
+type = "expansion"
+version = 1
+
+[requires]
+formula_compiler = ">=2.0.0"
+
+[vars]
+[vars.implementation_target]
+description = "Existing Software Engineer implementation binding used for corrections."
+default = "gc.implementation-worker"
+type = "string"
+
+[vars.capsule_path]
+description = "Factoru-owned capsule reviewed read-only by specialists."
+required = true
+type = "string"
+
+[vars.evidence_path]
+description = "Factoru-owned evidence directory for versioned reports."
+required = true
+type = "string"
+
+[[template]]
+id = "{target}.setup-specialist-review"
+title = "Prepare bounded specialist review context"
+metadata = { "gc.run_target" = "gc.run-operator" }
+description = """
+Build one bounded review context from validated requirements, decomposition,
+implementation handoffs, trusted verification evidence, and source anchors.
+Validate it against schemas/review-context.v1.json and omit secrets, raw Gas
+City configuration, and paths outside the capsule and artifact roots.
+"""
+
+[[template]]
+id = "{target}.specialist-review-loop"
+title = "Review and correct until specialist approval"
+needs = ["{target}.setup-specialist-review"]
+metadata = { "gc.run_target" = "gc.run-operator" }
+description = """
+Run exactly three specialist contexts, then synthesis, then correction. The
+correction result owns code_review.verdict=done|iterate. Repeat until approved
+or the six-attempt ceiling; transient provider retries are separately bounded.
+"""
+
+[template.check]
+max_attempts = 6
+
+[template.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/implementation-review-approved.sh"
+timeout = "10m"
+
+[[template.children]]
+id = "{target}.pre-review-read-only"
+title = "Snapshot capsule before specialist review"
+metadata = { "gc.run_target" = "gc.run-operator" }
+description = "Run the trusted Factoru baseline check before specialist work."
+
+[template.children.check]
+max_attempts = 1
+
+[template.children.check.check]
+mode = "exec"
+path = ".beads/factoru/review-read-only-check.sh"
+timeout = "2m"
+
+[[template.children]]
+id = "{target}.correctness-testing-review"
+title = "Specialist review: correctness and testing"
+needs = ["{target}.pre-review-read-only"]
+metadata = { "gc.run_target" = "gc.implementation-reviewer", "factoru.review_lane" = "correctness_testing" }
+description = """
+Read only the capsule. Review requested behavior, correctness, regression risk,
+test quality, and missing proof. Never edit, format, stage, or commit. Write a
+validated schemas/specialist-report.v1.json report with lane
+correctness_testing, verdict, evidence, and bounded findings.
+"""
+
+[[template.children]]
+id = "{target}.security-reliability-review"
+title = "Specialist review: security and reliability"
+needs = ["{target}.pre-review-read-only"]
+metadata = { "gc.run_target" = "gc.design-test-risk-reviewer", "factoru.review_lane" = "security_reliability" }
+description = """
+Read only the capsule. Review trust boundaries, validation, secrets,
+failure/restart/cancellation behavior, concurrency, and operational risk. Never
+edit, format, stage, or commit. Write a validated specialist report with lane
+security_reliability.
+"""
+
+[[template.children]]
+id = "{target}.maintainability-architecture-review"
+title = "Specialist review: maintainability and architecture"
+needs = ["{target}.pre-review-read-only"]
+metadata = { "gc.run_target" = "gc.design-implementation-reviewer", "factoru.review_lane" = "maintainability_architecture" }
+description = """
+Read only the capsule. Review boundaries, compatibility, duplication, clarity,
+architecture synchronization, and maintenance risk. Never edit, format, stage,
+or commit. Write a validated specialist report with lane
+maintainability_architecture.
+"""
+
+[[template.children]]
+id = "{target}.post-review-read-only"
+title = "Prove specialist sessions did not mutate the capsule"
+needs = ["{target}.correctness-testing-review", "{target}.security-reliability-review", "{target}.maintainability-architecture-review"]
+metadata = { "gc.run_target" = "gc.run-operator" }
+description = "Run the trusted Factoru post-review mutation check."
+
+[template.children.check]
+max_attempts = 1
+
+[template.children.check.check]
+mode = "exec"
+path = ".beads/factoru/review-read-only-check.sh"
+timeout = "2m"
+
+[[template.children]]
+id = "{target}.synthesize-specialist-review"
+title = "Synthesize specialist reports"
+needs = ["{target}.post-review-read-only"]
+metadata = { "gc.run_target" = "gc.review-synthesizer" }
+description = """
+Validate all three reports, preserve lane provenance, deduplicate findings, and
+produce schemas/review-synthesis.v1.json. Approve only when every required
+finding is resolved; otherwise emit the smallest bounded correction set. Never
+modify the capsule.
+"""
+
+[[template.children]]
+id = "{target}.apply-specialist-findings"
+title = "Apply synthesized corrections"
+needs = ["{target}.synthesize-specialist-review"]
+metadata = { "gc.run_target" = "{implementation_target}", "gc.continuation_group" = "factoru-specialist-review-fixes" }
+description = """
+Use only the validated synthesis. If approved, set code_review.verdict=done.
+Otherwise make focused changes in {{capsule_path}}, commit them, rerun trusted
+verification, validate the handoff schema, and set code_review.verdict=iterate
+until a fresh complete review approves. Never push or open a pull request.
+"""
+
+[[template]]
+id = "{target}"
+title = "Finalize Factoru specialist review"
+needs = ["{target}.specialist-review-loop"]
+metadata = { "gc.run_target" = "gc.run-operator", "gc.build.artifact_schema" = "gc.build.review.v1", "gc.build.artifact_path_keys" = "gc.build.review_report_path" }
+description = """
+Validate the approved synthesis and normalized gc.build.review.v1 report and
+close only after all three lanes approved the current capsule commit.
+"""
+
+[template.check]
+max_attempts = 3
+
+[template.check.check]
+mode = "exec"
+path = ".gc/scripts/checks/build-artifact-valid.sh"
+timeout = "5m"

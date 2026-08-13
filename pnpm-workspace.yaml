@@ -17,6 +17,12 @@ allowBuilds:
 # module resolver and not only by review.
 linkWorkspacePackages: true
 
+# pnpm 11's pre-run dependency verification treats the downloaded Node runtime
+# as a reason to purge an otherwise current modules directory. Installs and the
+# frozen lockfile remain authoritative; scripts use the pinned runtime through
+# node_modules/.bin without an unnecessary reinstall prompt.
+verifyDepsBeforeRun: false
+
 minimumReleaseAgeExclude:
   - '@typescript-eslint/eslint-plugin@8.66.0'
   - '@typescript-eslint/parser@8.66.0'

@@ -1,6 +1,6 @@
 # 0005 — Packaging and distribution
 
-**Status:** Accepted as the direction; implemented in Milestone 7
+**Status:** Accepted; source-preview CLI partial, packaged artifacts pending Milestone 9
 **Date:** 2026-08-04
 
 ## Context
@@ -25,7 +25,7 @@ that Milestone 0's build layout does not have to be redone later.
   production dependencies and are externalized for electron-builder to package.
   In particular, bundling `ws` converts its optional `bufferutil` probe into a
   hard unresolved import and prevents Electron main from starting.
-- Milestone 7 adds electron-builder with a signed and notarized macOS build.
+- Milestone 9 adds electron-builder with a signed and notarized macOS build.
   Linux desktop packaging stays a later item, so no Linux-only Electron APIs may
   be introduced in the meantime.
 - Electron 43 no longer installs its runtime through a lifecycle script, so
@@ -46,6 +46,17 @@ that Milestone 0's build layout does not have to be redone later.
 - How a local server is launched (login service, desktop-managed child process,
   or container) remains **Validate** and is decided with the local-server
   lifecycle spike.
+- The bundled service exposes one `factoru-server` operator executable for
+  start, version, status, provider/city setup and readiness, Factoru-correlated
+  activity, pairing/SSH-forward details, doctor, and verified SQLite backup.
+  Provider authentication remains provider-owned, and project model-slot
+  configuration remains a Factoru product operation rather than a host CLI
+  setting.
+- Published macOS arm64 and Linux arm64/x86_64 archives will install that one
+  executable through the existing `RUverse/homebrew-tap`, following its
+  per-platform URL/checksum convention. A formula is not published before real
+  release archives and checksums exist. The current Linux bootstrap instead
+  installs an explicitly source-bound launcher into the stable `dev` checkout.
 
 ## Consequences
 
@@ -53,6 +64,8 @@ that Milestone 0's build layout does not have to be redone later.
   true Node runtime libraries stay there for packaging; this boundary is
   documented in `apps/desktop/electron.vite.config.ts` and regression-tested.
 - Server releases are per platform, and CI must build on macOS and Linux.
+- The Homebrew formula is release automation output, not a hand-maintained
+  pointer to a mutable branch or source checkout.
 - Packaging cannot begin before the database driver is chosen, which it now is.
 
 ## Revisit when

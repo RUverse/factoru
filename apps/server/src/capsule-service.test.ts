@@ -55,6 +55,9 @@ describe('CapsuleService', () => {
     expect(
       fs.readFileSync(path.join(repository, '.beads/factoru/run-delivery-check.sh'), 'utf8'),
     ).toContain('gc.graphv2_vars.v1')
+    expect(
+      fs.readFileSync(path.join(repository, '.beads/factoru/review-read-only-check.sh'), 'utf8'),
+    ).toContain('review-baseline-head')
     expect(await service.prepare(project, run)).toEqual(capsule)
   })
 
@@ -76,6 +79,7 @@ describe('CapsuleService', () => {
         outputTokens: 5,
         estimatedCostUsd: 0.01,
         pricing: 'priced',
+        partial: false,
       },
     })
     expect(review.commits[0]).toContain('deliver task')
@@ -93,7 +97,13 @@ describe('CapsuleService', () => {
       service.finalize(project, run, capsule, {
         request: 'x',
         plan: 'x',
-        usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, pricing: 'pending' },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCostUsd: 0,
+          pricing: 'pending',
+          partial: false,
+        },
       }),
     ).rejects.toBeInstanceOf(CapsuleIntegrationError)
   })

@@ -41,12 +41,12 @@ export interface ReadinessFinding {
 /** Result of probing one executable. */
 export interface ProbeResult {
   readonly found: boolean
-  /** Raw `--version` output, whatever format the tool uses. */
+  /** Raw version-command output, whatever format the tool uses. */
   readonly output: string
 }
 
 /** Probes an executable. Injected so readiness logic is testable without a shell. */
-export type CommandProbe = (command: string) => Promise<ProbeResult>
+export type CommandProbe = (command: string, versionArgs: readonly string[]) => Promise<ProbeResult>
 
 /** Evaluate one dependency against its spec. */
 export function evaluateDependency(spec: DependencySpec, probe: ProbeResult): ReadinessFinding {
@@ -55,7 +55,7 @@ export function evaluateDependency(spec: DependencySpec, probe: ProbeResult): Re
       name: spec.displayName,
       status: 'missing',
       detail: `${spec.command} was not found.`,
-      remedy: `Install it. On macOS and Linux, 'brew install gascity' installs Gas City and this dependency together. ${spec.reason}`,
+      remedy: `Install it. Use Factoru's documented remote bootstrap on Linux, or 'brew install gascity' on macOS. ${spec.reason}`,
     }
   }
 
@@ -83,6 +83,22 @@ export function evaluateDependency(spec: DependencySpec, probe: ProbeResult): Re
     }
   }
 
+  if (
+    spec.minimumVersion !== null &&
+    spec.belowExclusiveVersion !== undefined &&
+    !withinRange(probe.output, {
+      minimum: spec.minimumVersion,
+      belowExclusive: spec.belowExclusiveVersion,
+    })
+  ) {
+    return {
+      name: spec.displayName,
+      status: 'unsupported_version',
+      detail: `Found ${probe.output.trim() || 'an unreadable version'}; Factoru requires >=${spec.minimumVersion} and <${spec.belowExclusiveVersion}.`,
+      remedy: `Install ${spec.installVersion ?? spec.minimumVersion}. ${spec.reason}`,
+    }
+  }
+
   return okFinding(spec, probe)
 }
 
@@ -98,7 +114,9 @@ function okFinding(spec: DependencySpec, probe: ProbeResult): ReadinessFinding {
 /** Probe every required dependency and report each one independently. */
 export async function checkDependencies(probe: CommandProbe): Promise<ReadinessFinding[]> {
   return Promise.all(
-    REQUIRED_DEPENDENCIES.map(async (spec) => evaluateDependency(spec, await probe(spec.command))),
+    REQUIRED_DEPENDENCIES.map(async (spec) =>
+      evaluateDependency(spec, await probe(spec.command, spec.versionArgs)),
+    ),
   )
 }
 

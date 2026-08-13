@@ -4,8 +4,11 @@ import { serverIdSchema } from './schemas.js'
 export const CAPABILITY_PAIRING = 'pairing-v1'
 export const CAPABILITY_LOCAL_ENROLLMENT = 'local-enrollment-v1'
 export const CAPABILITY_LIVE = 'live-v1'
-export const CAPABILITY_PROJECTS = 'projects-v1'
+export const CAPABILITY_PROJECTS = 'projects-v2'
+export const CAPABILITY_REPOSITORY_ACCESS_CHECK = 'repository-access-check-v1'
 export const CAPABILITY_TRUSTED_DEVICES = 'trusted-devices-v1'
+export const CAPABILITY_ORCHESTRATION_DEPTH = 'orchestration-depth-v1'
+export const ARTIFACTS_PATH_PREFIX = '/api/v1/projects'
 export const PAIRING_EXCHANGE_PATH = '/api/v1/pairing/exchange'
 export const LOCAL_ENROLLMENT_PATH = '/api/v1/pairing/local'
 export const CONNECTION_TICKET_PATH = '/api/v1/auth/ticket'
@@ -57,17 +60,26 @@ export const connectionTicketResponseSchema = z.object({
 })
 
 export const projectSetupStateSchema = z.enum(['setting_up', 'ready', 'needs_attention'])
+export const provisioningRetrySchema = z.object({
+  attemptCount: z.number().int().positive(),
+  nextAttemptAt: z.iso.datetime(),
+})
 export const rigSummarySchema = z.object({
   rigName: z.string().min(1),
   beadPrefix: z.string().min(1),
   registrationState: z.enum(['pending', 'ready', 'failed']),
   lastReconciledAt: z.iso.datetime().nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
+  retry: provisioningRetrySchema.nullable().default(null),
 })
 export const projectSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().nullable(),
+  projectDirectory: z
+    .object({ name: z.string().min(1), managed: z.literal(true) })
+    .nullable()
+    .default(null),
   repository: z.object({ rootId: z.string(), relativePath: z.string(), label: z.string() }),
   defaultBranch: z.string().min(1),
   setupState: projectSetupStateSchema,
@@ -76,8 +88,27 @@ export const projectSchema = z.object({
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   rig: rigSummarySchema,
+  repositories: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        isPrimary: z.boolean(),
+        sourceUrl: z.string().nullable(),
+        repository: z.object({ rootId: z.string(), relativePath: z.string(), label: z.string() }),
+        defaultBranch: z.string().min(1),
+        rig: rigSummarySchema,
+      }),
+    )
+    .min(1)
+    .refine(
+      (repositories) => repositories.filter((repository) => repository.isPrimary).length === 1,
+      {
+        message: 'A project must have exactly one primary repository',
+      },
+    ),
 })
 export type Project = z.infer<typeof projectSchema>
+export type ProjectRepositoryInput = z.infer<typeof projectRepositoryInputSchema>
 
 export const repositoryRootSchema = z.object({ id: z.string(), label: z.string() })
 export const repositoryEntrySchema = z.object({
@@ -124,17 +155,28 @@ export const projectSnapshotSchema = z.object({
 export const liveMethodSchema = z.enum([
   'repositories.roots',
   'repositories.browse',
+  'repositories.previewPath',
+  'repositories.checkRemoteAccess',
   'projects.previewCreate',
   'projects.list',
   'projects.get',
   'projects.create',
   'projects.retrySetup',
   'projects.subscribe',
+  'streams.subscribe',
+  'streams.unsubscribe',
   'devices.list',
   'devices.revoke',
   'workspaces.get',
   'conversations.send',
+  'conversations.history',
+  'conversations.cancel',
+  'conversations.retry',
+  'conversations.resetContext',
+  'team.updateModelBinding',
+  // Protocol-v2 command alias for protocol-v1 Desktop builds.
   'workers.updateModelBinding',
+  'projects.updateWorkflowDefault',
   'memory.add',
   'planner.start',
   'planner.cancel',
@@ -144,6 +186,14 @@ export const liveMethodSchema = z.enum([
   'tasks.resolve',
   'tasks.search',
   'tasks.decideMerge',
+  'tasks.split',
+  'tasks.addEvidence',
+  'tasks.setResourceIntents',
+  'memory.search',
+  'memory.proposeUpdate',
+  'memory.decideProposal',
+  'runs.getDetail',
+  'runs.readArtifact',
   'runs.cancel',
   'runs.retry',
   'runs.requestChanges',
@@ -165,7 +215,7 @@ export const liveResponseSchema = z.discriminatedUnion('ok', [
     error: z.object({ code: z.string(), message: z.string(), details: z.unknown().optional() }),
   }),
 ])
-export const liveEventSchema = z.object({
+export const projectLiveEventSchema = z.object({
   type: z.literal('project.event'),
   event: projectEventSchema,
 })
@@ -177,13 +227,55 @@ export const repositoryBrowseParamsSchema = z.object({
 export const projectPreviewParamsSchema = repositoryBrowseParamsSchema.extend({
   defaultBranch: z.string().optional(),
 })
-export const projectCreateParamsSchema = z.object({
+export const repositoryPreviewPathParamsSchema = z.object({
+  absolutePath: z.string().min(1),
+})
+export const repositoryAccessCheckParamsSchema = z.object({
+  url: z.string().trim().min(1).max(2_048),
+})
+export const repositoryAccessCheckSchema = z.object({
+  transport: z.enum(['ssh', 'https']),
+  host: z.string().min(1),
+  accessible: z.literal(true),
+})
+export type RepositoryAccessCheck = z.infer<typeof repositoryAccessCheckSchema>
+export const repositoryAccessErrorCodeSchema = z.enum([
+  'git_unavailable',
+  'repository_authentication_required',
+  'repository_host_key_required',
+  'repository_not_found_or_forbidden',
+  'repository_network_unavailable',
+  'repository_access_timeout',
+  'repository_access_failed',
+  'repository_url_invalid',
+  'repository_url_contains_credentials',
+])
+export type RepositoryAccessErrorCode = z.infer<typeof repositoryAccessErrorCodeSchema>
+export const localProjectRepositoryInputSchema = z.object({
+  kind: z.literal('local'),
   rootId: z.string(),
   relativePath: z.string(),
-  name: z.string().trim().min(1).max(100),
-  description: z.string().trim().max(2_000).optional(),
   defaultBranch: z.string().min(1),
   fingerprint: z.string().min(32),
+})
+export const remoteProjectRepositoryInputSchema = z.object({
+  kind: z.literal('remote'),
+  // Kept optional so older Desktop builds can continue sending their former clone-root hint.
+  // Factoru Server owns the managed clone destination.
+  rootId: z.string().optional(),
+  url: z.string().trim().min(1).max(2_048),
+})
+export const projectRepositoryInputSchema = z.discriminatedUnion('kind', [
+  localProjectRepositoryInputSchema,
+  remoteProjectRepositoryInputSchema,
+])
+export const projectCreateParamsSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().trim().max(2_000).optional(),
+  blueprintId: z
+    .enum(['standard-software-project', 'fast-patch'])
+    .default('standard-software-project'),
+  repositories: z.array(projectRepositoryInputSchema).min(1).max(12),
 })
 export const projectIdParamsSchema = z.object({ projectId: z.string().min(1) })
 export const projectSubscribeParamsSchema = z.object({

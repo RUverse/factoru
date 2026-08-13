@@ -5,9 +5,10 @@ import { execFileSync } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FactoruDatabase } from '@factoru/database'
 import { parseServerId } from '@factoru/domain'
-import type { RigRegistrar } from '@factoru/gas-city'
+import { GasCityError, GasCityRigRegistrar, type RigRegistrar } from '@factoru/gas-city'
 import {
   CAPABILITY_LOCAL_ENROLLMENT,
+  CAPABILITY_REPOSITORY_ACCESS_CHECK,
   CONNECTION_TICKET_PATH,
   HANDSHAKE_PATH,
   LOCAL_ENROLLMENT_PATH,
@@ -22,6 +23,9 @@ function fixtureDirectory() {
   const value = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-m2-'))
   directories.push(value)
   return value
+}
+function projectsRoot(directory: string) {
+  return { id: 'root_projects', label: 'Projects', path: path.join(directory, 'managed-projects') }
 }
 afterEach(() => {
   for (const value of directories.splice(0)) fs.rmSync(value, { recursive: true })
@@ -48,7 +52,7 @@ describe('Milestone 2 server slice', () => {
     database.createPairingCode('ABCD-EFGH-JKMN', new Date(Date.now() + 60_000))
     const projects = new ProjectService({
       database,
-      repositories: new RepositoryService([]),
+      repositories: new RepositoryService([], projectsRoot(directory)),
       registrar: { register: async () => undefined },
       cityName: 'factoru-test',
       cityPath: path.join(directory, 'city'),
@@ -94,7 +98,7 @@ describe('Milestone 2 server slice', () => {
     const database = new FactoruDatabase(path.join(directory, 'factoru.sqlite'), serverId)
     const projects = new ProjectService({
       database,
-      repositories: new RepositoryService([]),
+      repositories: new RepositoryService([], projectsRoot(directory)),
       registrar: { register: async () => undefined },
       cityName: 'factoru-test',
       cityPath: path.join(directory, 'city'),
@@ -118,6 +122,7 @@ describe('Milestone 2 server slice', () => {
       },
     })
     expect(handshake.json().server.capabilities).toContain(CAPABILITY_LOCAL_ENROLLMENT)
+    expect(handshake.json().server.capabilities).toContain(CAPABILITY_REPOSITORY_ACCESS_CHECK)
     const rejected = await app.inject({
       method: 'POST',
       url: LOCAL_ENROLLMENT_PATH,
@@ -137,15 +142,46 @@ describe('Milestone 2 server slice', () => {
 
   it('previews safely, creates durably, provisions asynchronously, and reopens the same project', async () => {
     const { root, repository } = repositoryFixture()
+    const secondRepository = path.join(root, 'api')
+    fs.mkdirSync(secondRepository)
+    execFileSync('git', ['init', '-b', 'main'], { cwd: secondRepository })
+    execFileSync('git', ['config', 'user.email', 'test@factoru.local'], {
+      cwd: secondRepository,
+    })
+    execFileSync('git', ['config', 'user.name', 'Factoru Test'], { cwd: secondRepository })
+    fs.writeFileSync(path.join(secondRepository, 'README.md'), '# API\n')
+    execFileSync('git', ['add', 'README.md'], { cwd: secondRepository })
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: secondRepository })
     const serverId = parseServerId('srv_11111111111111111111111111111111')
     const file = path.join(root, 'factoru.sqlite')
     const database = new FactoruDatabase(file, serverId)
     database.createPairingCode('ABCD-EFGH-JKMN', new Date(Date.now() + 60_000))
     const device = database.exchangePairingCode('ABCD-EFGH-JKMN', 'Mac')!.device
     const roots = [{ id: 'root_test', label: 'Repos', path: root }]
-    const repositories = new RepositoryService(roots)
+    const repositories = new RepositoryService(roots, projectsRoot(root))
     const preview = await repositories.preview('root_test', 'project')
+    const secondPreview = await repositories.preview('root_test', 'api')
     expect(preview.preview.safe).toBe(true)
+    expect(await repositories.previewAbsolute(repository)).toMatchObject({
+      rootId: 'root_test',
+      relativePath: 'project',
+    })
+    const managedProject = repositories.planProjectDirectory(
+      'prj_11111111111111111111111111111111',
+      'My Project',
+    )
+    expect(repositories.planClone('https://example.com/org/api.git', managedProject)).toMatchObject(
+      {
+        sourceUrl: 'https://example.com/org/api.git',
+        repository: {
+          root: { id: 'root_projects' },
+          relativePath: expect.stringMatching(/^my-project-11111111\/repositories\/api-/),
+        },
+      },
+    )
+    await expect(
+      repositories.clone('file:///tmp/repository', 'root_projects', 'project/repositories/repo'),
+    ).rejects.toMatchObject({ code: 'repository_url_invalid' })
     const calls: unknown[] = []
     const registrar: RigRegistrar = {
       register: async (request) => {
@@ -160,19 +196,342 @@ describe('Milestone 2 server slice', () => {
       cityPath: path.join(root, 'city'),
     })
     const created = await service.createProject(device, 'cmd_create', {
-      rootId: 'root_test',
-      relativePath: 'project',
       name: 'Project',
-      defaultBranch: 'dev',
-      fingerprint: preview.preview.fingerprint,
+      repositories: [
+        {
+          kind: 'local',
+          rootId: 'root_test',
+          relativePath: 'project',
+          defaultBranch: 'dev',
+          fingerprint: preview.preview.fingerprint,
+        },
+        {
+          kind: 'local',
+          rootId: 'root_test',
+          relativePath: 'api',
+          defaultBranch: 'main',
+          fingerprint: secondPreview.preview.fingerprint,
+        },
+      ],
     })
     expect(created.setupState).toBe('setting_up')
+    expect(created.projectDirectory).toMatchObject({ managed: true })
+    expect(created.repositories).toHaveLength(2)
+    expect(created.repositories[0]?.isPrimary).toBe(true)
     await service.processOutbox()
     expect(service.getProject(created.id).setupState).toBe('ready')
-    expect(calls).toHaveLength(1)
+    expect(calls).toHaveLength(2)
     database.close()
     const reopened = new FactoruDatabase(file, serverId)
-    expect(reopened.getProject(created.id)?.repositoryRealPath).toBe(fs.realpathSync(repository))
+    const reopenedProject = reopened.getProject(created.id)
+    expect(reopenedProject?.repositoryRealPath).not.toBe(fs.realpathSync(repository))
+    expect(reopenedProject?.repositoryRealPath).toContain(
+      `${path.sep}managed-projects${path.sep}${created.projectDirectory?.name}${path.sep}repositories${path.sep}`,
+    )
+    expect(reopenedProject?.managedProjectDirectory).toBe(true)
+    expect(reopenedProject?.repositories.map((item) => item.sourceRepositoryRealPath)).toEqual([
+      fs.realpathSync(repository),
+      fs.realpathSync(secondRepository),
+    ])
+    expect(reopened.getProject(created.id)?.repositories).toHaveLength(2)
     reopened.close()
   }, 15_000)
+
+  it('persists remote repository intent before the provisioning reactor clones it', async () => {
+    const root = fixtureDirectory()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
+      async () => ({ stdout: 'ref: refs/heads/main\tHEAD\n', stderr: '' }),
+    )
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar: { register: async () => undefined },
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+    const created = await service.createProject(device, 'cmd_remote', {
+      name: 'Remote platform',
+      repositories: [
+        { kind: 'remote', rootId: 'root_test', url: 'https://example.com/org/api.git' },
+      ],
+    })
+    expect(created.repositories[0]).toMatchObject({
+      isPrimary: true,
+      sourceUrl: 'https://example.com/org/api.git',
+      defaultBranch: 'HEAD',
+      rig: { registrationState: 'pending' },
+    })
+    expect(created.projectDirectory).toMatchObject({ managed: true })
+    expect(fs.existsSync(path.join(root, 'managed-projects', created.projectDirectory!.name))).toBe(
+      false,
+    )
+    expect(database.claimDueOutbox()).toHaveLength(1)
+    database.close()
+  })
+
+  it('recovers a managed remote clone after Gas City leaves its own files staged', async () => {
+    const { root, repository: source } = repositoryFixture()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    const sourceUrl = 'https://example.com/org/repository.git'
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
+      async (args, options) => {
+        if (args[0] === 'ls-remote') {
+          return { stdout: 'ref: refs/heads/dev\tHEAD\n', stderr: '' }
+        }
+        if (args[0] === 'clone') {
+          const destination = args.at(-1)!
+          execFileSync('git', ['clone', '--', source, destination], { cwd: options.cwd })
+          execFileSync('git', ['remote', 'set-url', 'origin', sourceUrl], { cwd: destination })
+          return { stdout: '', stderr: '' }
+        }
+        throw new Error(`Unexpected Git command: ${args.join(' ')}`)
+      },
+    )
+    let registrationAttempts = 0
+    fs.mkdirSync(path.join(root, 'city'))
+    fs.writeFileSync(
+      path.join(root, 'city', 'pack.toml'),
+      '[imports.factoru]\nsource = "/factoru/pack"\n',
+    )
+    fs.writeFileSync(path.join(root, 'city', 'city.toml'), '[city]\nname = "factoru-test"\n')
+    const registrar = new GasCityRigRegistrar({
+      async run(executable, args) {
+        if (executable === 'gc' && args[0] === 'rig' && args[1] === 'add') {
+          registrationAttempts += 1
+          if (registrationAttempts === 1) {
+            const target = args[2]!
+            fs.mkdirSync(path.join(target, '.beads'))
+            fs.writeFileSync(path.join(target, '.beads', 'config.yaml'), 'partial: true\n')
+            fs.writeFileSync(path.join(target, '.gitignore'), '.beads/*\n')
+            execFileSync('git', ['add', '-f', '.beads/config.yaml', '.gitignore'], { cwd: target })
+            throw new Error('simulated interrupted registration')
+          }
+        }
+        return { stdout: '', stderr: '' }
+      },
+    })
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar,
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+    const project = await service.createProject(device, 'cmd_partial_remote', {
+      name: 'Partial remote',
+      repositories: [{ kind: 'remote', url: sourceUrl }],
+    })
+
+    await service.processOutbox()
+    expect(service.getProject(project.id)).toMatchObject({
+      setupState: 'setting_up',
+      repositories: [
+        {
+          rig: {
+            error: { code: 'gas_city_registration_failed' },
+            retry: { attemptCount: 1 },
+          },
+        },
+      ],
+    })
+    database.connection
+      .prepare("UPDATE outbox_items SET available_at = '2000-01-01T00:00:00.000Z'")
+      .run()
+
+    await service.processOutbox()
+    const ready = service.getProject(project.id)
+    expect(ready.setupState).toBe('ready')
+    expect(registrationAttempts).toBe(2)
+    const target = path.join(root, 'managed-projects', ready.projectDirectory!.name, 'repositories')
+    const [managedRepository] = fs.readdirSync(target).map((name) => path.join(target, name))
+    expect(
+      execFileSync('git', ['diff', '--cached', '--name-only'], {
+        cwd: managedRepository,
+        encoding: 'utf8',
+      }),
+    ).toBe('')
+    database.close()
+  }, 15_000)
+
+  it('persists nothing when any remote repository is inaccessible', async () => {
+    const root = fixtureDirectory()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
+      async (args) => {
+        if (args.includes('git@github-work:private/denied.git')) {
+          throw Object.assign(new Error('git failed'), {
+            code: 128,
+            stderr: 'git@github-work: Permission denied (publickey).',
+          })
+        }
+        return { stdout: 'ref: refs/heads/main\tHEAD\n', stderr: '' }
+      },
+    )
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar: { register: async () => undefined },
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+
+    await expect(
+      service.createProject(device, 'cmd_inaccessible', {
+        name: 'Private platform',
+        repositories: [
+          { kind: 'remote', rootId: 'root_test', url: 'https://gitlab.com/open/api.git' },
+          {
+            kind: 'remote',
+            rootId: 'root_test',
+            url: 'git@github-work:private/denied.git',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'repository_authentication_required' })
+
+    expect(database.listProjects()).toEqual([])
+    expect(database.currentSequence()).toBe(0)
+    expect(database.claimDueOutbox()).toEqual([])
+    expect(fs.readdirSync(path.join(root, 'managed-projects'))).toEqual([])
+    database.close()
+  })
+
+  it('revalidates failed remote access before requeueing repository setup', async () => {
+    const root = fixtureDirectory()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    let accessible = true
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
+      async () => {
+        if (!accessible) {
+          throw Object.assign(new Error('git failed'), {
+            code: 128,
+            stderr: 'git@github.com: Permission denied (publickey).',
+          })
+        }
+        return { stdout: 'ref: refs/heads/main\tHEAD\n', stderr: '' }
+      },
+    )
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar: { register: async () => undefined },
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+    const project = await service.createProject(device, 'cmd_create_retry', {
+      name: 'Retry project',
+      repositories: [
+        { kind: 'remote', rootId: 'root_test', url: 'git@github.com:owner/private.git' },
+      ],
+    })
+    const [outbox] = database.claimDueOutbox()
+    expect(outbox).toBeDefined()
+    database.failProvisioning(
+      outbox!.id,
+      project.id,
+      6,
+      'repository_authentication_required',
+      'Configure Git authentication.',
+      outbox!.repositoryId,
+    )
+
+    accessible = false
+    await expect(service.retrySetup(device, 'cmd_retry_blocked', project.id)).rejects.toMatchObject(
+      { code: 'repository_authentication_required' },
+    )
+    expect(service.getProject(project.id).setupState).toBe('needs_attention')
+    expect(database.claimDueOutbox()).toEqual([])
+
+    accessible = true
+    await expect(service.retrySetup(device, 'cmd_retry_ready', project.id)).resolves.toMatchObject({
+      setupState: 'setting_up',
+    })
+    expect(database.claimDueOutbox()).toHaveLength(1)
+    database.close()
+  })
+
+  it('stops retrying when Gas City requires operator configuration', async () => {
+    const { root } = repositoryFixture()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
+    )
+    const preview = await repositories.preview('root_test', 'project')
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar: {
+        register: async () => {
+          throw new GasCityError('Configure at least one provider, then retry setup.', {
+            kind: 'invalid_request',
+            code: 'gas_city_not_initialized',
+          })
+        },
+      },
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+    const project = await service.createProject(device, 'cmd_missing_city', {
+      name: 'Missing city',
+      repositories: [
+        {
+          kind: 'local',
+          rootId: 'root_test',
+          relativePath: 'project',
+          defaultBranch: 'dev',
+          fingerprint: preview.preview.fingerprint,
+        },
+      ],
+    })
+
+    await service.processOutbox()
+
+    expect(service.getProject(project.id)).toMatchObject({
+      setupState: 'needs_attention',
+      setupError: {
+        code: 'gas_city_not_initialized',
+        message: 'Configure at least one provider, then retry setup.',
+      },
+      repositories: [
+        {
+          rig: {
+            registrationState: 'failed',
+            retry: null,
+          },
+        },
+      ],
+    })
+    expect(database.claimDueOutbox()).toEqual([])
+    database.close()
+  })
 })

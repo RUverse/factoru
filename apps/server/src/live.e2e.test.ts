@@ -24,7 +24,11 @@ describe('authenticated live API', () => {
     database.createPairingCode('ABCD-EFGH-JKMN', new Date(Date.now() + 60_000))
     const service = new ProjectService({
       database,
-      repositories: new RepositoryService([]),
+      repositories: new RepositoryService([], {
+        id: 'root_projects',
+        label: 'Projects',
+        path: path.join(directory, 'projects'),
+      }),
       registrar: { register: async () => undefined },
       cityName: 'factoru-test',
       cityPath: path.join(directory, 'city'),
@@ -61,6 +65,51 @@ describe('authenticated live API', () => {
       ok: true,
       result: { projects: [], cursor: 0, resynchronized: false, events: [] },
     })
+
+    const streamed = new Promise<unknown[]>((resolve) => {
+      const messages: unknown[] = []
+      const listener = (raw: WebSocket.RawData) => {
+        messages.push(JSON.parse(raw.toString()))
+        if (messages.length === 3) {
+          socket.off('message', listener)
+          resolve(messages)
+        }
+      }
+      socket.on('message', listener)
+    })
+    socket.send(
+      JSON.stringify({
+        id: 'stream-shell',
+        method: 'streams.subscribe',
+        params: {
+          subscriptionId: 'shell',
+          resource: { kind: 'shell' },
+          afterCursor: 0,
+        },
+      }),
+    )
+    expect(await streamed).toEqual([
+      {
+        type: 'stream.snapshot',
+        subscriptionId: 'shell',
+        resource: { kind: 'shell' },
+        cursor: 0,
+        resynchronized: false,
+        reason: 'initial',
+        data: { projects: [] },
+      },
+      {
+        type: 'stream.live',
+        subscriptionId: 'shell',
+        resource: { kind: 'shell' },
+        cursor: 0,
+      },
+      {
+        id: 'stream-shell',
+        ok: true,
+        result: { cursor: 0, resynchronized: false },
+      },
+    ])
 
     const revokedTicket = await app.inject({
       method: 'POST',

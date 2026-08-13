@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import path from 'node:path'
+import os from 'node:os'
 import {
   DEFAULT_HOST,
   DEFAULT_PORT,
@@ -28,10 +29,16 @@ describe('server configuration', () => {
       port: 41234,
       dataDir: '/tmp/factoru-test/worktree',
       databaseFile: '/tmp/factoru-test/worktree/factoru.sqlite',
+      artifactDirectory: '/tmp/factoru-test/worktree/artifacts',
       localEnrollmentFile: '/tmp/factoru-test/worktree/local-enrollment.json',
       gasCityPath: '/tmp/factoru-test/worktree/gas-city',
       gasCitySupervisorUrl: 'http://127.0.0.1:8372',
       factoruPackPath: path.resolve('packs/factoru-default'),
+      projectsRoot: {
+        id: expect.stringMatching(/^root_[a-f0-9]{12}$/),
+        label: 'Factoru projects',
+        path: path.join(os.homedir(), 'factoru-projects'),
+      },
       repositoryRoots: [],
       trustLoopbackProxy: false,
       logLevel: 'debug',
@@ -81,6 +88,18 @@ describe('server configuration', () => {
         FACTORU_DATA_DIR: '/tmp/f',
         FACTORU_LOCAL_ENROLLMENT_FILE: 'local-enrollment.json',
       }),
+    ).toThrow(ServerConfigError)
+  })
+
+  it('accepts only an absolute managed projects root', () => {
+    expect(
+      loadServerConfig({
+        FACTORU_DATA_DIR: '/tmp/f',
+        FACTORU_PROJECTS_ROOT: '/tmp/factoru-projects',
+      }).projectsRoot,
+    ).toMatchObject({ label: 'Factoru projects', path: '/tmp/factoru-projects' })
+    expect(() =>
+      loadServerConfig({ FACTORU_DATA_DIR: '/tmp/f', FACTORU_PROJECTS_ROOT: 'projects' }),
     ).toThrow(ServerConfigError)
   })
 

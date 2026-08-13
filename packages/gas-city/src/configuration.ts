@@ -17,8 +17,11 @@ export interface ProjectRuntimeConfiguration {
   projectName: string
   rigName: string
   chatAgentName: string
+  conversationAccountId: string
+  conversationId: string
   chat: ProjectAgentBinding
   planning: ProjectAgentBinding
+  design: ProjectAgentBinding
   implementation: ProjectAgentBinding
   review: ProjectAgentBinding
 }
@@ -30,6 +33,8 @@ export interface ProjectRuntimeConfigurator {
 export interface GasCityProjectConfiguratorOptions {
   cityPath: string
   factoruServerUrl: string
+  gasCitySupervisorUrl: string
+  cityName: string
   projectManagerPromptPath: string
   executor: CommandExecutor
 }
@@ -214,6 +219,7 @@ function agentFile(project: ProjectRuntimeConfiguration): string {
   const lines = [
     `description = ${tomlString(`Factoru Project Manager chat for ${project.projectName}`)}`,
     'max_active_sessions = 1',
+    `env = { FACTORU_CONVERSATION_ACCOUNT_ID = ${tomlString(project.conversationAccountId)}, FACTORU_CONVERSATION_ID = ${tomlString(project.conversationId)}, FACTORU_CONVERSATION_SCOPE_ID = ${tomlString(project.rigName)} }`,
     ...bindingLines(project.chat),
   ]
   return `${lines.join('\n')}\n`
@@ -234,6 +240,18 @@ function patchBlock(project: ProjectRuntimeConfiguration): string {
     ['project-manager-planner', project.planning],
     ['software-implementer', project.implementation],
     ['software-reviewer', project.review],
+    ['run-operator', project.design],
+    ['requirements-planner', project.design],
+    ['design-author', project.design],
+    ['task-decomposer', project.design],
+    ['issue-triager', project.design],
+    ['design-implementation-reviewer', project.review],
+    ['design-test-risk-reviewer', project.review],
+    ['review-synthesizer', project.review],
+    ['gap-analyst', project.review],
+    ['implementation-reviewer', project.review],
+    ['implementation-worker', project.implementation],
+    ['publisher', project.implementation],
   ]
   return bindings
     .filter(([, binding]) => binding.provider !== null)
@@ -263,17 +281,19 @@ function updateRigBlock(source: string, project: ProjectRuntimeConfiguration): s
 }
 
 /**
- * Projects Factoru-owned Worker Type bindings into the dedicated city.
+ * Projects Factoru-owned Team model bindings into the dedicated city.
  *
  * Root-pack named sessions are city scoped in Gas City 1.4.0. Each project
  * therefore gets a distinct local chat agent/template and named session, while
- * planner/implementer/reviewer model choices are rig patches on the imported
- * Factoru pack agents. The two generated regions are bounded and idempotent;
+ * planner/design/implementer/reviewer model choices are rig patches on the
+ * imported Factoru and upstream role agents. The two generated regions are bounded and idempotent;
  * unrelated city configuration is preserved byte-for-byte.
  */
 export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
   readonly #cityPath: string
   readonly #factoruServerUrl: string
+  readonly #gasCitySupervisorUrl: string
+  readonly #cityName: string
   readonly #promptPath: string
   readonly #executor: CommandExecutor
 
@@ -285,6 +305,9 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
     }
     this.#cityPath = options.cityPath
     this.#factoruServerUrl = normalizeLoopbackServerUrl(options.factoruServerUrl)
+    this.#gasCitySupervisorUrl = normalizeLoopbackServerUrl(options.gasCitySupervisorUrl)
+    assertSafeName(options.cityName, 'city name')
+    this.#cityName = options.cityName
     this.#promptPath = options.projectManagerPromptPath
     this.#executor = options.executor
   }
@@ -297,6 +320,7 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
       for (const binding of [
         project.chat,
         project.planning,
+        project.design,
         project.implementation,
         project.review,
       ]) {
@@ -320,7 +344,16 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
     const prompt = fs.readFileSync(this.#promptPath, 'utf8')
     let changed = atomicWritePrivateFileIfChanged(
       path.join(runtimeDirectory, 'factoru-server.json'),
-      `${JSON.stringify({ version: 1, serverUrl: this.#factoruServerUrl }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          version: 2,
+          serverUrl: this.#factoruServerUrl,
+          gasCitySupervisorUrl: this.#gasCitySupervisorUrl,
+          cityName: this.#cityName,
+        },
+        null,
+        2,
+      )}\n`,
     )
 
     for (const project of projects) {
@@ -353,13 +386,20 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
     changed = atomicWriteIfChanged(cityFile, city) || changed
 
     if (changed) {
-      try {
-        await this.#executor.run('gc', ['reload', '--city', this.#cityPath])
-      } catch (cause) {
-        throw new GasCityError(
-          `Gas City rejected Factoru's project runtime configuration: ${cause instanceof Error ? cause.message : String(cause)}`,
-          { kind: 'unavailable', cause },
-        )
+      const commands = [
+        ['config', 'show', '--validate', '--city', this.#cityPath],
+        ['reload', '--city', this.#cityPath],
+      ] as const
+      for (const args of commands) {
+        try {
+          await this.#executor.run('gc', args)
+        } catch (cause) {
+          const detail = (cause instanceof Error ? cause.message : String(cause)).slice(0, 2_000)
+          throw new GasCityError(`Gas City command failed (gc ${args.join(' ')}): ${detail}`, {
+            kind: 'unavailable',
+            cause,
+          })
+        }
       }
     }
     return changed

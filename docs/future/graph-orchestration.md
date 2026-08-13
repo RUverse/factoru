@@ -1,7 +1,7 @@
 # Future Graph Orchestration
 
 > Status: deferred design direction
-> Last reviewed: 2026-08-04
+> Last reviewed: 2026-08-12
 > Implementation authority: none until the activation criteria below are met
 
 This note preserves the long-term case for graph-based orchestration without
@@ -37,8 +37,9 @@ an entire development workflow.
   model/resource bindings.
 - **Formula:** the Gas City execution definition associated with or generated
   from a Factoru graph.
-- **Factory Template:** the Factoru bundle that selects a pinned Gas City pack,
-  Worker Types, model/tool/memory defaults, Formulas, and capsule requirements.
+- **Project Blueprint:** the Factoru bundle that selects pinned Gas City packs,
+  Team profiles, allowed Formula Presets, model/tool/memory defaults, and
+  capsule requirements.
 - **Run:** one immutable execution snapshot for one task and graph version.
 - **Capsule:** the resource lease assigned to an implementation unit, including
   its worktree and runtime isolation.
@@ -47,7 +48,7 @@ an entire development workflow.
 
 Users continue talking to the Project Manager and observing the board. Formula
 inspection and later authoring are progressively disclosed in those same task
-and Worker surfaces; Factoru does not introduce separate simple and advanced
+and Team surfaces; Factoru does not introduce separate simple and advanced
 modes or require graph manipulation for normal work.
 
 ## Illustrative ideal graph
@@ -145,9 +146,12 @@ each ephemeral implementer/reviewer session. It can include:
 Isolation is tiered: worktree plus host resource leases first, task-specific
 project-service containers second, and an optional fully containerized worker
 only after its additional security and compatibility costs are justified. The
-preferred ownership split gives Gas City the Git worktree lifecycle and Factoru
-the correlated non-Git resource lease. The architecture spike must prove that
-split; only one component may own a resource transition.
+accepted serial split gives Factoru the task-run Git worktree/branch and every
+correlated non-Git resource lease because the proven ordinary Gas City Formula
+run creates no worktree. Gas City owns only worktrees it creates for later
+separately scheduled drain units. Before enabling that path, Milestone 10 must
+decide whether those units use Gas City-owned worktrees or a Factoru-owned
+alternative; only one component may own any lifecycle transition.
 
 The first two tiers prevent resource collisions but do not isolate a malicious
 host-running agent from Gas City's host-local supervisor or shared Dolt store.
@@ -157,9 +161,9 @@ planes.
 
 ## Activation criteria
 
-Graph implementation may enter the roadmap only after the serial product loop
-is working and evidence shows that fixed orchestration is constraining useful
-work. Before creating a node framework or graph editor, Factoru should have:
+The roadmap now includes bounded adaptive workflows in Milestone 11, but a
+general Factoru graph model or editor remains deferred. Before creating a node
+framework or graph editor, Factoru should have:
 
 1. A dependable single-task Gas City workflow with bounded internal review.
 2. Measured user acceptance, review time, model cost, and failure recovery.
@@ -174,8 +178,9 @@ work. Before creating a node framework or graph editor, Factoru should have:
 
 Until then:
 
-- ship one built-in Factoru Factory Template around the `factoru-default` pack
-  with fixed `queue-reconcile` and `software-delivery` formulas;
+- ship the curated Standard Software Project and Fast Patch Project Blueprints
+  around the pinned `factoru-default` and upstream packs, with fixed
+  `queue-reconcile`, `standard-build`, and `software-delivery` formulas;
 - keep the formula registry boundary replaceable;
 - expose no drag-and-drop graph editor;
 - add no arbitrary node-plugin system;

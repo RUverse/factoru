@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "factoru.implementation-handoff.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "unitId", "commit", "changedFiles", "checks", "remainingRisks"],
+  "properties": {
+    "version": { "const": 1 },
+    "unitId": { "type": "string", "minLength": 1 },
+    "commit": { "type": "string", "minLength": 1 },
+    "changedFiles": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "type": "string", "maxLength": 500 }
+    },
+    "checks": { "type": "array", "maxItems": 50, "items": { "type": "string", "maxLength": 1000 } },
+    "remainingRisks": {
+      "type": "array",
+      "maxItems": 50,
+      "items": { "type": "string", "maxLength": 1000 }
+    }
+  }
+}

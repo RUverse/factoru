@@ -147,8 +147,8 @@ export function validateFormulaV2(
     if (key === 'drain') {
       const drain = record(value)
       const maxUnits = drain?.['max_units']
-      if (!Number.isInteger(maxUnits) || Number(maxUnits) < 1 || Number(maxUnits) > 16) {
-        issues.push(`${path}.max_units must explicitly cap fan-out between 1 and 16`)
+      if (!Number.isInteger(maxUnits) || Number(maxUnits) < 1 || Number(maxUnits) > 20) {
+        issues.push(`${path}.max_units must explicitly cap fan-out between 1 and 20`)
       }
     }
   })

@@ -38,7 +38,9 @@ describe('software-delivery protocol', () => {
       finishedAt: '2026-08-06T10:05:00.000Z',
       updatedAt: '2026-08-06T10:05:00.000Z',
     }
-    expect(executionRunSchema.safeParse(run).success).toBe(true)
+    const parsed = executionRunSchema.parse(run)
+    expect(parsed.usage.partial).toBe(false)
+    expect(parsed.reviewPackage?.usage.partial).toBe(false)
     expect(executionRunSchema.safeParse({ ...run, stage: 'done' }).success).toBe(false)
   })
 })

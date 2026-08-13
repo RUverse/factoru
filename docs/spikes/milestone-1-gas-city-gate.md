@@ -209,6 +209,7 @@ reply stream.
 | `POST /v0/city/{city}/extmsg/adapters` | Register an adapter (`provider`, `account_id`, optional `callback_url`, `Idempotency-Key`) |
 | `POST /v0/city/{city}/extmsg/bind` | Bind a conversation to `agent_name` or `session_id` |
 | `POST /v0/city/{city}/extmsg/inbound` | Deliver a user turn |
+| `POST /v0/city/{city}/extmsg/outbound` | Publish a session-owned reply through the adapter callback |
 | `GET /v0/city/{city}/extmsg/transcript` | Read replies with `after_sequence` + `limit` |
 | `POST /v0/city/{city}/extmsg/transcript/ack` | Acknowledge consumption |
 
@@ -218,6 +219,14 @@ For Factoru this is better: `ConversationTranscriptRecord.Sequence` is a
 persistent cursor that survives restarts on both sides, which is precisely what
 resumable conversation delivery needs. Binding to `agent_name` also survives
 session restarts, cold-waking a session at delivery time.
+
+The later production implementation closes the outbound half explicitly: the
+Factoru adapter registers a loopback callback and the pinned pack supplies
+`gc factoru reply-current`, which posts the current session's response through
+`extmsg/outbound`. Gas City records the reply only after Factoru acknowledges
+the exact project conversation. Gas City treats `callback_url` as a base and
+appends `/publish`; Factoru therefore registers the base callback path and owns
+the resulting suffixed acceptance route.
 
 The roadmap's description of the Project Manager transport is therefore updated
 to match the running API.

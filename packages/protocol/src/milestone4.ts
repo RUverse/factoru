@@ -1,5 +1,8 @@
 import { z } from 'zod'
 
+const workflowPresetIdSchema = z.enum(['standard-build', 'fast-patch'])
+const workflowSelectionSourceSchema = z.enum(['blueprint_default', 'project_default', 'pm', 'user'])
+
 export const CAPABILITY_TASKS = 'tasks-v1'
 export const CAPABILITY_QUEUE_RECONCILIATION = 'queue-reconciliation-v1'
 
@@ -32,6 +35,9 @@ export const taskSchema = z
     queueOrder: z.number().int().nonnegative(),
     workerTypeKind: z.enum(['project_manager', 'software_engineer']).nullable(),
     formulaName: z.string().nullable(),
+    workflowPresetId: workflowPresetIdSchema.nullable().default(null),
+    workflowSelectionSource: workflowSelectionSourceSchema.default('project_default'),
+    workflowLockedByUser: z.boolean().default(false),
     needsYouAction: needsYouActionSchema.nullable(),
     needsYouMessage: z.string().nullable(),
     resolution: taskResolutionSchema.nullable(),
@@ -97,6 +103,7 @@ export const taskUpdateParamsSchema = taskProjectParamsSchema.extend({
   title: z.string().trim().min(1).max(200).optional(),
   description: z.string().trim().max(20_000).optional(),
   priority: z.number().int().min(0).max(100).optional(),
+  workflowPresetId: workflowPresetIdSchema.nullable().optional(),
 })
 export const taskMoveParamsSchema = taskProjectParamsSchema
   .extend({

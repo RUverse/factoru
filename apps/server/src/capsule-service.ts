@@ -173,6 +173,34 @@ exec "$verify_script"
 `
 }
 
+function reviewReadOnlyBridgeScript(): string {
+  return `#!/bin/sh
+set -eu
+if [ -z "\${GC_BEAD_ID:-}" ]; then echo "GC_BEAD_ID is required" >&2; exit 2; fi
+step_json="$(bd show "$GC_BEAD_ID" --json)"
+root_id="$(printf '%s' "$step_json" | jq -r '(if type == "array" then .[0] else . end).metadata["gc.root_bead_id"] // empty')"
+root_json="$(bd show "$root_id" --json)"
+vars_json="$(printf '%s' "$root_json" | jq -c '(if type == "array" then .[0] else . end).metadata["gc.graphv2_vars.v1"] // empty')"
+if printf '%s' "$vars_json" | jq -e 'type == "string"' >/dev/null 2>&1; then vars_json="$(printf '%s' "$vars_json" | jq -r '.')"; fi
+capsule_path="$(printf '%s' "$vars_json" | jq -r '.capsule_path // empty')"
+evidence_path="$(printf '%s' "$vars_json" | jq -r '.evidence_path // empty')"
+case "$capsule_path:$evidence_path" in /*:/*) ;; *) echo "review mutation check is missing Factoru capsule variables" >&2; exit 2 ;; esac
+git -C "$capsule_path" rev-parse --is-inside-work-tree >/dev/null
+status="$(git -C "$capsule_path" status --porcelain=v1 --untracked-files=all)"
+if [ -n "$status" ]; then echo "review capsule contains uncommitted mutations" >&2; exit 1; fi
+head="$(git -C "$capsule_path" rev-parse HEAD)"
+baseline="$evidence_path/review-baseline-head"
+case "$GC_BEAD_ID" in
+  *pre-review-read-only*) printf '%s\n' "$head" > "$baseline" ;;
+  *post-review-read-only*)
+    test -f "$baseline" || { echo "review baseline is missing" >&2; exit 2; }
+    test "$(tr -d '\n' < "$baseline")" = "$head" || { echo "a specialist review session mutated or committed the capsule" >&2; exit 1; }
+    ;;
+  *) echo "review mutation check used by an unknown stage" >&2; exit 2 ;;
+esac
+`
+}
+
 export class CapsuleService {
   readonly #root: string
   readonly #runner: CapsuleCommandRunner
@@ -391,5 +419,12 @@ exit 2
     const temporary = path.join(directory, `.run-delivery-check.${process.pid}.${randomUUID()}`)
     fs.writeFileSync(temporary, bridgeScript(), { mode: 0o700, flag: 'wx' })
     fs.renameSync(temporary, target)
+    const reviewTarget = path.join(directory, 'review-read-only-check.sh')
+    const reviewTemporary = path.join(
+      directory,
+      `.review-read-only-check.${process.pid}.${randomUUID()}`,
+    )
+    fs.writeFileSync(reviewTemporary, reviewReadOnlyBridgeScript(), { mode: 0o700, flag: 'wx' })
+    fs.renameSync(reviewTemporary, reviewTarget)
   }
 }

@@ -22,24 +22,37 @@
 export {
   GAS_CITY_REQUEST_HEADER,
   GAS_CITY_SUPPORTED_RANGE,
+  PINNED_BEADS_INSTALL_VERSION,
+  PINNED_DOLT_INSTALL_VERSION,
   PINNED_GAS_CITY_VERSION,
   REQUIRED_DEPENDENCIES,
+  SOURCE_BOOTSTRAP_ARTIFACTS,
   SUPERVISOR_API_PREFIX,
   SUPERVISOR_OPENAPI_PATH,
   SUPPORTED_HARNESSES,
   type DependencySpec,
+  type LinuxArtifactArchitecture,
+  type SourceBootstrapArtifact,
   type SupportedHarness,
 } from './compatibility.js'
 
 export {
   GasCityAdapter,
+  type ConversationAttachment,
+  type ConversationDelivery,
   type ConversationMessage,
+  type ConversationProjection,
   type ConversationRef,
   type GasCityAdapterOptions,
+  type InheritedFormulaCapabilityPolicy,
+  type ModelProvider,
   type RigBinding,
   type RunCorrelation,
   type RunSnapshot,
+  type NativeRunSnapshot,
+  type FormulaPreview,
   type RunUsage,
+  type RunUsageStreamFrame,
   type RunStatus,
   type RunStep,
 } from './adapter.js'
@@ -60,7 +73,12 @@ export {
 // The client is exported because Factoru Server constructs it; its
 // arbitrary-path methods are the cost of not hand-rolling a second one.
 // Product code goes through GasCityAdapter, never through this directly.
-export { SupervisorClient, isLoopbackUrl, type SupervisorClientOptions } from './http.js'
+export {
+  SupervisorClient,
+  isLoopbackUrl,
+  type ServerSentEvent,
+  type SupervisorClientOptions,
+} from './http.js'
 
 export {
   checkDependencies,
@@ -88,6 +106,14 @@ export {
   type RegisterProjectRigRequest,
   type RigRegistrar,
 } from './registration.js'
+
+export {
+  GasCityRuntimeLifecycle,
+  type GasCityLifecycleCommandExecutor,
+  type GasCityRuntimeLifecycleOptions,
+  type RuntimeProcessController,
+  type RuntimeProcessSnapshot,
+} from './lifecycle.js'
 
 export {
   GasCityProjectConfigurator,

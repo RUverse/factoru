@@ -11,6 +11,27 @@ export class ServerIdentityError extends Error {
   }
 }
 
+/** Read an existing identity without provisioning any Factoru state. */
+export async function readServerId(dataDir: string): Promise<ServerId | null> {
+  const file = path.join(dataDir, SERVER_ID_FILENAME)
+  let raw: string
+  try {
+    raw = await readFile(file, 'utf8')
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new ServerIdentityError(`Could not read the server identity file at ${file}`, { cause })
+  }
+  try {
+    return parseServerId(raw.trim())
+  } catch (cause) {
+    throw new ServerIdentityError(
+      `The server identity file at ${file} is not a valid Factoru server id. ` +
+        'Restore it from backup or remove it to provision a new server identity.',
+      { cause },
+    )
+  }
+}
+
 /**
  * Reads this server's stable identity from its data directory, creating it on
  * first start.
@@ -38,14 +59,7 @@ export async function ensureServerId(dataDir: string): Promise<ServerId> {
     }
   }
 
-  const raw = await readFile(file, 'utf8')
-  try {
-    return parseServerId(raw.trim())
-  } catch (cause) {
-    throw new ServerIdentityError(
-      `The server identity file at ${file} is not a valid Factoru server id. ` +
-        'Restore it from backup or remove it to provision a new server identity.',
-      { cause },
-    )
-  }
+  const existing = await readServerId(dataDir)
+  if (!existing) throw new ServerIdentityError(`The server identity disappeared at ${file}`)
+  return existing
 }

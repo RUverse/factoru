@@ -3,7 +3,7 @@ scope = "rig"
 
 # Independent of the implementer so review is a genuinely separate context. The
 # user may bind a different model to this role than to implementation; that is
-# the point of splitting the Software Engineer Worker Type into two bindings.
+# the point of splitting the Software Engineer Team profile into separate bindings.
 max_active_sessions = 1
 
 # Factoru installs its own agent tools at session start. Gas City 1.4.0 scans

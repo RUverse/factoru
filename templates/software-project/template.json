@@ -1,8 +1,10 @@
 {
   "$schema": "../template.schema.json",
-  "id": "software-project",
+  "id": "standard-software-project",
   "version": 1,
-  "name": "Software project",
+  "name": "Standard Software Project",
+  "description": "Full lifecycle delivery by default, with Fast Patch available per task.",
+  "recommended": true,
   "pack": {
     "id": "factoru-default",
     "lock": "../../packs/factoru-default/packs.lock"
@@ -10,16 +12,45 @@
   "factory": {
     "maxParallelImplementationWorkers": 1
   },
-  "workerTypes": {
+  "team": {
     "project_manager": {
       "modelSlots": ["chat", "planning"],
       "defaultFormula": "queue-reconcile",
       "memoryPolicy": "provenance_required"
     },
     "software_engineer": {
-      "modelSlots": ["implementation", "review"],
-      "defaultFormula": "software-delivery",
+      "modelSlots": ["design", "implementation", "review"],
+      "defaultFormula": "standard-build",
       "memoryPolicy": "provenance_required"
     }
-  }
+  },
+  "workflowPresets": {
+    "standard-build": {
+      "formula": "standard-build",
+      "formulaVersion": "1",
+      "launchMode": "attached",
+      "variables": {
+        "interaction_mode": "autonomous",
+        "review_mode": "agent",
+        "drain_policy": "same-session",
+        "max_iterations": 6,
+        "push": false,
+        "open_pr": false
+      },
+      "maxImplementationUnits": 20,
+      "maxVerificationAttempts": 2,
+      "maxCorrectionAttempts": 6
+    },
+    "fast-patch": {
+      "formula": "software-delivery",
+      "formulaVersion": "2",
+      "launchMode": "standalone",
+      "variables": {},
+      "maxImplementationUnits": 1,
+      "maxVerificationAttempts": 2,
+      "maxCorrectionAttempts": 2
+    }
+  },
+  "allowedWorkflowPresetIds": ["standard-build", "fast-patch"],
+  "defaultWorkflowPresetId": "standard-build"
 }

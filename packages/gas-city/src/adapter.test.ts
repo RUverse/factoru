@@ -72,6 +72,66 @@ describe('SupervisorClient', () => {
     expect(headerOf(1)).toBe('factoru')
   })
 
+  it('parses SSE frames split across chunks, including multiline data and CRLF', async () => {
+    const encoder = new TextEncoder()
+    const chunks = [
+      'event: eve',
+      'nt\r\nid: 7\r\ndata: {"part":',
+      '1}\r\ndata: {"part":2}\r',
+      '\n\r\nevent: heartbeat\n',
+      'data: {}\n\n',
+    ]
+    const fn = (async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+            controller.close()
+          },
+        }),
+        { headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } },
+      )) as typeof globalThis.fetch
+    const client = new SupervisorClient({ baseUrl: 'http://127.0.0.1:8372', fetch: fn })
+    const frames = []
+    for await (const frame of client.stream(
+      '/city/x/events/stream',
+      { after_seq: 6 },
+      new AbortController().signal,
+    )) {
+      frames.push(frame)
+    }
+    expect(frames).toEqual([
+      { event: 'event', id: '7', data: '{"part":1}\n{"part":2}' },
+      { event: 'heartbeat', id: undefined, data: '{}' },
+    ])
+  })
+
+  it('stops an open SSE reader when its owner cancels', async () => {
+    const encoder = new TextEncoder()
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
+    const fn = (async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            streamController = controller
+            controller.enqueue(encoder.encode('event: heartbeat\ndata: {}\n\n'))
+          },
+        }),
+        { headers: { 'Content-Type': 'text/event-stream' } },
+      )) as typeof globalThis.fetch
+    const client = new SupervisorClient({ baseUrl: 'http://127.0.0.1:8372', fetch: fn })
+    const owner = new AbortController()
+    const iterator = client.stream('/city/x/events/stream', {}, owner.signal)
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { event: 'heartbeat' },
+      done: false,
+    })
+    owner.abort()
+    streamController?.close()
+    await expect(iterator.next()).resolves.toMatchObject({ done: true })
+  })
+
   it('maps Problem Details onto a Factoru failure kind and captures the request id', async () => {
     // Body recorded verbatim from a real 422 on /formulas/{name}/preview.
     const { fn } = fakeFetch(() => ({
@@ -197,19 +257,24 @@ describe('GasCityAdapter.verifySupervisorContract', () => {
         paths: Object.fromEntries(
           [
             '/v0/city/{cityName}/provider-readiness',
+            '/v0/city/{cityName}/providers/public',
             '/v0/city/{cityName}/rigs',
+            '/v0/city/{cityName}/beads',
+            '/v0/city/{cityName}/formulas/{name}/preview',
             '/v0/city/{cityName}/sling',
             '/v0/city/{cityName}/runs/{run_id}/steps',
             '/v0/city/{cityName}/runs/{run_id}/cancel',
             '/v0/city/{cityName}/workflow/{workflow_id}',
             '/v0/city/{cityName}/events',
             '/v0/city/{cityName}/events/stream',
-            '/v0/city/{cityName}/usage',
             '/v0/city/{cityName}/extmsg/adapters',
             '/v0/city/{cityName}/extmsg/bind',
             '/v0/city/{cityName}/extmsg/inbound',
+            '/v0/city/{cityName}/extmsg/outbound',
             '/v0/city/{cityName}/extmsg/transcript',
             '/v0/city/{cityName}/extmsg/transcript/ack',
+            '/v0/city/{cityName}/session/{id}/transcript',
+            '/v0/city/{cityName}/session/{id}/close',
           ].map((p) => [p, {}]),
         ),
       },
@@ -229,6 +294,111 @@ describe('GasCityAdapter.verifySupervisorContract', () => {
 
     expect(result.ok).toBe(false)
     expect(result.missingPaths).toContain('/v0/city/{cityName}/sling')
+  })
+})
+
+describe('GasCityAdapter.checkProviderReadiness', () => {
+  it('normalizes the structured city provider report for operator clients', async () => {
+    const { fn, calls } = fakeFetch(() => ({
+      body: {
+        providers: {
+          codex: { display_name: 'Codex', status: 'configured' },
+          claude: { display_name: 'Claude', status: 'needs_auth', detail: 'login required' },
+        },
+      },
+    }))
+
+    const result = await adapterWith(fn).checkProviderReadiness(['codex', 'claude'])
+
+    expect(result.ready).toBe(false)
+    expect(result.findings.map((finding) => finding.status)).toEqual(['ok', 'needs_attention'])
+    expect(calls[0]?.url.pathname).toBe('/v0/city/factoru-spike/provider-readiness')
+  })
+})
+
+describe('GasCityAdapter.listModelProviders', () => {
+  it('loads model choices only from providers configured for the city', async () => {
+    const { fn, calls } = fakeFetch(() => ({
+      body: {
+        items: [
+          {
+            name: 'codex',
+            display_name: 'Codex',
+            builtin: false,
+            city_level: true,
+            effective_defaults: { model: 'gpt-5.5' },
+            options_schema: [
+              {
+                key: 'model',
+                label: 'Model',
+                type: 'select',
+                default: '',
+                choices: [
+                  { value: '', label: 'Default' },
+                  { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+                  { value: 'gpt-5.5', label: 'GPT-5.5' },
+                ],
+              },
+            ],
+          },
+          {
+            name: 'claude',
+            display_name: 'Claude',
+            builtin: true,
+            city_level: false,
+            options_schema: [
+              {
+                key: 'model',
+                label: 'Model',
+                type: 'select',
+                default: 'sonnet',
+                choices: [{ value: 'sonnet', label: 'Sonnet' }],
+              },
+            ],
+          },
+        ],
+        total: 2,
+      },
+    }))
+
+    await expect(adapterWith(fn).listModelProviders()).resolves.toEqual([
+      {
+        id: 'codex',
+        name: 'Codex',
+        defaultModelId: 'gpt-5.5',
+        models: [
+          { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+          { id: 'gpt-5.5', name: 'GPT-5.5' },
+        ],
+      },
+    ])
+    expect(calls[0]?.url.pathname).toBe('/v0/city/factoru-spike/providers/public')
+  })
+
+  it('falls back to the first model when a provider default is stale', async () => {
+    const { fn } = fakeFetch(() => ({
+      body: {
+        items: [
+          {
+            name: 'claude',
+            display_name: 'Claude',
+            city_level: true,
+            options_schema: [
+              {
+                key: 'model',
+                type: 'select',
+                default: 'retired-model',
+                choices: [{ value: 'sonnet', label: 'Sonnet' }],
+              },
+            ],
+          },
+        ],
+      },
+    }))
+
+    await expect(adapterWith(fn).listModelProviders()).resolves.toMatchObject([
+      { id: 'claude', defaultModelId: 'sonnet' },
+    ])
   })
 })
 
@@ -348,6 +518,149 @@ describe('GasCityAdapter.startRun', () => {
     expect(correlation.runId).toBe('pr-x')
     expect(correlation.formulaHash).toBeUndefined()
   })
+
+  it('resolves inherited formulas at rig scope and idempotently attaches a source bead', async () => {
+    const { fn, calls } = fakeFetch((url) => {
+      if (url.pathname.endsWith('/preview')) {
+        return {
+          body: {
+            name: 'standard-build',
+            steps: [
+              { id: 'standard-build.requirements', kind: 'task' },
+              { id: 'standard-build.factoru-bind-capsule', kind: 'task' },
+              {
+                id: 'standard-build.implement-same-session',
+                kind: 'drain',
+                metadata: {
+                  'gc.drain_context': 'shared',
+                  'gc.drain_max_units': '20',
+                  'gc.drain_item_single_lane': 'true',
+                },
+              },
+              { id: 'standard-build.factoru-verify', kind: 'check' },
+              { id: 'standard-build.review', kind: 'expansion' },
+            ],
+            deps: [
+              {
+                from: 'standard-build.factoru-bind-capsule',
+                to: 'standard-build.implement-same-session',
+              },
+              { from: 'standard-build.factoru-verify', to: 'standard-build.review' },
+            ],
+          },
+        }
+      }
+      if (url.pathname.endsWith('/events')) return { body: { items: [] } }
+      if (url.pathname.endsWith('/beads')) return { body: { id: 'fx-source-1', status: 'open' } }
+      if (url.pathname.endsWith('/sling')) {
+        return {
+          body: {
+            workflow_id: 'fx-standard-1',
+            root_bead_id: 'fx-root-1',
+            run: { run_id: 'fx-run-1' },
+          },
+        }
+      }
+      return {
+        body: {
+          workflow_id: 'fx-standard-1',
+          root_bead_id: 'fx-root-1',
+          beads: [{ id: 'fx-root-1', metadata: { 'gc.formula_hash': 'sha-standard' } }],
+        },
+      }
+    })
+
+    const correlation = await adapterWith(fn).startRun({
+      rigName: 'probe',
+      formulaName: 'standard-build',
+      target: 'probe/gc.run-operator',
+      title: 'Deliver attached task',
+      variables: { task_id: 'task_1', capsule_path: '/capsule' },
+      requestId: 'run-request-1',
+      launchMode: 'attached',
+      capabilityPolicy: {
+        maxImplementationUnits: 20,
+        drainContext: 'shared',
+        requiredStepIds: [
+          'requirements',
+          'factoru-bind-capsule',
+          'implement-same-session',
+          'factoru-verify',
+          'review',
+        ],
+        requiredEdges: [
+          ['factoru-bind-capsule', 'implement-same-session'],
+          ['factoru-verify', 'review'],
+        ],
+      },
+      sourceBead: {
+        description: 'Implement the task',
+        labels: ['factoru'],
+        metadata: { 'factoru.run_id': 'run_1', work_dir: '/capsule' },
+      },
+    })
+
+    expect(correlation).toMatchObject({ sourceBeadId: 'fx-source-1', runId: 'fx-run-1' })
+    const paths = calls.map((call) => call.url.pathname)
+    expect(paths.indexOf('/v0/city/factoru-spike/formulas/standard-build/preview')).toBeLessThan(
+      paths.indexOf('/v0/city/factoru-spike/beads'),
+    )
+    const bead = calls.find((call) => call.url.pathname.endsWith('/beads'))!
+    expect((bead.init.headers as Record<string, string>)['Idempotency-Key']).toBe(
+      'run-request-1:source',
+    )
+    const sling = calls.find((call) => call.url.pathname.endsWith('/sling'))!
+    expect(JSON.parse(String(sling.init.body))).toMatchObject({
+      attached_bead_id: 'fx-source-1',
+      scope_kind: 'rig',
+      scope_ref: 'probe',
+    })
+  })
+
+  it('rejects an inherited formula that exceeds its preset capability before creating a bead', async () => {
+    const { fn, calls } = fakeFetch((url) =>
+      url.pathname.endsWith('/preview')
+        ? {
+            body: {
+              name: 'standard-build',
+              steps: [
+                { id: 'standard-build.factoru-verify', kind: 'check' },
+                {
+                  id: 'standard-build.implement-same-session',
+                  kind: 'drain',
+                  metadata: {
+                    'gc.drain_context': 'shared',
+                    'gc.drain_max_units': '21',
+                    'gc.drain_item_single_lane': 'true',
+                  },
+                },
+              ],
+              deps: [],
+            },
+          }
+        : { body: { items: [] } },
+    )
+
+    await expect(
+      adapterWith(fn).startRun({
+        rigName: 'probe',
+        formulaName: 'standard-build',
+        target: 'probe/gc.run-operator',
+        title: 'Rejected attached task',
+        variables: {},
+        launchMode: 'attached',
+        capabilityPolicy: {
+          maxImplementationUnits: 20,
+          drainContext: 'shared',
+          requiredStepIds: ['factoru-verify', 'implement-same-session'],
+          requiredEdges: [],
+        },
+        sourceBead: { description: 'task', metadata: { work_dir: '/capsule' } },
+      }),
+    ).rejects.toMatchObject({ kind: 'invalid_request' })
+    expect(calls.some((call) => call.url.pathname.endsWith('/beads'))).toBe(false)
+    expect(calls.some((call) => call.url.pathname.endsWith('/sling'))).toBe(false)
+  })
 })
 
 describe('GasCityAdapter conversation delivery', () => {
@@ -362,14 +675,30 @@ describe('GasCityAdapter conversation delivery', () => {
     // the conversation across two providers.
     const { fn, calls } = fakeFetch(() => ({ body: { status: 'registered' } }))
 
-    await adapterWith(fn).registerConversationAdapter('factoru-server-1', 'Factoru Server')
+    await adapterWith(fn).registerConversationAdapter(
+      'factoru-server-1',
+      'Factoru Server',
+      'http://127.0.0.1:8787/internal/v1/gas-city/extmsg/callback',
+    )
 
     const headers = calls[0]?.init.headers as Record<string, string>
-    expect(headers['Idempotency-Key']).toBe('factoru-adapter-factoru-server-1')
+    expect(headers['Idempotency-Key']).toMatch(/^factoru-adapter-factoru-server-1-[a-f0-9]{16}$/)
     expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
       provider: 'factoru',
       account_id: 'factoru-server-1',
+      callback_url: 'http://127.0.0.1:8787/internal/v1/gas-city/extmsg/callback',
     })
+  })
+
+  it('rejects a non-loopback conversation callback', async () => {
+    const { fn } = fakeFetch(() => ({ body: { status: 'registered' } }))
+    await expect(
+      adapterWith(fn).registerConversationAdapter(
+        'factoru-server-1',
+        'Factoru Server',
+        'https://factoru.example.com/callback',
+      ),
+    ).rejects.toMatchObject({ kind: 'invalid_request' })
   })
 
   it('sends every conversation field, including the kind that a 500 depends on', async () => {
@@ -426,6 +755,82 @@ describe('GasCityAdapter conversation delivery', () => {
       authorDisplayName: 'mayor',
       inReplyToMessageId: 'm1',
     })
+  })
+
+  it('delivers image attachments and retains the target session correlation', async () => {
+    const { fn, calls } = fakeFetch(() => ({ body: { target_session_id: 'session-chat-1' } }))
+    const delivered = await adapterWith(fn).sendConversationTurn(conversation, {
+      messageId: 'msg-1',
+      text: '',
+      authorId: 'owner',
+      authorDisplayName: 'Owner',
+      receivedAt: '2026-08-12T12:00:00Z',
+      attachments: [
+        {
+          providerId: 'art_0123456789abcdef0123456789abcdef',
+          url: 'http://127.0.0.1:8787/internal/v1/artifacts/art?token=grant',
+          mimeType: 'image/png',
+        },
+      ],
+    })
+
+    expect(delivered).toEqual({ sessionId: 'session-chat-1' })
+    expect(JSON.parse(String(calls[0]!.init.body)).message.attachments).toEqual([
+      {
+        provider_id: 'art_0123456789abcdef0123456789abcdef',
+        url: 'http://127.0.0.1:8787/internal/v1/artifacts/art?token=grant',
+        mime_type: 'image/png',
+      },
+    ])
+  })
+
+  it('maps partial text and tool activity from the provider-neutral transcript', async () => {
+    const { fn } = fakeFetch(() => ({
+      body: {
+        provider: 'claude',
+        format: 'structured',
+        structured_messages: [
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            status: 'partial',
+            timestamp: '2026-08-12T12:00:01Z',
+            blocks: [
+              { type: 'thinking', text: 'private' },
+              { type: 'text', text: 'I checked it.' },
+              { type: 'tool_use', id: 'tool-1', name: 'factoru.read_task' },
+              {
+                type: 'tool_result',
+                tool_call_id: 'tool-1',
+                content: 'Task loaded',
+                is_error: false,
+              },
+            ],
+            usage: { input_tokens: 12, output_tokens: 8 },
+          },
+        ],
+      },
+    }))
+
+    expect(await adapterWith(fn).readConversationProjection('session-chat-1')).toEqual({
+      providerMessageId: 'assistant-1',
+      status: 'partial',
+      text: 'I checked it.',
+      tools: [
+        { id: 'tool-1', name: 'factoru.read_task', status: 'completed', summary: 'Task loaded' },
+      ],
+      inputTokens: 12,
+      outputTokens: 8,
+      createdAt: '2026-08-12T12:00:01Z',
+    })
+  })
+
+  it('closes the provider session when Factoru starts a fresh context', async () => {
+    const { fn, calls } = fakeFetch(() => ({ body: {} }))
+    await adapterWith(fn).resetConversationContext('session-chat-1')
+
+    expect(calls[0]?.url.pathname).toBe('/v0/city/factoru-spike/session/session-chat-1/close')
+    expect(calls[0]?.init.method).toBe('POST')
   })
 
   it('surfaces the named-session requirement rather than silently doing nothing', async () => {
@@ -499,87 +904,211 @@ describe('GasCityAdapter.describeRun', () => {
   })
 })
 
-describe('GasCityAdapter.readRunUsage', () => {
-  it('folds only worker-operation facts correlated to the requested run', async () => {
-    const { fn } = fakeFetch(() => ({
-      body: {
-        items: [
-          {
-            seq: 12,
-            type: 'worker.operation',
-            ts: '2026-08-05T10:00:02Z',
-            payload: {
-              run_id: 'run-target',
-              prompt_tokens: 120,
-              completion_tokens: 30,
-              cost_usd_estimate: 0.004,
-            },
-          },
-          {
-            seq: 11,
-            type: 'worker.operation',
-            ts: '2026-08-05T10:00:01Z',
-            payload: { run_id: 'another-run', prompt_tokens: 999 },
-          },
-        ],
-      },
-    }))
-
-    await expect(adapterWith(fn).readRunUsage('run-target', 10)).resolves.toEqual({
-      inputTokens: 120,
-      outputTokens: 30,
-      estimatedCostUsd: 0.004,
-      pricing: 'priced',
-      partial: false,
-    })
-  })
-
-  it('falls back to provider-neutral structured transcripts when operation facts omit usage', async () => {
-    const { fn, calls } = fakeFetch((url) => {
-      if (url.pathname.endsWith('/events')) {
+describe('GasCityAdapter.describeNativeRun', () => {
+  it('rebuilds convoy units and bounded specialist transcripts from recorded 1.4.0 DTOs', async () => {
+    const { fn } = fakeFetch((url) => {
+      if (url.pathname.endsWith('/runs/run-native/steps')) {
         return {
           body: {
-            items: [
+            run_id: 'run-native',
+            steps: [{ id: 'review.security', title: 'Security review', status: 'active' }],
+          },
+        }
+      }
+      if (url.pathname.endsWith('/workflow/workflow-native')) {
+        return {
+          body: {
+            workflow_id: 'run-native',
+            root_bead_id: 'root-native',
+            beads: [
               {
-                seq: 12,
-                type: 'bead.closed',
-                ts: '2026-08-05T10:00:02Z',
-                payload: {
-                  bead: {
-                    metadata: {
-                      'gc.root_bead_id': 'run-target',
-                      'gc.session_id': 'session-1',
-                    },
-                  },
+                id: 'unit-1',
+                title: 'API unit',
+                status: 'closed',
+                metadata: {
+                  'gc.kind': 'drain_item',
+                  'gc.convoy_id': 'convoy-1',
+                  'gc.session_id': 'session-impl',
+                  needs: [],
                 },
               },
               {
-                seq: 11,
-                type: 'bead.closed',
-                ts: '2026-08-05T10:00:01Z',
-                payload: {},
+                id: 'review-security',
+                title: 'Security reliability reviewer',
+                status: 'active',
+                metadata: { 'gc.session_id': 'session-security' },
               },
             ],
           },
         }
       }
-      return {
-        body: {
-          provider: 'codex',
-          format: 'structured',
-          structured_messages: [{ usage: { input_tokens: 11, output_tokens: 3 } }, { usage: null }],
-        },
+      if (url.pathname.endsWith('/events')) {
+        return {
+          body: {
+            items: [
+              {
+                seq: 8,
+                type: 'bead.updated',
+                ts: '2026-08-12T10:00:00Z',
+                payload: { run_id: 'run-native' },
+              },
+            ],
+          },
+        }
       }
+      if (url.pathname.includes('/session/')) {
+        return {
+          body: {
+            provider: 'claude',
+            format: 'structured',
+            structured_messages: [
+              {
+                id: 'm1',
+                role: 'assistant',
+                status: 'final',
+                timestamp: '2026-08-12T10:00:01Z',
+                blocks: [{ type: 'text', text: 'No reliability issue found.' }],
+                usage: { input_tokens: 10, output_tokens: 5 },
+              },
+            ],
+          },
+        }
+      }
+      throw new Error(`unexpected ${url.pathname}`)
     })
 
-    await expect(adapterWith(fn).readRunUsage('run-target', 10)).resolves.toEqual({
+    const detail = await adapterWith(fn).describeNativeRun(
+      'run-native',
+      'workflow-native',
+      'root-native',
+    )
+    expect(detail).toMatchObject({ convoyId: 'convoy-1' })
+    expect(detail.units).toEqual([
+      expect.objectContaining({ id: 'unit-1', sessionId: 'session-impl' }),
+    ])
+    expect(detail.sessions.find((session) => session.id === 'session-security')).toMatchObject({
+      purpose: 'security_reliability',
+      transcript: [
+        expect.objectContaining({ role: 'assistant', text: 'No reliability issue found.' }),
+      ],
+    })
+  })
+})
+
+describe('GasCityAdapter usage telemetry', () => {
+  it('streams normalized worker-operation deltas and preserves unrelated cursors', async () => {
+    const body = [
+      'event: event',
+      'id: 11',
+      `data: ${JSON.stringify({ seq: 11, type: 'bead.closed', ts: '2026-08-05T10:00:01Z', payload: {} })}`,
+      '',
+      'event: event',
+      'id: 12',
+      `data: ${JSON.stringify({ seq: 12, type: 'worker.operation', ts: '2026-08-05T10:00:02Z', payload: { run_id: 'run-target', prompt_tokens: 120, completion_tokens: 30, cost_usd_estimate: 0.004 } })}`,
+      '',
+      'event: heartbeat',
+      'data: {}',
+      '',
+      '',
+    ].join('\n')
+    const calls: URL[] = []
+    const fn = (async (input: string | URL | Request) => {
+      calls.push(input instanceof URL ? input : new URL(String(input)))
+      return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })
+    }) as typeof globalThis.fetch
+    const frames = []
+    for await (const frame of adapterWith(fn).streamRunUsageEvents(
+      10,
+      new AbortController().signal,
+    )) {
+      frames.push(frame)
+    }
+    expect(calls[0]?.searchParams.get('after_seq')).toBe('10')
+    expect(frames).toEqual([
+      { kind: 'event', seq: 11, delta: undefined },
+      {
+        kind: 'event',
+        seq: 12,
+        delta: {
+          runId: 'run-target',
+          inputTokens: 120,
+          outputTokens: 30,
+          estimatedCostUsd: 0.004,
+          pricing: 'priced',
+        },
+      },
+      { kind: 'heartbeat' },
+    ])
+  })
+
+  it('rejects a malformed streamed event envelope', async () => {
+    const fn = (async () =>
+      new Response('event: event\ndata: {not-json}\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+      })) as typeof globalThis.fetch
+
+    const consume = async () => {
+      for await (const _frame of adapterWith(fn).streamRunUsageEvents(
+        0,
+        new AbortController().signal,
+      )) {
+        // The malformed first frame must fail before yielding.
+      }
+    }
+    await expect(consume()).rejects.toMatchObject({ kind: 'transport' })
+  })
+
+  it('falls back to provider-neutral structured transcripts when operation facts omit usage', async () => {
+    const { fn, calls } = fakeFetch(() => ({
+      body: {
+        provider: 'codex',
+        format: 'structured',
+        structured_messages: [{ usage: { input_tokens: 11, output_tokens: 3 } }, { usage: null }],
+      },
+    }))
+
+    await expect(adapterWith(fn).readTranscriptUsage(['session-1'])).resolves.toEqual({
       inputTokens: 11,
       outputTokens: 3,
       estimatedCostUsd: 0,
       pricing: 'unpriced',
       partial: false,
     })
-    expect(calls[1]?.url.pathname).toContain('/session/session-1/transcript')
-    expect(calls[1]?.url.searchParams.get('format')).toBe('structured')
+    expect(calls[0]?.url.pathname).toContain('/session/session-1/transcript')
+    expect(calls[0]?.url.searchParams.get('format')).toBe('structured')
+  })
+
+  it('distinguishes empty complete transcripts from partially unavailable sessions', async () => {
+    const empty = fakeFetch(() => ({
+      body: { provider: 'codex', format: 'structured', structured_messages: [] },
+    }))
+    await expect(adapterWith(empty.fn).readTranscriptUsage(['session-empty'])).resolves.toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCostUsd: 0,
+      pricing: 'pending',
+      partial: false,
+    })
+
+    const partial = fakeFetch((url) =>
+      url.pathname.includes('session-missing')
+        ? { status: 404, body: { detail: 'session unavailable' } }
+        : {
+            body: {
+              provider: 'codex',
+              format: 'structured',
+              structured_messages: [{ usage: { input_tokens: 8, output_tokens: 2 } }],
+            },
+          },
+    )
+    await expect(
+      adapterWith(partial.fn).readTranscriptUsage(['session-ready', 'session-missing']),
+    ).resolves.toEqual({
+      inputTokens: 8,
+      outputTokens: 2,
+      estimatedCostUsd: 0,
+      pricing: 'unpriced',
+      partial: true,
+    })
   })
 })

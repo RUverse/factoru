@@ -4,16 +4,46 @@
   "private": true,
   "description": "Factoru visual tokens and reusable UI primitives.",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./src/styles.css",
     "./tokens.css": "./src/tokens.css"
   },
   "files": [
-    "src"
+    "dist",
+    "src/styles.css",
+    "src/tokens.css"
   ],
   "scripts": {
-    "build": "echo \"@factoru/ui is CSS-only\"",
-    "typecheck": "echo \"@factoru/ui has no TypeScript sources\"",
-    "test": "echo \"@factoru/ui has no tests\"",
-    "test:watch": "echo \"@factoru/ui has no tests\""
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.0.0",
+    "lucide-react": "^0.468.0"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-dom": ">=19"
+  },
+  "devDependencies": {
+    "@factoru/config": "workspace:*",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "jsdom": "^28.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
   }
 }

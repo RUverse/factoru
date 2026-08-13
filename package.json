@@ -6,7 +6,14 @@
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.13.0 <23"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "22.13.0",
+      "onFail": "download"
+    }
   },
   "volta": {
     "node": "22.13.0",
@@ -26,9 +33,10 @@
     "dev": "node scripts/dev.mjs",
     "dev:server": "node scripts/dev.mjs --only server",
     "dev:desktop": "node scripts/dev.mjs --only desktop",
-    "dev:pair": "node scripts/dev-pair.mjs",
-    "dev:city": "node scripts/dev-city.mjs",
+    "dev:pair": "node scripts/dev-server.mjs pair",
+    "dev:city": "node scripts/dev-server.mjs providers configure",
     "dev:env": "node scripts/dev-env.mjs",
+    "remote:preflight": "pnpm --filter @factoru/server... run build && pnpm --filter @factoru/server start doctor",
     "clean": "pnpm -r exec rm -rf dist out .turbo node_modules/.cache"
   },
   "devDependencies": {

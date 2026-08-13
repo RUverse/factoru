@@ -5,6 +5,8 @@ import net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
+  acquireDevServerLock,
+  DEV_SERVER_LOCK_FILENAME,
   DEV_STATE_DIRNAME,
   PORT_ALLOCATION_FILENAME,
   PORT_RANGE_END,
@@ -21,6 +23,13 @@ import {
 } from './worktree-env.mjs'
 
 const listeners = []
+const temporaryDirectories = []
+
+function temporaryDirectory() {
+  const directory = mkdtempSync(path.join(tmpdir(), 'factoru-devstate-'))
+  temporaryDirectories.push(directory)
+  return directory
+}
 
 function occupy(port) {
   return new Promise((resolve, reject) => {
@@ -37,6 +46,9 @@ after(async () => {
   await Promise.all(
     listeners.splice(0).map((server) => new Promise((resolve) => server.close(resolve))),
   )
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })
 
 describe('worktree development environment', () => {
@@ -93,12 +105,14 @@ describe('worktree development environment', () => {
       FACTORU_PORT: '9999',
       FACTORU_LOCAL_ENROLLMENT_FILE: '/unsafe/local-enrollment.json',
       FACTORU_REPOSITORY_ROOTS: '["/tmp/disposable-repositories"]',
+      FACTORU_PROJECTS_ROOT: '/tmp/factoru-projects',
     })
     assert.equal(merged.FACTORU_DATA_DIR, dev.dataDir)
     assert.equal(merged.FACTORU_PACK_PATH, dev.env.FACTORU_PACK_PATH)
     assert.equal(merged.FACTORU_PORT, String(dev.serverPort))
     assert.equal(merged.FACTORU_LOCAL_ENROLLMENT_FILE, dev.localEnrollmentFile)
     assert.equal(merged.FACTORU_REPOSITORY_ROOTS, '["/tmp/disposable-repositories"]')
+    assert.equal(merged.FACTORU_PROJECTS_ROOT, '/tmp/factoru-projects')
   })
 })
 
@@ -173,6 +187,45 @@ describe('recorded port allocation', () => {
       writeFileSync(path.join(dataDir, PORT_ALLOCATION_FILENAME), contents)
       assert.equal(readAllocatedPortBase(dataDir), null, `accepted ${contents}`)
     }
+  })
+})
+
+describe('development server ownership', () => {
+  it('refuses a second live server for the same worktree state', () => {
+    const dataDir = temporaryDirectory()
+    const first = acquireDevServerLock(dataDir, {
+      pid: 101,
+      processAlive: () => true,
+      token: 'first',
+    })
+    assert.equal(first.environment.FACTORU_DEV_SERVER_LOCK_TOKEN, 'first')
+    assert.throws(
+      () =>
+        acquireDevServerLock(dataDir, {
+          pid: 202,
+          processAlive: () => true,
+          token: 'second',
+        }),
+      /process 101 already owns this worktree's state/,
+    )
+    first.release()
+  })
+
+  it('replaces a stale server lock and releases only its own lock', () => {
+    const dataDir = temporaryDirectory()
+    writeFileSync(path.join(dataDir, DEV_SERVER_LOCK_FILENAME), '{"pid":101,"token":"stale"}\n')
+    const current = acquireDevServerLock(dataDir, {
+      pid: 202,
+      processAlive: () => false,
+      token: 'current',
+    })
+    current.release()
+    const replacement = acquireDevServerLock(dataDir, {
+      pid: 303,
+      processAlive: () => false,
+      token: 'replacement',
+    })
+    replacement.release()
   })
 })
 

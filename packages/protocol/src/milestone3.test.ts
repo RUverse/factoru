@@ -4,6 +4,7 @@ import {
   memoryAddParamsSchema,
   modelBindingSchema,
   modelBindingUpdateParamsSchema,
+  modelCatalogSchema,
   workspaceSchema,
 } from './milestone3.js'
 
@@ -36,6 +37,29 @@ describe('Milestone 3 protocol', () => {
         model: null,
       }),
     ).toBeDefined()
+  })
+
+  it('normalizes a safe provider-backed model catalog', () => {
+    expect(
+      modelCatalogSchema.parse({
+        status: 'ready',
+        providers: [
+          {
+            id: 'codex',
+            name: 'Codex',
+            defaultModelId: 'gpt-5.5',
+            models: [
+              { id: 'gpt-5.5', name: 'GPT-5.5' },
+              { id: 'gpt-5.4', name: 'GPT-5.4' },
+            ],
+          },
+        ],
+        message: null,
+      }),
+    ).toMatchObject({
+      status: 'ready',
+      providers: [expect.objectContaining({ id: 'codex', defaultModelId: 'gpt-5.5' })],
+    })
   })
 
   it('requires explicit provenance for a memory write', () => {

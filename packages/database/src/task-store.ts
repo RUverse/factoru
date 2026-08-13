@@ -5,11 +5,15 @@ import {
   taskCandidateScore,
   validateTaskState,
   type NeedsYouAction,
+  type ProjectBlueprintId,
   type QueuePhase,
   type TaskResolution,
   type TaskStatus,
+  type WorkflowPresetId,
+  type WorkflowSelectionSource,
   type WorkerTypeKind,
 } from '@factoru/domain'
+import { assertWorkflowPresetAllowed, workflowPreset } from '@factoru/domain'
 
 export type TaskActorKind = 'user' | 'pm_chat' | 'pm_planner' | 'system'
 export type TaskSource = 'user' | 'pm_chat' | 'pm_planner'
@@ -25,6 +29,9 @@ export interface TaskRecord {
   queueOrder: number
   workerTypeKind: WorkerTypeKind | null
   formulaName: string | null
+  workflowPresetId: WorkflowPresetId | null
+  workflowSelectionSource: WorkflowSelectionSource
+  workflowLockedByUser: boolean
   needsYouAction: NeedsYouAction | null
   needsYouMessage: string | null
   resolution: TaskResolution | null
@@ -84,6 +91,7 @@ export interface ExecutionUsageRecord {
   outputTokens: number
   estimatedCostUsd: number
   pricing: 'pending' | 'priced' | 'unpriced'
+  partial: boolean
 }
 
 export interface ExecutionReviewPackageRecord {
@@ -108,9 +116,28 @@ export interface ExecutionRunRecord {
   formulaName: string
   formulaVersion: string | null
   formulaHash: string | null
+  workflowPresetId: WorkflowPresetId | null
+  workflowPresetVersion: number | null
+  resolvedVariables: Record<string, string | number | boolean>
+  blueprintId: ProjectBlueprintId | null
+  blueprintVersion: number | null
+  packLockDigest: string | null
+  sourceBeadId: string | null
   runId: string | null
+  workflowId: string | null
   workflowRootBeadId: string | null
   startingEventCursor: number
+  eventCursor: number
+  gasCityEventCursor: number
+  lastCompleteEventCursor: number
+  projectionState: 'complete' | 'partial' | 'stale'
+  projectionReason: string | null
+  projectionReconciledAt: string | null
+  gasCityConvoyId: string | null
+  verificationAttempts: number
+  correctionAttempts: number
+  transientAttempts: number
+  transientAttemptLimit: number
   requestId: string
   status: 'pending' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
   stage: ExecutionStage
@@ -121,6 +148,10 @@ export interface ExecutionRunRecord {
   steps: ExecutionStepRecord[]
   logs: string[]
   usage: ExecutionUsageRecord
+  usageSource: 'pending' | 'events' | 'transcript'
+  usageHistoryGap: boolean
+  usageStreamCurrent: boolean
+  usageTranscriptPartial: boolean
   reviewPackage: ExecutionReviewPackageRecord | null
   errorCode: string | null
   errorMessage: string | null
@@ -160,6 +191,9 @@ interface TaskRow {
   queue_order: number
   worker_type_kind: WorkerTypeKind | null
   formula_name: string | null
+  workflow_preset_id: WorkflowPresetId | null
+  workflow_selection_source: WorkflowSelectionSource
+  workflow_locked_by_user: 0 | 1
   needs_you_action: NeedsYouAction | null
   needs_you_message: string | null
   resolution: TaskResolution | null
@@ -197,9 +231,28 @@ interface ExecutionRunRow {
   formula_name: string
   formula_version: string | null
   formula_hash: string | null
+  workflow_preset_id: WorkflowPresetId | null
+  workflow_preset_version: number | null
+  resolved_vars_json: string
+  blueprint_id: ProjectBlueprintId | null
+  blueprint_version: number | null
+  pack_lock_digest: string | null
+  source_bead_id: string | null
   run_id: string | null
+  gas_city_workflow_id: string | null
   workflow_root_bead_id: string | null
   starting_event_cursor: number
+  event_cursor: number
+  gas_city_event_cursor: number
+  last_complete_event_cursor: number
+  projection_state: ExecutionRunRecord['projectionState']
+  projection_reason: string | null
+  projection_reconciled_at: string | null
+  gas_city_convoy_id: string | null
+  verification_attempts: number
+  correction_attempts: number
+  transient_attempts: number
+  transient_attempt_limit: number
   request_id: string
   status: ExecutionRunRecord['status']
   stage: ExecutionStage
@@ -239,7 +292,12 @@ function reconciliationFromRow(row: ReconciliationRow): QueueReconciliationRecor
 }
 
 function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
-  const storedUsage = JSON.parse(row.usage_json) as Partial<ExecutionUsageRecord>
+  const storedUsage = JSON.parse(row.usage_json) as Partial<ExecutionUsageRecord> & {
+    _source?: ExecutionRunRecord['usageSource']
+    _historyGap?: boolean
+    _streamCurrent?: boolean
+    _transcriptPartial?: boolean
+  }
   return {
     id: row.id,
     projectId: row.project_id,
@@ -249,9 +307,31 @@ function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
     formulaName: row.formula_name,
     formulaVersion: row.formula_version,
     formulaHash: row.formula_hash,
+    workflowPresetId: row.workflow_preset_id,
+    workflowPresetVersion: row.workflow_preset_version,
+    resolvedVariables: JSON.parse(row.resolved_vars_json) as Record<
+      string,
+      string | number | boolean
+    >,
+    blueprintId: row.blueprint_id,
+    blueprintVersion: row.blueprint_version,
+    packLockDigest: row.pack_lock_digest,
+    sourceBeadId: row.source_bead_id,
     runId: row.run_id,
+    workflowId: row.gas_city_workflow_id,
     workflowRootBeadId: row.workflow_root_bead_id,
     startingEventCursor: row.starting_event_cursor,
+    eventCursor: row.event_cursor,
+    gasCityEventCursor: row.gas_city_event_cursor,
+    lastCompleteEventCursor: row.last_complete_event_cursor,
+    projectionState: row.projection_state,
+    projectionReason: row.projection_reason,
+    projectionReconciledAt: row.projection_reconciled_at,
+    gasCityConvoyId: row.gas_city_convoy_id,
+    verificationAttempts: row.verification_attempts,
+    correctionAttempts: row.correction_attempts,
+    transientAttempts: row.transient_attempts,
+    transientAttemptLimit: row.transient_attempt_limit,
     requestId: row.request_id,
     status: row.status,
     stage: row.stage,
@@ -266,7 +346,12 @@ function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
       outputTokens: storedUsage.outputTokens ?? 0,
       estimatedCostUsd: storedUsage.estimatedCostUsd ?? 0,
       pricing: storedUsage.pricing ?? 'pending',
+      partial: storedUsage.partial ?? false,
     },
+    usageSource: storedUsage._source ?? 'pending',
+    usageHistoryGap: storedUsage._historyGap ?? false,
+    usageStreamCurrent: storedUsage._streamCurrent ?? !storedUsage.partial,
+    usageTranscriptPartial: storedUsage._transcriptPartial ?? false,
     reviewPackage: JSON.parse(row.review_package_json) as ExecutionReviewPackageRecord | null,
     errorCode: row.error_code,
     errorMessage: row.error_message,
@@ -276,6 +361,16 @@ function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
     updatedAt: row.updated_at ?? row.created_at,
     archivedAt: row.archived_at,
   }
+}
+
+function storedUsageJson(record: ExecutionRunRecord, usage: ExecutionUsageRecord): string {
+  return JSON.stringify({
+    ...usage,
+    _source: record.usageSource,
+    _historyGap: record.usageHistoryGap,
+    _streamCurrent: record.usageStreamCurrent,
+    _transcriptPartial: record.usageTranscriptPartial,
+  })
 }
 
 export class TaskStore {
@@ -356,6 +451,26 @@ export class TaskStore {
     ).map((row) => this.#fromRow(row))
   }
 
+  applyProjectWorkflowDefault(projectId: string): number {
+    const settings = this.#factorySettings(projectId)
+    assertWorkflowPresetAllowed(settings.blueprintId, settings.defaultWorkflowPresetId)
+    const preset = workflowPreset(settings.defaultWorkflowPresetId)
+    const now = this.#now().toISOString()
+    return this.#db
+      .prepare(
+        `UPDATE tasks SET workflow_preset_id = ?, formula_name = ?,
+           workflow_selection_source = 'project_default', worker_type_kind = 'software_engineer',
+           version = version + 1, updated_at = ?
+         WHERE project_id = ? AND status = 'queue' AND resolution IS NULL
+           AND workflow_preset_id IS NULL AND workflow_locked_by_user = 0`,
+      )
+      .run(preset.id, preset.formulaName, now, projectId).changes
+  }
+
+  requestReconciliation(projectId: string, reason: string): QueueReconciliationRecord {
+    return this.#db.transaction(() => this.#requestReconciliation(projectId, reason))()
+  }
+
   update(input: {
     taskId: string
     title?: string
@@ -364,6 +479,9 @@ export class TaskStore {
     queuePhase?: QueuePhase
     workerTypeKind?: WorkerTypeKind | null
     formulaName?: string | null
+    workflowPresetId?: WorkflowPresetId | null
+    workflowSelectionSource?: WorkflowSelectionSource
+    workflowLockedByUser?: boolean
     needsYouAction?: NeedsYouAction
     needsYouMessage?: string
     actorKind: TaskActorKind
@@ -395,11 +513,30 @@ export class TaskStore {
         resolution: null,
       })
       const now = this.#now().toISOString()
+      let workflowPresetId =
+        input.workflowPresetId === undefined ? current.workflowPresetId : input.workflowPresetId
+      let workflowSelectionSource = input.workflowSelectionSource ?? current.workflowSelectionSource
+      let workflowLockedByUser = input.workflowLockedByUser ?? current.workflowLockedByUser
+      let formulaName =
+        input.formulaName === undefined ? current.formulaName : input.formulaName?.trim() || null
+      if (input.workflowPresetId !== undefined && input.workflowPresetId !== null) {
+        const settings = this.#factorySettings(current.projectId)
+        assertWorkflowPresetAllowed(settings.blueprintId, input.workflowPresetId)
+        workflowPresetId = input.workflowPresetId
+        formulaName = workflowPreset(input.workflowPresetId).formulaName
+      }
+      if (input.workflowPresetId === null) {
+        workflowPresetId = null
+        workflowSelectionSource = 'project_default'
+        workflowLockedByUser = false
+      }
       this.#db
         .prepare(
           `UPDATE tasks SET title = ?, description = ?, priority = ?, queue_phase = ?,
-             worker_type_kind = ?, formula_name = ?, needs_you_action = ?, needs_you_message = ?,
-             version = version + 1, updated_at = ? WHERE id = ? AND resolution IS NULL`,
+             worker_type_kind = ?, formula_name = ?, workflow_preset_id = ?,
+             workflow_selection_source = ?, workflow_locked_by_user = ?,
+             needs_you_action = ?, needs_you_message = ?, version = version + 1,
+             updated_at = ? WHERE id = ? AND resolution IS NULL`,
         )
         .run(
           title,
@@ -407,7 +544,10 @@ export class TaskStore {
           priority,
           queuePhase,
           input.workerTypeKind === undefined ? current.workerTypeKind : input.workerTypeKind,
-          input.formulaName === undefined ? current.formulaName : input.formulaName?.trim() || null,
+          formulaName,
+          workflowPresetId,
+          workflowSelectionSource,
+          workflowLockedByUser ? 1 : 0,
           needsYouAction,
           needsYouMessage,
           now,
@@ -483,6 +623,16 @@ export class TaskStore {
       for (const id of dependencyIds) {
         const dependency = this.#requireActive(id)
         if (dependency.projectId !== task.projectId) throw new Error('cross_project_dependency')
+        const cycle = this.#db
+          .prepare(
+            `WITH RECURSIVE reachable(id) AS (
+               SELECT needs_task_id FROM task_dependencies WHERE task_id = ?
+               UNION
+               SELECT d.needs_task_id FROM task_dependencies d JOIN reachable r ON d.task_id = r.id
+             ) SELECT 1 AS found FROM reachable WHERE id = ? LIMIT 1`,
+          )
+          .get(id, task.id)
+        if (cycle) throw new Error('task_dependency_cycle')
       }
       this.#db.prepare('DELETE FROM task_dependencies WHERE task_id = ?').run(task.id)
       const now = this.#now().toISOString()
@@ -902,14 +1052,28 @@ export class TaskStore {
     return row ? executionFromRow(row) : null
   }
 
-  admitNextExecution(input: { cityName: string; packVersion: string }): ExecutionRunRecord | null {
+  activeUsageExecutions(): ExecutionRunRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM task_runs WHERE kind = 'implementation' AND run_id IS NOT NULL
+         AND status IN ('running', 'cancelling') ORDER BY created_at`,
+      )
+      .all() as ExecutionRunRow[]
+    return rows.map(executionFromRow)
+  }
+
+  admitNextExecution(input: {
+    cityName: string
+    packLockDigest: string
+  }): ExecutionRunRecord | null {
     return this.#db.transaction(() => {
       const candidate = this.#db
         .prepare(
           `SELECT t.*, r.rig_name FROM tasks t
            JOIN project_rig_bindings r ON r.project_id = t.project_id
            WHERE t.resolution IS NULL AND t.status = 'queue' AND t.queue_phase = 'ready'
-             AND t.worker_type_kind = 'software_engineer' AND t.formula_name = 'software-delivery'
+             AND t.worker_type_kind = 'software_engineer'
+             AND t.workflow_preset_id IN ('standard-build', 'fast-patch')
              AND r.registration_state = 'ready'
              AND NOT EXISTS (
                SELECT 1 FROM task_runs active WHERE active.project_id = t.project_id
@@ -933,13 +1097,17 @@ export class TaskStore {
 
       const now = this.#now().toISOString()
       const id = `run_${randomUUID().replaceAll('-', '')}`
+      const settings = this.#factorySettings(candidate.project_id)
+      const preset = workflowPreset(candidate.workflow_preset_id!)
+      const resolvedVariables = { ...preset.variables }
       this.#db
         .prepare(
           `INSERT INTO task_runs(
              id, project_id, task_id, kind, city_name, rig_name, formula_name,
-             formula_version, starting_event_cursor, request_id, status, stage,
-             created_at, updated_at
-           ) VALUES (?, ?, ?, 'implementation', ?, ?, 'software-delivery', ?, 0, ?,
+             formula_version, workflow_preset_id, workflow_preset_version,
+             resolved_vars_json, blueprint_id, blueprint_version, pack_lock_digest,
+             starting_event_cursor, request_id, status, stage, created_at, updated_at
+           ) VALUES (?, ?, ?, 'implementation', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?,
              'pending', 'admission', ?, ?)`,
         )
         .run(
@@ -948,7 +1116,14 @@ export class TaskStore {
           candidate.id,
           input.cityName,
           candidate.rig_name,
-          input.packVersion,
+          preset.formulaName,
+          preset.formulaVersion,
+          preset.id,
+          preset.version,
+          JSON.stringify(resolvedVariables),
+          settings.blueprintId,
+          settings.blueprintVersion,
+          input.packLockDigest,
           id,
           now,
           now,
@@ -1033,13 +1208,30 @@ export class TaskStore {
     return this.#execution(id)
   }
 
+  setExecutionVariables(
+    id: string,
+    variables: Readonly<Record<string, string | number | boolean>>,
+  ): ExecutionRunRecord {
+    const now = this.#now().toISOString()
+    const updated = this.#db
+      .prepare(
+        `UPDATE task_runs SET resolved_vars_json = ?, updated_at = ?
+         WHERE id = ? AND kind = 'implementation' AND status = 'pending'`,
+      )
+      .run(JSON.stringify(variables), now, id)
+    if (updated.changes !== 1) throw new Error('invalid_execution_state')
+    return this.#execution(id)
+  }
+
   startExecution(
     id: string,
     correlation: {
       runId: string
+      workflowId?: string
       workflowRootBeadId: string
       formulaHash?: string
       startingEventSeq: number
+      sourceBeadId?: string
     },
     outboxId: string,
   ): ExecutionRunRecord {
@@ -1048,14 +1240,29 @@ export class TaskStore {
       const updated = this.#db
         .prepare(
           `UPDATE task_runs SET status = 'running', stage = 'implementation', run_id = ?,
-             workflow_root_bead_id = ?, formula_hash = ?, starting_event_cursor = ?,
+             gas_city_workflow_id = ?, workflow_root_bead_id = ?, formula_hash = ?, source_bead_id = ?, starting_event_cursor = ?,
+             gas_city_event_cursor = ?, usage_json = ?,
              started_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
         )
         .run(
           correlation.runId,
+          correlation.workflowId ?? correlation.runId,
           correlation.workflowRootBeadId,
           correlation.formulaHash ?? null,
+          correlation.sourceBeadId ?? null,
           correlation.startingEventSeq,
+          correlation.startingEventSeq,
+          JSON.stringify({
+            inputTokens: 0,
+            outputTokens: 0,
+            estimatedCostUsd: 0,
+            pricing: 'pending',
+            partial: true,
+            _source: 'pending',
+            _historyGap: false,
+            _streamCurrent: false,
+            _transcriptPartial: false,
+          }),
           now,
           now,
           id,
@@ -1121,6 +1328,7 @@ export class TaskStore {
     },
   ): ExecutionRunRecord {
     const now = this.#now().toISOString()
+    const current = input.usage ? this.#execution(id) : null
     this.#db
       .prepare(
         `UPDATE task_runs SET stage = ?, steps_json = ?, logs_json = COALESCE(?, logs_json),
@@ -1132,7 +1340,7 @@ export class TaskStore {
         input.stage,
         JSON.stringify(input.steps),
         input.logs ? JSON.stringify(input.logs) : null,
-        input.usage ? JSON.stringify(input.usage) : null,
+        input.usage && current ? storedUsageJson(current, input.usage) : null,
         now,
         id,
       )
@@ -1148,7 +1356,7 @@ export class TaskStore {
         `UPDATE task_runs SET usage_json = ?, review_package_json = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
-        JSON.stringify(usage),
+        storedUsageJson(current, usage),
         JSON.stringify(
           current.reviewPackage ? { ...current.reviewPackage, usage } : current.reviewPackage,
         ),
@@ -1156,6 +1364,101 @@ export class TaskStore {
         id,
       )
     if (updated.changes !== 1) throw new Error('execution_run_not_found')
+    return this.#execution(id)
+  }
+
+  observeUsageEvent(
+    sequence: number,
+    delta?: {
+      runId: string
+      inputTokens: number
+      outputTokens: number
+      estimatedCostUsd: number
+      pricing: 'pending' | 'priced' | 'unpriced'
+    },
+  ): void {
+    this.#db.transaction(() => {
+      for (const run of this.activeUsageExecutions()) {
+        if (sequence <= run.gasCityEventCursor) continue
+        const historyGap = run.usageHistoryGap || sequence > run.gasCityEventCursor + 1
+        const matches = delta?.runId === run.runId
+        const useEventTokens = matches && run.usageSource !== 'transcript'
+        const source =
+          useEventTokens && delta.inputTokens + delta.outputTokens > 0 ? 'events' : run.usageSource
+        const pricing = matches
+          ? run.usage.pricing === 'unpriced' || delta.pricing === 'unpriced'
+            ? 'unpriced'
+            : run.usage.pricing === 'priced' || delta.pricing === 'priced'
+              ? 'priced'
+              : 'pending'
+          : run.usage.pricing
+        const usage = {
+          inputTokens: run.usage.inputTokens + (useEventTokens ? delta.inputTokens : 0),
+          outputTokens: run.usage.outputTokens + (useEventTokens ? delta.outputTokens : 0),
+          estimatedCostUsd: run.usage.estimatedCostUsd + (matches ? delta.estimatedCostUsd : 0),
+          pricing,
+          partial: true,
+          _source: source,
+          _historyGap: historyGap,
+          _streamCurrent: false,
+          _transcriptPartial: run.usageTranscriptPartial,
+        }
+        this.#db
+          .prepare(
+            `UPDATE task_runs SET gas_city_event_cursor = ?, usage_json = ?, updated_at = ?
+             WHERE id = ? AND gas_city_event_cursor < ?`,
+          )
+          .run(sequence, JSON.stringify(usage), this.#now().toISOString(), run.id, sequence)
+      }
+    })()
+  }
+
+  setUsageStreamCurrent(current: boolean): void {
+    this.#db.transaction(() => {
+      for (const run of this.activeUsageExecutions()) {
+        const partial = !current || run.usageHistoryGap || run.usageTranscriptPartial
+        this.#db.prepare('UPDATE task_runs SET usage_json = ?, updated_at = ? WHERE id = ?').run(
+          JSON.stringify({
+            ...run.usage,
+            partial,
+            _source: run.usageSource,
+            _historyGap: run.usageHistoryGap,
+            _streamCurrent: current,
+            _transcriptPartial: run.usageTranscriptPartial,
+          }),
+          this.#now().toISOString(),
+          run.id,
+        )
+      }
+    })()
+  }
+
+  reconcileTranscriptUsage(id: string, usage: ExecutionUsageRecord): ExecutionRunRecord {
+    const run = this.#execution(id)
+    if (run.usageSource === 'events') return run
+    const source = usage.inputTokens + usage.outputTokens > 0 ? 'transcript' : run.usageSource
+    const transcriptPartial = usage.partial
+    const next: ExecutionUsageRecord = {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      estimatedCostUsd: run.usage.estimatedCostUsd,
+      pricing:
+        run.usage.pricing === 'priced' || run.usage.pricing === 'unpriced'
+          ? run.usage.pricing
+          : usage.pricing,
+      partial: !run.usageStreamCurrent || run.usageHistoryGap || transcriptPartial,
+    }
+    this.#db.prepare('UPDATE task_runs SET usage_json = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify({
+        ...next,
+        _source: source,
+        _historyGap: run.usageHistoryGap,
+        _streamCurrent: run.usageStreamCurrent,
+        _transcriptPartial: transcriptPartial,
+      }),
+      this.#now().toISOString(),
+      id,
+    )
     return this.#execution(id)
   }
 
@@ -1196,7 +1499,7 @@ export class TaskStore {
           status,
           stage,
           JSON.stringify(input.reviewPackage ?? null),
-          input.usage ? JSON.stringify(input.usage) : null,
+          input.usage ? storedUsageJson(current, input.usage) : null,
           input.error?.code ?? null,
           input.error?.message ?? null,
           status,
@@ -1367,6 +1670,9 @@ export class TaskStore {
       queueOrder: row.queue_order,
       workerTypeKind: row.worker_type_kind,
       formulaName: row.formula_name,
+      workflowPresetId: row.workflow_preset_id,
+      workflowSelectionSource: row.workflow_selection_source,
+      workflowLockedByUser: row.workflow_locked_by_user === 1,
       needsYouAction: row.needs_you_action,
       needsYouMessage: row.needs_you_message,
       resolution: row.resolution,
@@ -1409,6 +1715,31 @@ export class TaskStore {
     const task = this.get(id)
     if (!task) throw new Error('task_not_found')
     return task
+  }
+
+  #factorySettings(projectId: string): {
+    blueprintId: ProjectBlueprintId
+    blueprintVersion: number
+    defaultWorkflowPresetId: WorkflowPresetId
+  } {
+    const row = this.#db
+      .prepare(
+        `SELECT blueprint_id, blueprint_version, default_workflow_preset_id
+         FROM factory_settings WHERE project_id = ?`,
+      )
+      .get(projectId) as
+      | {
+          blueprint_id: ProjectBlueprintId
+          blueprint_version: number
+          default_workflow_preset_id: WorkflowPresetId
+        }
+      | undefined
+    if (!row) throw new Error('factory_settings_not_found')
+    return {
+      blueprintId: row.blueprint_id,
+      blueprintVersion: row.blueprint_version,
+      defaultWorkflowPresetId: row.default_workflow_preset_id,
+    }
   }
 
   #requireActive(id: string): TaskRecord {

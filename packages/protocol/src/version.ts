@@ -9,11 +9,11 @@
  * `MIN_SUPPORTED_PROTOCOL_VERSION` when support for an older version is
  * deliberately dropped, because doing so blocks older peers.
  */
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 5
 
 export const MIN_SUPPORTED_PROTOCOL_VERSION = 1
 
-/** HTTP surface. Live subscriptions arrive in a later milestone. */
+/** Stable HTTP prefix; authenticated artifacts use this surface alongside live RPC. */
 export const API_PREFIX = '/api/v1'
 export const HEALTH_PATH = `${API_PREFIX}/health` as const
 export const HANDSHAKE_PATH = `${API_PREFIX}/handshake` as const

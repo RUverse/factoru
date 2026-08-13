@@ -6,6 +6,17 @@ import {
   type LiveMethod,
 } from '@factoru/protocol'
 
+export class LiveRequestError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly details?: unknown,
+  ) {
+    super(message)
+    this.name = 'LiveRequestError'
+  }
+}
+
 export class LiveFactoruClient {
   readonly #baseUrl: string
   readonly #token: string
@@ -91,7 +102,7 @@ export class LiveFactoruClient {
     }
     const event = liveEventSchema.safeParse(body)
     if (event.success) {
-      this.#eventListener?.(event.data.event)
+      this.#eventListener?.(event.data.type === 'project.event' ? event.data.event : event.data)
       return
     }
     const response = liveResponseSchema.safeParse(body)
@@ -102,7 +113,11 @@ export class LiveFactoruClient {
     if (response.data.ok) pending.resolve(response.data.result)
     else
       pending.reject(
-        Object.assign(new Error(response.data.error.message), { code: response.data.error.code }),
+        new LiveRequestError(
+          response.data.error.code,
+          response.data.error.message,
+          response.data.error.details,
+        ),
       )
   }
 }

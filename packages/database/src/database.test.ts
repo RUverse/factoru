@@ -32,7 +32,7 @@ describe('FactoruDatabase', () => {
       parseServerId('srv_11111111111111111111111111111111'),
     )
     expect(reopened.connection.prepare('SELECT COUNT(*) AS count FROM migrations').get()).toEqual({
-      count: 4,
+      count: 13,
     })
     reopened.close()
   })
@@ -92,11 +92,36 @@ describe('FactoruDatabase', () => {
     }
     const created = db.createProject(input)
     expect(created.setupState).toBe('setting_up')
+    expect(created.repositories).toHaveLength(1)
     expect(db.createProject(input)).toEqual(created)
     expect(db.currentSequence()).toBe(1)
     expect(db.claimDueOutbox()).toHaveLength(1)
     expect(db.recoverUnfinishedOutbox()).toBe(1)
-    expect(db.claimDueOutbox()).toHaveLength(1)
+    const [retrying] = db.claimDueOutbox()
+    expect(retrying).toBeDefined()
+    const retryProjection = db.failProvisioning(
+      retrying!.id,
+      input.projectId,
+      retrying!.attemptCount,
+      'gas_city_registration_failed',
+      'Gas City setup was interrupted.',
+      retrying!.repositoryId,
+    )
+    expect(retryProjection).toMatchObject({
+      setupState: 'setting_up',
+      setupErrorCode: 'gas_city_registration_failed',
+      repositories: [
+        {
+          retry: { attemptCount: 2, nextAttemptAt: expect.any(String) },
+          rig: {
+            registrationState: 'pending',
+            lastErrorCode: 'gas_city_registration_failed',
+            lastErrorMessage: 'Gas City setup was interrupted.',
+          },
+        },
+      ],
+    })
+    expect(db.eventsAfter(0).at(-1)?.type).toBe('project.setup_retry_scheduled')
     expect(() => db.createProject({ ...input, requestHash: 'different' })).toThrow(
       'command_id_conflict',
     )
@@ -118,6 +143,61 @@ describe('FactoruDatabase', () => {
     expect(execute('Ship it')).toEqual({ id: 'msg_1', text: 'Ship it' })
     expect(executions).toBe(1)
     expect(() => execute('Change it')).toThrow('command_id_conflict')
+    db.close()
+  })
+
+  it('keeps a multi-rig project in needs attention when another rig finishes later', () => {
+    const { db } = fixture()
+    const device = db.createTrustedDevice('Mac').device
+    const projectId = 'prj_22222222222222222222222222222222'
+    const project = db.createProject({
+      commandId: 'cmd_multi_project',
+      deviceId: device.id,
+      requestHash: 'multi-request',
+      projectId,
+      name: 'Platform',
+      repositoryRootId: 'root_main',
+      repositoryRelativePath: 'web',
+      repositoryRealPath: '/srv/repos/web',
+      defaultBranch: 'main',
+      cityName: 'factoru-city',
+      rigName: 'factoru-web',
+      beadPrefix: 'fweb001',
+      repositories: [
+        {
+          id: 'repo_web',
+          isPrimary: true,
+          repositoryRootId: 'root_main',
+          repositoryRelativePath: 'web',
+          repositoryRealPath: '/srv/repos/web',
+          defaultBranch: 'main',
+          cityName: 'factoru-city',
+          rigName: 'factoru-web',
+          beadPrefix: 'fweb001',
+        },
+        {
+          id: 'repo_api',
+          isPrimary: false,
+          repositoryRootId: 'root_main',
+          repositoryRelativePath: 'api',
+          repositoryRealPath: '/srv/repos/api',
+          defaultBranch: 'main',
+          cityName: 'factoru-city',
+          rigName: 'factoru-api',
+          beadPrefix: 'fapi001',
+        },
+      ],
+    })
+    expect(project.repositories).toHaveLength(2)
+    const outbox = db.claimDueOutbox()
+    const failed = outbox.find((item) => item.repositoryId === 'repo_web')!
+    const succeeded = outbox.find((item) => item.repositoryId === 'repo_api')!
+    db.failProvisioning(failed.id, projectId, 6, 'registration_failed', 'No rig', 'repo_web')
+    db.completeProvisioning(succeeded.id, projectId, 'repo_api')
+    expect(db.getProject(projectId)).toMatchObject({
+      setupState: 'needs_attention',
+      setupErrorCode: 'registration_failed',
+    })
     db.close()
   })
 

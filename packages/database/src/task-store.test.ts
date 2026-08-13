@@ -342,7 +342,9 @@ describe('Milestones 5 and 6 delivery persistence', () => {
       taskId: task.id,
       queuePhase: 'ready',
       workerTypeKind: 'software_engineer',
-      formulaName: 'software-delivery',
+      workflowPresetId: 'fast-patch',
+      workflowSelectionSource: 'pm',
+      workflowLockedByUser: false,
       actorKind: 'pm_planner',
       actorId: 'planner-session',
     })
@@ -353,11 +355,34 @@ describe('Milestones 5 and 6 delivery persistence', () => {
     const { db, project, task, device } = readyDelivery()
     const admitted = db.tasks.admitNextExecution({
       cityName: 'factoru-city',
-      packVersion: '0.3.0',
+      packLockDigest: 'pack-lock-test',
     })!
+    expect(admitted).toMatchObject({
+      workflowPresetId: 'fast-patch',
+      workflowPresetVersion: 1,
+      formulaName: 'software-delivery',
+      formulaVersion: '2',
+      resolvedVariables: {},
+      blueprintId: 'standard-software-project',
+      blueprintVersion: 1,
+      packLockDigest: 'pack-lock-test',
+    })
+    db.tasks.update({
+      taskId: task.id,
+      workflowPresetId: 'standard-build',
+      workflowSelectionSource: 'user',
+      workflowLockedByUser: true,
+      actorKind: 'user',
+      actorId: device.id,
+    })
+    expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
+      workflowPresetId: 'fast-patch',
+      formulaName: 'software-delivery',
+      resolvedVariables: {},
+    })
     expect(db.tasks.get(task.id)).toMatchObject({ status: 'in_progress', queuePhase: null })
     expect(
-      db.tasks.admitNextExecution({ cityName: 'factoru-city', packVersion: '0.3.0' }),
+      db.tasks.admitNextExecution({ cityName: 'factoru-city', packLockDigest: 'pack-lock-test' }),
     ).toBeNull()
 
     const dispatch = db.tasks.claimExecutionDispatch()!
@@ -373,9 +398,13 @@ describe('Milestones 5 and 6 delivery persistence', () => {
         runId: 'gas-run-1',
         workflowRootBeadId: 'fact-root-1',
         formulaHash: 'sha256-formula',
+        sourceBeadId: 'fact-source-1',
         startingEventSeq: 41,
       },
       dispatch.outboxId,
+    )
+    expect(() => db.tasks.setExecutionVariables(admitted.id, { request: 'changed' })).toThrow(
+      /invalid_execution_state/,
     )
     db.tasks.observeExecution(admitted.id, {
       stage: 'review',
@@ -386,18 +415,21 @@ describe('Milestones 5 and 6 delivery persistence', () => {
         outputTokens: 80,
         estimatedCostUsd: 0.02,
         pricing: 'priced',
+        partial: false,
       },
     })
     expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
       runId: 'gas-run-1',
       startingEventCursor: 41,
       formulaHash: 'sha256-formula',
+      sourceBeadId: 'fact-source-1',
       logs: ['Checks\nok'],
       usage: {
         inputTokens: 500,
         outputTokens: 80,
         estimatedCostUsd: 0.02,
         pricing: 'priced',
+        partial: false,
       },
     })
 
@@ -414,6 +446,7 @@ describe('Milestones 5 and 6 delivery persistence', () => {
         outputTokens: 80,
         estimatedCostUsd: 0.02,
         pricing: 'priced' as const,
+        partial: false,
       },
       capsulePath: '/capsules/one/worktree',
       branchName: 'factoru/task/run',
@@ -426,9 +459,72 @@ describe('Milestones 5 and 6 delivery persistence', () => {
     db.close()
   })
 
+  it('folds an unbounded SSE replay once and keeps sequence gaps visibly partial', () => {
+    const { db } = readyDelivery()
+    const admitted = db.tasks.admitNextExecution({
+      cityName: 'factoru-city',
+      packLockDigest: 'pack-lock-test',
+    })!
+    const dispatch = db.tasks.claimExecutionDispatch()!
+    db.tasks.startExecution(
+      admitted.id,
+      {
+        runId: 'gas-run-stream',
+        workflowRootBeadId: 'root-stream',
+        startingEventSeq: 100,
+      },
+      dispatch.outboxId,
+    )
+
+    for (let sequence = 101; sequence <= 4_101; sequence += 1) {
+      db.tasks.observeUsageEvent(
+        sequence,
+        sequence === 4_101
+          ? {
+              runId: 'gas-run-stream',
+              inputTokens: 12,
+              outputTokens: 3,
+              estimatedCostUsd: 0.01,
+              pricing: 'priced',
+            }
+          : undefined,
+      )
+    }
+    db.tasks.observeUsageEvent(4_101, {
+      runId: 'gas-run-stream',
+      inputTokens: 999,
+      outputTokens: 999,
+      estimatedCostUsd: 99,
+      pricing: 'priced',
+    })
+    db.tasks.setUsageStreamCurrent(true)
+    expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
+      gasCityEventCursor: 4_101,
+      usage: {
+        inputTokens: 12,
+        outputTokens: 3,
+        estimatedCostUsd: 0.01,
+        pricing: 'priced',
+        partial: false,
+      },
+    })
+
+    db.tasks.observeUsageEvent(4_103)
+    db.tasks.setUsageStreamCurrent(true)
+    expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
+      gasCityEventCursor: 4_103,
+      usageHistoryGap: true,
+      usage: { partial: true },
+    })
+    db.close()
+  })
+
   it('turns a failed run into exact recovery work and allows a durable retry', () => {
     const { db, task } = readyDelivery()
-    const run = db.tasks.admitNextExecution({ cityName: 'factoru-city', packVersion: '0.3.0' })!
+    const run = db.tasks.admitNextExecution({
+      cityName: 'factoru-city',
+      packLockDigest: 'pack-lock-test',
+    })!
     db.tasks.finishExecution(run.id, 'failed', {
       error: { code: 'checks_failed', message: 'Verification failed.' },
     })
@@ -442,7 +538,7 @@ describe('Milestones 5 and 6 delivery persistence', () => {
       queuePhase: 'ready',
     })
     expect(
-      db.tasks.admitNextExecution({ cityName: 'factoru-city', packVersion: '0.3.0' }),
+      db.tasks.admitNextExecution({ cityName: 'factoru-city', packLockDigest: 'pack-lock-test' }),
     ).not.toBeNull()
     db.close()
   })

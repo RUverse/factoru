@@ -43,7 +43,7 @@ describe('validateFormulaV2', () => {
   it('requires an explicit bounded drain', () => {
     const source = `${valid}\n[steps.drain]\nformula = "item"\nmax_units = 100\n`
     expect(() => validateFormulaV2(source, 'delivery', { request: 'x' })).toThrow(
-      /between 1 and 16/,
+      /between 1 and 20/,
     )
   })
 

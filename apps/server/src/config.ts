@@ -17,6 +17,7 @@ export interface ServerConfig {
   /** Directory that owns this server's durable state, including its identity. */
   readonly dataDir: string
   readonly databaseFile: string
+  readonly artifactDirectory: string
   /** Private restart-scoped proof used only for same-machine desktop enrollment. */
   readonly localEnrollmentFile: string
   readonly gasCityPath: string
@@ -24,6 +25,9 @@ export interface ServerConfig {
   readonly gasCitySupervisorUrl: string
   /** Versioned Factoru pack source used to project generated chat agents. */
   readonly factoruPackPath: string
+  /** Managed directory containing one folder per new Factoru project. */
+  readonly projectsRoot: RepositoryRootConfig
+  /** Approved source locations from which existing repositories may be imported. */
   readonly repositoryRoots: readonly RepositoryRootConfig[]
   readonly trustLoopbackProxy: boolean
   readonly logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
@@ -110,6 +114,18 @@ function parseRepositoryRoots(raw: string | undefined): RepositoryRootConfig[] {
   })
 }
 
+function repositoryRoot(value: string, label?: string): RepositoryRootConfig {
+  if (!path.isAbsolute(value)) {
+    throw new ServerConfigError(`Project root must be absolute, got ${value}`)
+  }
+  const normalized = path.resolve(value)
+  return {
+    id: `root_${createHash('sha256').update(normalized).digest('hex').slice(0, 12)}`,
+    label: label ?? (path.basename(normalized) || normalized),
+    path: normalized,
+  }
+}
+
 export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const dataDir = env.FACTORU_DATA_DIR?.trim() || defaultDataDir()
   if (!path.isAbsolute(dataDir)) {
@@ -146,16 +162,22 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
       `FACTORU_LOCAL_ENROLLMENT_FILE must be absolute, got ${localEnrollmentFile}`,
     )
   }
+  const projectsRoot = repositoryRoot(
+    env.FACTORU_PROJECTS_ROOT?.trim() || path.join(homedir(), 'factoru-projects'),
+    'Factoru projects',
+  )
 
   return {
     host,
     port: parsePort(env.FACTORU_PORT),
     dataDir,
     databaseFile: path.join(dataDir, 'factoru.sqlite'),
+    artifactDirectory: path.join(dataDir, 'artifacts'),
     localEnrollmentFile,
     gasCityPath: env.FACTORU_GAS_CITY_PATH?.trim() || path.join(dataDir, 'gas-city'),
     gasCitySupervisorUrl,
     factoruPackPath,
+    projectsRoot,
     repositoryRoots: parseRepositoryRoots(env.FACTORU_REPOSITORY_ROOTS),
     trustLoopbackProxy: env.FACTORU_TRUST_PROXY?.trim() === 'loopback',
     logLevel: logLevel as ServerConfig['logLevel'],

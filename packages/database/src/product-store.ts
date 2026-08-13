@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import {
-  SOFTWARE_PROJECT_TEMPLATE,
+  assertWorkflowPresetAllowed,
   isModelSlotForWorker,
+  projectBlueprint,
+  softwareProjectTemplateForBlueprint,
   type ModelSlot,
+  type ProjectBlueprintId,
+  type WorkflowPresetId,
   type WorkerTypeKind,
 } from '@factoru/domain'
 
@@ -33,6 +37,8 @@ export interface ConversationRecord {
   gasCityConversationId: string
   agentName: string
   transcriptCursor: number
+  contextRevision: number
+  contextStartedAt: string | null
   status: 'connecting' | 'ready' | 'offline' | 'needs_attention'
   errorCode: string | null
   errorMessage: string | null
@@ -110,6 +116,8 @@ interface ConversationRow {
   gas_city_conversation_id: string
   agent_name: string
   transcript_cursor: number
+  context_revision: number
+  context_started_at: string | null
   status: ConversationRecord['status']
   last_error_code: string | null
   last_error_message: string | null
@@ -163,18 +171,23 @@ export function initializeProjectProductModel(
   db: Database.Database,
   projectId: string,
   createdAt: string,
+  blueprintId: ProjectBlueprintId = 'standard-software-project',
 ): void {
-  const template = SOFTWARE_PROJECT_TEMPLATE
+  const blueprint = projectBlueprint(blueprintId)
+  const template = softwareProjectTemplateForBlueprint(blueprintId)
   db.prepare(
     `INSERT INTO factory_settings(
        project_id, template_id, template_version, max_parallel_implementation_workers,
-       created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?)`,
+       blueprint_id, blueprint_version, default_workflow_preset_id, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     projectId,
     template.id,
     template.version,
     template.factory.maxParallelImplementationWorkers,
+    blueprint.id,
+    blueprint.version,
+    blueprint.defaultWorkflowPresetId,
     createdAt,
     createdAt,
   )
@@ -211,8 +224,8 @@ export function initializeProjectProductModel(
   db.prepare(
     `INSERT INTO conversations(
        id, project_id, kind, gas_city_account_id, gas_city_conversation_id, agent_name,
-       created_at, updated_at
-     ) VALUES (?, ?, 'project_manager', 'factoru-server', ?, ?, ?, ?)`,
+       context_started_at, created_at, updated_at
+     ) VALUES (?, ?, 'project_manager', 'factoru-server', ?, ?, ?, ?, ?)`,
   ).run(
     conversationId,
     projectId,
@@ -220,7 +233,12 @@ export function initializeProjectProductModel(
     `project-manager-chat-${suffix.slice(0, 12)}`,
     createdAt,
     createdAt,
+    createdAt,
   )
+  db.prepare(
+    `INSERT INTO conversation_contexts(conversation_id, revision, started_at)
+     VALUES (?, 1, ?)`,
+  ).run(conversationId, createdAt)
 }
 
 function conversationFromRow(row: ConversationRow): ConversationRecord {
@@ -231,6 +249,8 @@ function conversationFromRow(row: ConversationRow): ConversationRecord {
     gasCityConversationId: row.gas_city_conversation_id,
     agentName: row.agent_name,
     transcriptCursor: row.transcript_cursor,
+    contextRevision: row.context_revision,
+    contextStartedAt: row.context_started_at,
     status: row.status,
     errorCode: row.last_error_code,
     errorMessage: row.last_error_message,
@@ -297,8 +317,11 @@ export class ProductStore {
   }
 
   factorySettings(projectId: string): {
-    templateId: string
+    templateId: 'software-project'
     templateVersion: number
+    blueprintId: ProjectBlueprintId
+    blueprintVersion: number
+    defaultWorkflowPresetId: WorkflowPresetId
     maxParallelImplementationWorkers: 1
     executionWipLimit: 1
     queueRevision: number
@@ -306,6 +329,7 @@ export class ProductStore {
     const row = this.#db
       .prepare(
         `SELECT template_id, template_version, max_parallel_implementation_workers,
+                blueprint_id, blueprint_version, default_workflow_preset_id,
                 execution_wip_limit, queue_revision
          FROM factory_settings WHERE project_id = ?`,
       )
@@ -313,6 +337,9 @@ export class ProductStore {
       | {
           template_id: string
           template_version: number
+          blueprint_id: ProjectBlueprintId
+          blueprint_version: number
+          default_workflow_preset_id: WorkflowPresetId
           max_parallel_implementation_workers: 1
           execution_wip_limit: 1
           queue_revision: number
@@ -320,13 +347,61 @@ export class ProductStore {
       | undefined
     return row
       ? {
-          templateId: row.template_id,
+          templateId: 'software-project',
           templateVersion: row.template_version,
+          blueprintId: row.blueprint_id,
+          blueprintVersion: row.blueprint_version,
+          defaultWorkflowPresetId: row.default_workflow_preset_id,
           maxParallelImplementationWorkers: row.max_parallel_implementation_workers,
           executionWipLimit: row.execution_wip_limit,
           queueRevision: row.queue_revision,
         }
       : null
+  }
+
+  updateDefaultWorkflowPreset(
+    projectId: string,
+    presetId: WorkflowPresetId,
+  ): NonNullable<ReturnType<ProductStore['factorySettings']>> {
+    const current = this.factorySettings(projectId)
+    if (!current) throw new Error('factory_settings_not_found')
+    assertWorkflowPresetAllowed(current.blueprintId, presetId)
+    const now = this.#now().toISOString()
+    return this.#db.transaction(() => {
+      const updated = this.#db
+        .prepare(
+          `UPDATE factory_settings SET default_workflow_preset_id = ?, updated_at = ?
+           WHERE project_id = ?`,
+        )
+        .run(presetId, now, projectId)
+      if (updated.changes !== 1) throw new Error('factory_settings_not_found')
+      this.#db
+        .prepare(
+          `UPDATE worker_types SET default_formula = ?, version = version + 1, updated_at = ?
+           WHERE project_id = ? AND kind = 'software_engineer'`,
+        )
+        .run(presetId === 'standard-build' ? 'standard-build' : 'software-delivery', now, projectId)
+      this.#db
+        .prepare(
+          `UPDATE tasks SET workflow_preset_id = ?, formula_name = ?,
+             workflow_selection_source = 'project_default', version = version + 1,
+             updated_at = ?
+           WHERE project_id = ? AND status = 'queue' AND resolution IS NULL
+             AND workflow_locked_by_user = 0
+             AND workflow_selection_source IN ('blueprint_default', 'project_default')`,
+        )
+        .run(
+          presetId,
+          presetId === 'standard-build' ? 'standard-build' : 'software-delivery',
+          now,
+          projectId,
+        )
+      const result = this.factorySettings(projectId)!
+      this.#appendEvent('project.workflow_default_updated', 'factory', projectId, 1, {
+        presetId,
+      })
+      return result
+    })()
   }
 
   listWorkerTypes(projectId: string): WorkerTypeRecord[] {
@@ -440,10 +515,10 @@ export class ProductStore {
       this.#db
         .prepare(
           `INSERT INTO conversation_messages(
-             id, conversation_id, role, text, author_display_name, delivery_state, created_at
-           ) VALUES (?, ?, 'user', ?, ?, 'pending', ?)`,
+             id, conversation_id, role, text, author_display_name, delivery_state, created_at, updated_at
+           ) VALUES (?, ?, 'user', ?, ?, 'pending', ?, ?)`,
         )
-        .run(id, conversationId, normalized, authorDisplayName, now)
+        .run(id, conversationId, normalized, authorDisplayName, now, now)
       this.#db
         .prepare(
           `INSERT INTO outbox_items(
@@ -676,8 +751,8 @@ export class ProductStore {
         .prepare(
           `INSERT INTO conversation_messages(
              id, conversation_id, role, text, author_display_name, in_reply_to_message_id,
-             gas_city_sequence, delivery_state, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'delivered', ?)`,
+             gas_city_sequence, delivery_state, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'delivered', ?, ?)`,
         )
         .run(
           id,
@@ -687,6 +762,7 @@ export class ProductStore {
           input.authorDisplayName,
           input.inReplyToMessageId ?? null,
           input.sequence,
+          input.createdAt,
           input.createdAt,
         )
       this.#advanceConversationCursor(conversationId, input.sequence)

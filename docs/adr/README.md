@@ -20,6 +20,17 @@ the historical reasoning behind one decision.
 | [0010](./0010-agent-tool-transport.md) | Factoru installs its own agent tools from `session_setup_script` | Accepted |
 | [0011](./0011-milestone-2-remote-access-and-project-onboarding.md) | Milestone 2 remote access and project onboarding | Accepted |
 | [0012](./0012-project-manager-runtime-identities.md) | One generated city-scoped Project Manager chat identity per project | Accepted |
+| [0013](./0013-local-desktop-enrollment.md) | Private restart-scoped local enrollment without renderer credential access | Accepted |
+| [0014](./0014-multi-repository-projects.md) | Projects own one or more ordered repository-backed rigs | Accepted, partially implemented |
+| [0015](./0015-manual-ssh-preview-transport.md) | Manual SSH loopback forwarding for remote source previews | Accepted for developer preview; acceptance pending |
+| [0016](./0016-concurrent-desktop-server-connections.md) | One independent Desktop connection per saved server profile | Accepted; routing superseded by 0017 |
+| [0017](./0017-factory-independent-project-catalog.md) | Aggregate projects across factories while routing through one authoritative home factory | Accepted |
+| [0018](./0018-managed-project-directories.md) | One server-owned directory per project with managed repository imports | Accepted, implemented for new projects |
+| [0019](./0019-blueprints-formula-presets-and-project-manager-boundary.md) | Project Blueprints, selectable Formula Presets, and the Factoru Project Manager boundary | Accepted, implemented; Standard Build acceptance pending |
+| [0020](./0020-desktop-shell-and-ui-foundation.md) | Frameless native-control Desktop shell, responsive panes, and shared React UI foundation | Accepted, implemented |
+| [0021](./0021-scoped-streams-over-existing-websocket.md) | Bounded resource subscriptions over the existing authenticated WebSocket | Accepted, implemented |
+| [0022](./0022-conversation-context-reset-preserves-transcript.md) | Reset provider context while preserving the durable Factoru transcript | Accepted, implemented |
+| [0023](./0023-orchestration-projections-splits-review-and-memory.md) | Run projection ownership, split semantics, specialist review routing, and memory trust | Accepted, implemented; provider acceptance pending |
 
 ## Writing a new ADR
 

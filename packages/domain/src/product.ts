@@ -3,7 +3,7 @@ export type WorkerTypeKind = (typeof WORKER_TYPE_KINDS)[number]
 
 export const MODEL_SLOTS = {
   project_manager: ['chat', 'planning'],
-  software_engineer: ['implementation', 'review'],
+  software_engineer: ['design', 'implementation', 'review'],
 } as const satisfies Record<WorkerTypeKind, readonly string[]>
 
 export type ModelSlot = (typeof MODEL_SLOTS)[WorkerTypeKind][number]
@@ -30,6 +30,256 @@ export interface FactorySettings {
   readonly maxParallelImplementationWorkers: 1
 }
 
+export const WORKFLOW_PRESET_IDS = ['standard-build', 'fast-patch'] as const
+export type WorkflowPresetId = (typeof WORKFLOW_PRESET_IDS)[number]
+
+export const PROJECT_BLUEPRINT_IDS = ['standard-software-project', 'fast-patch'] as const
+export type ProjectBlueprintId = (typeof PROJECT_BLUEPRINT_IDS)[number]
+
+export type WorkflowLaunchMode = 'attached' | 'standalone'
+export type WorkflowSelectionSource = 'blueprint_default' | 'project_default' | 'pm' | 'user'
+
+export interface WorkflowPresetDefinition {
+  readonly id: WorkflowPresetId
+  readonly version: number
+  readonly name: string
+  readonly description: string
+  readonly formulaName: 'standard-build' | 'software-delivery'
+  readonly formulaVersion: string
+  readonly launchMode: WorkflowLaunchMode
+  readonly variables: Readonly<Record<string, string | number | boolean>>
+  readonly capabilities: {
+    readonly maxImplementationUnits: number
+    readonly maxVerificationAttempts: number
+    readonly maxCorrectionAttempts: number
+    readonly allowPush: false
+    readonly allowOpenPr: false
+    readonly interactionMode: 'autonomous'
+    readonly drainPolicy: 'same-session'
+  }
+}
+
+export interface ProjectBlueprintDefinition {
+  readonly id: ProjectBlueprintId
+  readonly version: number
+  readonly name: string
+  readonly description: string
+  readonly recommended: boolean
+  readonly teamRoleKinds: readonly WorkerTypeKind[]
+  readonly allowedWorkflowPresetIds: readonly WorkflowPresetId[]
+  readonly defaultWorkflowPresetId: WorkflowPresetId
+}
+
+export const OFFICIAL_GAS_CITY_PACK_PIN = '3b3b89f2011e06d84459aa7bea1552382f13930a'
+
+export const WORKFLOW_PRESETS: readonly WorkflowPresetDefinition[] = [
+  {
+    id: 'standard-build',
+    version: 1,
+    name: 'Standard Build',
+    description: 'Requirements, design, decomposition, implementation, verification, and review.',
+    formulaName: 'standard-build',
+    formulaVersion: '1',
+    launchMode: 'attached',
+    variables: {
+      interaction_mode: 'autonomous',
+      review_mode: 'agent',
+      drain_policy: 'same-session',
+      max_iterations: 6,
+      push: false,
+      open_pr: false,
+      implementation_target: 'gc.implementation-worker',
+    },
+    capabilities: {
+      maxImplementationUnits: 20,
+      maxVerificationAttempts: 2,
+      maxCorrectionAttempts: 6,
+      allowPush: false,
+      allowOpenPr: false,
+      interactionMode: 'autonomous',
+      drainPolicy: 'same-session',
+    },
+  },
+  {
+    id: 'fast-patch',
+    version: 1,
+    name: 'Fast Patch',
+    description: 'A bounded implement, verify, independent review, and finalize workflow.',
+    formulaName: 'software-delivery',
+    formulaVersion: '2',
+    launchMode: 'standalone',
+    variables: {},
+    capabilities: {
+      maxImplementationUnits: 1,
+      maxVerificationAttempts: 2,
+      maxCorrectionAttempts: 2,
+      allowPush: false,
+      allowOpenPr: false,
+      interactionMode: 'autonomous',
+      drainPolicy: 'same-session',
+    },
+  },
+]
+
+export const PROJECT_BLUEPRINTS: readonly ProjectBlueprintDefinition[] = [
+  {
+    id: 'standard-software-project',
+    version: 1,
+    name: 'Standard Software Project',
+    description:
+      'Full lifecycle delivery by default, with Fast Patch available per project or task.',
+    recommended: true,
+    teamRoleKinds: ['project_manager', 'software_engineer'],
+    allowedWorkflowPresetIds: ['standard-build', 'fast-patch'],
+    defaultWorkflowPresetId: 'standard-build',
+  },
+  {
+    id: 'fast-patch',
+    version: 1,
+    name: 'Fast Patch',
+    description: 'Bounded serial delivery by default, with Standard Build available when needed.',
+    recommended: false,
+    teamRoleKinds: ['project_manager', 'software_engineer'],
+    allowedWorkflowPresetIds: ['fast-patch', 'standard-build'],
+    defaultWorkflowPresetId: 'fast-patch',
+  },
+]
+
+export function workflowPreset(id: string): WorkflowPresetDefinition {
+  const preset = WORKFLOW_PRESETS.find((candidate) => candidate.id === id)
+  if (!preset) throw new Error('workflow_preset_not_found')
+  return preset
+}
+
+export function projectBlueprint(id: string): ProjectBlueprintDefinition {
+  const blueprint = PROJECT_BLUEPRINTS.find((candidate) => candidate.id === id)
+  if (!blueprint) throw new Error('project_blueprint_not_found')
+  return blueprint
+}
+
+export function assertWorkflowPresetAllowed(
+  blueprintId: string,
+  presetId: string,
+): asserts presetId is WorkflowPresetId {
+  const blueprint = projectBlueprint(blueprintId)
+  if (!blueprint.allowedWorkflowPresetIds.includes(presetId as WorkflowPresetId)) {
+    throw new Error('workflow_preset_not_allowed')
+  }
+  workflowPreset(presetId)
+}
+
+export function validateProjectBlueprintCatalog(
+  blueprints: readonly ProjectBlueprintDefinition[],
+  presets: readonly WorkflowPresetDefinition[],
+): void {
+  const presetIds = new Set(presets.map((preset) => preset.id))
+  if (presetIds.size !== presets.length) throw new Error('duplicate_workflow_preset')
+  const blueprintIds = new Set(blueprints.map((blueprint) => blueprint.id))
+  if (blueprintIds.size !== blueprints.length) throw new Error('duplicate_project_blueprint')
+  if (blueprints.filter((blueprint) => blueprint.recommended).length !== 1) {
+    throw new Error('exactly_one_recommended_blueprint_required')
+  }
+  for (const blueprint of blueprints) {
+    if (!blueprint.allowedWorkflowPresetIds.includes(blueprint.defaultWorkflowPresetId)) {
+      throw new Error('blueprint_default_must_be_allowed')
+    }
+    if (blueprint.allowedWorkflowPresetIds.some((presetId) => !presetIds.has(presetId))) {
+      throw new Error('blueprint_references_unknown_preset')
+    }
+    if (
+      blueprint.teamRoleKinds.length !== WORKER_TYPE_KINDS.length ||
+      WORKER_TYPE_KINDS.some((kind) => !blueprint.teamRoleKinds.includes(kind))
+    ) {
+      throw new Error('blueprint_requires_initial_team_roles')
+    }
+  }
+  for (const preset of presets) {
+    if (
+      preset.capabilities.maxImplementationUnits < 1 ||
+      preset.capabilities.maxImplementationUnits > 20
+    ) {
+      throw new Error('workflow_implementation_limit_out_of_range')
+    }
+    if (
+      preset.capabilities.maxVerificationAttempts < 1 ||
+      preset.capabilities.maxVerificationAttempts > 2
+    ) {
+      throw new Error('workflow_verification_limit_out_of_range')
+    }
+    if (preset.capabilities.maxCorrectionAttempts > 6) {
+      throw new Error('workflow_correction_limit_out_of_range')
+    }
+    if (preset.capabilities.allowPush || preset.capabilities.allowOpenPr) {
+      throw new Error('workflow_publishing_not_allowed')
+    }
+  }
+}
+
+validateProjectBlueprintCatalog(PROJECT_BLUEPRINTS, WORKFLOW_PRESETS)
+
+export function validateWorkflowPresetLaunch(input: {
+  presetId: WorkflowPresetId
+  formulaName: string
+  launchMode: WorkflowLaunchMode
+  variables: Readonly<Record<string, string | number | boolean>>
+}): void {
+  const preset = workflowPreset(input.presetId)
+  if (input.formulaName !== preset.formulaName || input.launchMode !== preset.launchMode) {
+    throw new Error('workflow_preset_launch_mismatch')
+  }
+  for (const required of [
+    'task_id',
+    'run_id',
+    'request',
+    'capsule_path',
+    'evidence_path',
+    'verification_script',
+  ]) {
+    if (typeof input.variables[required] !== 'string' || input.variables[required].length === 0) {
+      throw new Error(`workflow_variable_required:${required}`)
+    }
+  }
+  if (preset.id === 'standard-build') {
+    if (
+      input.variables['interaction_mode'] !== preset.capabilities.interactionMode ||
+      input.variables['drain_policy'] !== preset.capabilities.drainPolicy ||
+      input.variables['push'] !== false ||
+      input.variables['open_pr'] !== false ||
+      typeof input.variables['max_iterations'] !== 'number' ||
+      input.variables['max_iterations'] > preset.capabilities.maxCorrectionAttempts
+    ) {
+      throw new Error('workflow_capability_policy_rejected')
+    }
+  }
+}
+
+export function resolveWorkflowPreset(input: {
+  blueprintId: ProjectBlueprintId
+  projectDefaultWorkflowPresetId: WorkflowPresetId
+  taskWorkflowPresetId: WorkflowPresetId | null
+  taskSelectionSource: WorkflowSelectionSource
+  taskLockedByUser: boolean
+}): {
+  preset: WorkflowPresetDefinition
+  source: WorkflowSelectionSource
+  lockedByUser: boolean
+} {
+  assertWorkflowPresetAllowed(input.blueprintId, input.projectDefaultWorkflowPresetId)
+  if (input.taskWorkflowPresetId) {
+    assertWorkflowPresetAllowed(input.blueprintId, input.taskWorkflowPresetId)
+    return {
+      preset: workflowPreset(input.taskWorkflowPresetId),
+      source: input.taskSelectionSource,
+      lockedByUser: input.taskLockedByUser,
+    }
+  }
+  return {
+    preset: workflowPreset(input.projectDefaultWorkflowPresetId),
+    source: 'project_default',
+    lockedByUser: false,
+  }
+}
+
 export interface SoftwareProjectTemplate {
   readonly id: 'software-project'
   readonly version: number
@@ -39,7 +289,7 @@ export interface SoftwareProjectTemplate {
 
 export const SOFTWARE_PROJECT_TEMPLATE: SoftwareProjectTemplate = {
   id: 'software-project',
-  version: 1,
+  version: 2,
   factory: { maxParallelImplementationWorkers: 1 },
   workerTypes: [
     {
@@ -62,8 +312,15 @@ export const SOFTWARE_PROJECT_TEMPLATE: SoftwareProjectTemplate = {
         'tasks.propose_merge',
         'tasks.resolve',
         'tasks.set_dependencies',
+        'tasks.split',
+        'tasks.set_resource_intents',
+        'tasks.append_evidence',
         'memory.read',
         'memory.propose',
+        'memory.search',
+        'memory.propose_update',
+        'runs.inspect',
+        'capacity.inspect',
       ],
       memoryPolicy: 'provenance_required',
     },
@@ -74,13 +331,40 @@ export const SOFTWARE_PROJECT_TEMPLATE: SoftwareProjectTemplate = {
       defaultFormula: 'software-delivery',
       capacity: 1,
       modelBindings: [
+        { slot: 'design', provider: null, model: null },
         { slot: 'implementation', provider: null, model: null },
         { slot: 'review', provider: null, model: null },
       ],
-      allowedTools: ['tasks.get', 'memory.read', 'runs.report_evidence'],
+      allowedTools: [
+        'tasks.get',
+        'memory.read',
+        'memory.search',
+        'memory.propose_update',
+        'runs.inspect',
+        'runs.context',
+        'runs.report_evidence',
+        'runs.report_review',
+      ],
       memoryPolicy: 'provenance_required',
     },
   ],
+}
+
+export function softwareProjectTemplateForBlueprint(
+  blueprintId: ProjectBlueprintId,
+): SoftwareProjectTemplate {
+  const blueprint = projectBlueprint(blueprintId)
+  return {
+    ...SOFTWARE_PROJECT_TEMPLATE,
+    workerTypes: SOFTWARE_PROJECT_TEMPLATE.workerTypes.map((worker) =>
+      worker.kind === 'software_engineer'
+        ? {
+            ...worker,
+            defaultFormula: workflowPreset(blueprint.defaultWorkflowPresetId).formulaName,
+          }
+        : worker,
+    ),
+  }
 }
 
 export function isModelSlotForWorker(kind: WorkerTypeKind, slot: string): slot is ModelSlot {

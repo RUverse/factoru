@@ -10,6 +10,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import process from 'node:process'
 import {
+  acquireDevServerLock,
   devEnvFor,
   findFreePortBlock,
   portBaseFor,
@@ -32,6 +33,8 @@ if (!['all', 'server', 'desktop'].includes(only)) {
 const worktreeRoot = resolveWorktreeRoot()
 const preferredBase = portBaseFor(worktreeIdFor(worktreeRoot))
 const { dataDir } = devEnvFor(worktreeRoot)
+const serverLock = only === 'desktop' ? null : acquireDevServerLock(dataDir)
+process.on('exit', () => serverLock?.release())
 
 /*
  * Whoever starts the server owns the allocation and records it. A separately
@@ -57,6 +60,8 @@ if (only === 'desktop') {
 }
 
 const dev = devEnvFor(worktreeRoot, { portBase })
+const childEnvironment = processEnvForDevelopment(dev.env)
+if (serverLock) Object.assign(childEnvironment, serverLock.environment)
 
 // Workspace packages are consumed from their build output, so the applications
 // need them compiled before the watchers start.
@@ -77,6 +82,7 @@ const build = spawnSync(
   { cwd: worktreeRoot, stdio: 'inherit' },
 )
 if (build.status !== 0) {
+  serverLock?.release()
   process.exit(build.status ?? 1)
 }
 
@@ -93,22 +99,59 @@ if (only === 'all' || only === 'desktop') {
 }
 
 let shuttingDown = false
+let forcedShutdownTimer
+let shutdownPollTimer
+
+function signalTarget(child, signal) {
+  try {
+    process.kill(-child.pid, signal)
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error
+  }
+}
+
+function targetGroupIsRunning(child) {
+  try {
+    process.kill(-child.pid, 0)
+    return true
+  } catch (error) {
+    if (error?.code === 'ESRCH') return false
+    throw error
+  }
+}
 
 function shutdown(exitCode) {
   if (shuttingDown) return
   shuttingDown = true
   for (const child of children) {
-    child.kill('SIGTERM')
+    // Each target owns a process group so the signal reaches pnpm, its watcher,
+    // and the actual application. Factoru Server may need the full Gas City
+    // shutdown grace period before this launcher exits.
+    signalTarget(child, 'SIGTERM')
   }
+  serverLock?.release()
   process.exitCode = exitCode
-  setTimeout(() => process.exit(exitCode), 2_000).unref()
+  forcedShutdownTimer = setTimeout(() => {
+    for (const child of children) {
+      signalTarget(child, 'SIGKILL')
+    }
+    process.exit(exitCode)
+  }, 40_000)
+  forcedShutdownTimer.unref()
+  shutdownPollTimer = setInterval(() => {
+    if (children.some(targetGroupIsRunning)) return
+    clearInterval(shutdownPollTimer)
+    clearTimeout(forcedShutdownTimer)
+    process.exit(exitCode)
+  }, 100)
 }
 
 const children = targets.map(({ name, filter }) => {
   const child = spawn('pnpm', ['--filter', filter, 'run', 'dev'], {
     cwd: worktreeRoot,
-    env: processEnvForDevelopment(dev.env),
+    env: childEnvironment,
     stdio: 'inherit',
+    detached: true,
   })
   child.on('exit', (code, signal) => {
     if (shuttingDown) return
