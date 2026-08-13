@@ -1,6 +1,6 @@
 import { PromptComposer } from '@factoru/ui'
 import type { Artifact, ConversationMessage, Workspace } from '@factoru/protocol'
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactElement, type ReactNode, type Ref } from 'react'
 import type { ConversationHistoryResult, ProjectRef } from '../../../../shared/product'
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
@@ -174,6 +174,8 @@ export function ConversationSurface({
   onRetry,
   onLoadHistory,
   onLoadContext,
+  onNewChat,
+  newChatButtonRef,
 }: {
   project: ProjectRef
   conversation: Workspace['conversation']
@@ -187,6 +189,8 @@ export function ConversationSurface({
   onRetry: (messageId: string) => Promise<unknown>
   onLoadHistory: (before?: string) => Promise<unknown>
   onLoadContext: (contextRevision: number, before?: string) => Promise<ConversationHistoryResult>
+  onNewChat: () => void
+  newChatButtonRef?: Ref<HTMLButtonElement>
 }): ReactElement {
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
@@ -392,6 +396,17 @@ export function ConversationSurface({
             ))}
           </select>
         </label>
+        {conversation.canResetContext && (
+          <button
+            ref={newChatButtonRef}
+            className="new-chat-button"
+            type="button"
+            disabled={!connected || busy || active}
+            onClick={onNewChat}
+          >
+            New chat
+          </button>
+        )}
         {loadingContext && <span role="status">Opening chat…</span>}
         {viewingArchived && <span className="read-only-badge">Read-only</span>}
       </div>

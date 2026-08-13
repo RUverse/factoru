@@ -884,6 +884,12 @@ html[data-platform='linux'] .workspace-shell.project-setup-open .pane-header {
   font: inherit;
 }
 
+.new-chat-button {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  font-weight: 700;
+}
+
 .read-only-badge {
   border-radius: 999px;
   background: var(--factoru-accent-soft);

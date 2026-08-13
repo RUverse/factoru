@@ -1141,21 +1141,6 @@ factoru-server providers configure --provider codex`}</code>
             <h1>{activeProject?.name ?? 'Choose a project'}</h1>
           </div>
           <div className="pane-header-actions">
-            {snapshot.workspace?.conversation.canResetContext && (
-              <button
-                ref={contextResetTrigger}
-                type="button"
-                className="context-reset-trigger"
-                disabled={
-                  !snapshot.connected ||
-                  busy ||
-                  Boolean(snapshot.workspace.conversation.activeTurnId)
-                }
-                onClick={() => setShowContextReset(true)}
-              >
-                New context
-              </button>
-            )}
             {snapshot.workspace && (
               <span className={`health-pill ${snapshot.workspace.conversation.status}`}>
                 {statusLabel(snapshot.workspace.conversation.status)}
@@ -1609,6 +1594,8 @@ factoru-server providers configure --provider codex`}</code>
                 before,
               )
             }
+            onNewChat={() => setShowContextReset(true)}
+            newChatButtonRef={contextResetTrigger}
           />
         )}
       </section>
