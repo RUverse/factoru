@@ -156,6 +156,68 @@ async function executeCommands(config: ServerConfig, commands: readonly (readonl
   }
 }
 
+/**
+ * Stop Beads from discovering an unrelated repository above the managed city.
+ * Development state deliberately lives below the Factoru worktree, and bd
+ * otherwise treats that worktree's origin/Dolt refs as the city's remote.
+ */
+export async function ensureCityRepositoryBoundary(cityPath: string): Promise<boolean> {
+  if (!path.isAbsolute(cityPath)) {
+    throw new Error(`Gas City path must be absolute, got ${cityPath}`)
+  }
+  if (fs.existsSync(cityPath)) {
+    const city = fs.lstatSync(cityPath)
+    if (!city.isDirectory() || city.isSymbolicLink()) {
+      throw new Error(`Gas City path must be a real directory: ${cityPath}`)
+    }
+  } else {
+    fs.mkdirSync(cityPath, { recursive: true, mode: 0o700 })
+  }
+
+  const gitDirectory = path.join(cityPath, '.git')
+  let changed = false
+  if (fs.existsSync(gitDirectory)) {
+    const marker = fs.lstatSync(gitDirectory)
+    if (!marker.isDirectory() || marker.isSymbolicLink()) {
+      throw new Error(`Gas City repository boundary must be a real directory: ${gitDirectory}`)
+    }
+  } else {
+    await execFileAsync('git', ['init', '-b', 'factoru-city', cityPath], {
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024,
+    })
+    changed = true
+  }
+
+  try {
+    await execFileAsync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: cityPath,
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024,
+    })
+  } catch {
+    // Some Git discovery libraries skip an unborn repository and continue to
+    // the parent. An empty commit makes this a complete, unambiguous boundary
+    // without making Git the owner of generated city configuration.
+    await execFileAsync(
+      'git',
+      [
+        '-c',
+        'user.name=Factoru',
+        '-c',
+        'user.email=factoru@localhost',
+        'commit',
+        '--allow-empty',
+        '-m',
+        'Initialize Factoru city boundary',
+      ],
+      { cwd: cityPath, encoding: 'utf8', maxBuffer: 1024 * 1024 },
+    )
+    changed = true
+  }
+  return changed
+}
+
 /** Re-pin and reload the Factoru-owned root and rig packs on server start. */
 export async function reconcileFactoruPack(
   config: ServerConfig,
@@ -171,6 +233,7 @@ export async function reconcileFactoruPack(
     )
   }
   if (!cityExists) return false
+  await ensureCityRepositoryBoundary(config.gasCityPath)
   await executeCommands(
     config,
     factoruPackReconcileCommands(
@@ -203,6 +266,7 @@ export async function configureCity(
     )
   }
   const factoruImportExists = packExists && hasFactoruImport(fs.readFileSync(packFile, 'utf8'))
+  await ensureCityRepositoryBoundary(config.gasCityPath)
   const commands = cityBootstrapCommands({
     providers,
     defaultProvider,

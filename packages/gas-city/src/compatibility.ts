@@ -26,6 +26,8 @@ export interface DependencySpec {
    * one would be a guess presented as a requirement.
    */
   readonly minimumVersion: string | null
+  /** First known-incompatible version, when the verified range has an upper bound. */
+  readonly belowExclusiveVersion?: string
   /** Exact release installed by the source-preview bootstrap, when Factoru owns it. */
   readonly installVersion: string | null
   /** Why the floor exists, so a future reader can re-evaluate it. */
@@ -92,17 +94,20 @@ export const REQUIRED_DEPENDENCIES: readonly DependencySpec[] = [
     versionArgs: ['version'],
     displayName: 'Dolt',
     minimumVersion: '2.1.0',
+    belowExclusiveVersion: '2.2.0',
     installVersion: PINNED_DOLT_INSTALL_VERSION,
     reason:
-      'Gas City operations documentation requires 2.1.0 or newer. Older builds miss upstream fixes and can hang during heavy writes rather than failing fast.',
+      'Gas City 1.4.0 with Beads 1.1.2 is verified on Dolt 2.1.x; Dolt 2.2.x fails fresh managed schema initialization.',
   },
   {
     command: 'bd',
     versionArgs: ['version'],
     displayName: 'Beads CLI',
     minimumVersion: '1.1.2',
+    belowExclusiveVersion: '1.2.0',
     installVersion: PINNED_BEADS_INSTALL_VERSION,
-    reason: 'Owns the bead store Gas City records all durable work in.',
+    reason:
+      "Gas City 1.4.0's managed server bootstrap is verified with Beads 1.1.2; Beads 1.2.x rejects that fresh workspace as a cross-era migration.",
   },
   {
     command: 'tmux',

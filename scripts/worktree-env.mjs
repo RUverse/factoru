@@ -12,9 +12,17 @@
  *
  * See docs/adr/0006-per-worktree-development-state.md.
  */
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 
@@ -33,6 +41,7 @@ export const DEV_STATE_DIRNAME = '.factoru-dev'
  * which another worktree may have taken first.
  */
 export const PORT_ALLOCATION_FILENAME = 'dev-ports.json'
+export const DEV_SERVER_LOCK_FILENAME = 'dev-server.lock'
 
 export const DEV_HOST = '127.0.0.1'
 
@@ -178,6 +187,73 @@ export function readAllocatedPortBase(dataDir) {
 export function writeAllocatedPortBase(dataDir, portBase) {
   mkdirSync(dataDir, { recursive: true })
   writeFileSync(portAllocationFile(dataDir), `${JSON.stringify({ portBase }, null, 2)}\n`, 'utf8')
+}
+
+function defaultProcessAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return Boolean(error && typeof error === 'object' && 'code' in error && error.code !== 'ESRCH')
+  }
+}
+
+/** Prevent two development servers from mutating one worktree's state. */
+export function acquireDevServerLock(
+  dataDir,
+  { pid = process.pid, processAlive = defaultProcessAlive, token = randomUUID() } = {},
+) {
+  mkdirSync(dataDir, { recursive: true })
+  const lockFile = path.join(dataDir, DEV_SERVER_LOCK_FILENAME)
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const descriptor = openSync(lockFile, 'wx', 0o600)
+      writeFileSync(descriptor, `${JSON.stringify({ pid, token })}\n`, 'utf8')
+      let released = false
+      return {
+        environment: {
+          FACTORU_DEV_SERVER_LOCK_FILE: lockFile,
+          FACTORU_DEV_SERVER_LOCK_TOKEN: token,
+        },
+        release() {
+          if (released) return
+          released = true
+          closeSync(descriptor)
+          try {
+            const current = JSON.parse(readFileSync(lockFile, 'utf8'))
+            if (current.pid === pid && current.token === token) unlinkSync(lockFile)
+          } catch (error) {
+            if (!(
+              error &&
+              typeof error === 'object' &&
+              'code' in error &&
+              error.code === 'ENOENT'
+            )) {
+              throw error
+            }
+          }
+        },
+      }
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST')) {
+        throw error
+      }
+      let ownerPid
+      try {
+        ownerPid = JSON.parse(readFileSync(lockFile, 'utf8')).pid
+      } catch {
+        ownerPid = undefined
+      }
+      if (Number.isSafeInteger(ownerPid) && ownerPid > 0 && processAlive(ownerPid)) {
+        throw new Error(
+          `Factoru development server process ${ownerPid} already owns this worktree's state. Stop it before starting another server.`,
+          { cause: error },
+        )
+      }
+      unlinkSync(lockFile)
+    }
+  }
+  throw new Error(`Could not acquire the Factoru development server lock at ${lockFile}`)
 }
 
 export function currentDevEnv(cwd = process.cwd()) {

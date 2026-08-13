@@ -1,10 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   cityBootstrapCommands,
+  ensureCityRepositoryBoundary,
   factoruPackReconcileCommands,
   hasFactoruImport,
   isExistingFactoruImportFailure,
 } from './city-bootstrap.js'
+
+const directories: string[] = []
+afterEach(() => {
+  for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true })
+})
 
 describe('Factoru city bootstrap', () => {
   const input = {
@@ -43,6 +53,31 @@ describe('Factoru city bootstrap', () => {
       '/tmp/factoru/city',
     ])
     expect(commands.at(-1)).toEqual(['start', '/tmp/factoru/city', '--no-auto-restart'])
+  })
+
+  it('gives a nested development city its own repository discovery boundary', async () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-city-parent-'))
+    directories.push(parent)
+    execFileSync('git', ['init', '-b', 'dev', parent])
+    execFileSync('git', ['remote', 'add', 'origin', 'https://example.com/factoru.git'], {
+      cwd: parent,
+    })
+    const cityPath = path.join(parent, '.factoru-dev', 'city')
+
+    await expect(ensureCityRepositoryBoundary(cityPath)).resolves.toBe(true)
+    await expect(ensureCityRepositoryBoundary(cityPath)).resolves.toBe(false)
+    expect(fs.lstatSync(path.join(cityPath, '.git')).isDirectory()).toBe(true)
+    expect(
+      execFileSync('git', ['rev-parse', '--show-toplevel'], {
+        cwd: cityPath,
+        encoding: 'utf8',
+      }).trim(),
+    ).toBe(fs.realpathSync(cityPath))
+    expect(execFileSync('git', ['remote'], { cwd: cityPath, encoding: 'utf8' })).toBe('')
+    expect(
+      execFileSync('git', ['log', '-1', '--format=%s'], { cwd: cityPath, encoding: 'utf8' }).trim(),
+    ).toBe('Initialize Factoru city boundary')
+    expect(execFileSync('git', ['ls-files'], { cwd: cityPath, encoding: 'utf8' })).toBe('')
   })
 
   it('re-pins only the Factoru-owned import when adopting an existing city', () => {

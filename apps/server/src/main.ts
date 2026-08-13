@@ -26,7 +26,14 @@ import { GAS_CITY_CALLBACK_BASE_PATH } from './gas-city-callback.js'
 import { writeLocalEnrollmentFile } from './local-enrollment.js'
 import { CapsuleService } from './capsule-service.js'
 import { ArtifactService } from './artifact-service.js'
-import { renderDoctorReport, runRemoteDoctor, systemDoctorEnvironment } from './doctor.js'
+import { adoptDevelopmentServerLock } from './development-lock.js'
+import {
+  doltAuthorIdentityFinding,
+  renderDoctorReport,
+  runRemoteDoctor,
+  runtimeDependencyFindings,
+  systemDoctorEnvironment,
+} from './doctor.js'
 import {
   listOperatorActivity,
   configuredProvidersFromCityToml,
@@ -102,6 +109,9 @@ async function main(): Promise<void> {
   }
 
   const config = loadServerConfig()
+  const developmentServerLock =
+    command.kind === 'start' ? adoptDevelopmentServerLock(config.dataDir) : undefined
+  process.on('exit', () => developmentServerLock?.release())
 
   if (command.kind === 'repositories-check') {
     try {
@@ -160,6 +170,21 @@ async function main(): Promise<void> {
   const serverId = await ensureServerId(config.dataDir)
 
   if (command.kind === 'providers-configure') {
+    const environment = await systemDoctorEnvironment()
+    const prerequisiteFindings = [
+      ...(await runtimeDependencyFindings(environment)),
+      await doltAuthorIdentityFinding(environment),
+    ]
+    const blocked = prerequisiteFindings.filter((finding) => finding.status !== 'ok')
+    if (blocked.length > 0) {
+      console.error('Factoru Gas City prerequisites are not ready:')
+      for (const finding of blocked) {
+        console.error(`  ${finding.name}: ${finding.detail}`)
+        if (finding.remedy) console.error(`    Remedy: ${finding.remedy}`)
+      }
+      process.exitCode = 1
+      return
+    }
     const configured = await configureCity(
       config,
       serverId,

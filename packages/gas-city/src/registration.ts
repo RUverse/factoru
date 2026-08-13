@@ -46,6 +46,9 @@ interface PinnedFactoruImport {
   version?: string
 }
 
+const PROVIDER_CONFIGURATION_REMEDY =
+  'On the Factoru Server, run pnpm dev:city --provider codex for development or factoru-server providers configure --provider codex for a source-preview installation (replace codex with claude if needed), then retry repository setup.'
+
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -54,14 +57,29 @@ function record(value: unknown): Record<string, unknown> | undefined {
 
 function readPinnedFactoruImport(cityPath: string): PinnedFactoruImport {
   const packFile = path.join(cityPath, 'pack.toml')
+  const cityFile = path.join(cityPath, 'city.toml')
+  const packExists = fs.existsSync(packFile)
+  const cityExists = fs.existsSync(cityFile)
+  if (!packExists && !cityExists) {
+    throw new GasCityError(
+      `Gas City is not initialized for this factory. ${PROVIDER_CONFIGURATION_REMEDY}`,
+      { kind: 'invalid_request', code: 'gas_city_not_initialized' },
+    )
+  }
+  if (packExists !== cityExists) {
+    throw new GasCityError(
+      `Gas City is partially initialized at ${cityPath}. ${PROVIDER_CONFIGURATION_REMEDY}`,
+      { kind: 'invalid_request', code: 'gas_city_partial_initialization' },
+    )
+  }
   let manifest: Record<string, unknown>
   try {
     manifest = record(parse(fs.readFileSync(packFile, 'utf8'))) ?? {}
   } catch (cause) {
-    throw new GasCityError(`Gas City Factoru pack import could not be read: ${packFile}`, {
-      kind: 'unavailable',
-      cause,
-    })
+    throw new GasCityError(
+      `Gas City configuration at ${packFile} is unreadable or invalid. ${PROVIDER_CONFIGURATION_REMEDY}`,
+      { kind: 'invalid_request', code: 'gas_city_pack_invalid', cause },
+    )
   }
   const imported = record(record(manifest.imports)?.factoru)
   const source = imported?.source
@@ -74,8 +92,8 @@ function readPinnedFactoruImport(cityPath: string): PinnedFactoruImport {
       (typeof version !== 'string' || version.trim() === '' || /[\r\n\0]/.test(version)))
   ) {
     throw new GasCityError(
-      `Gas City root pack must declare a valid [imports.factoru] source${version === undefined ? '' : ' and version'}`,
-      { kind: 'unavailable' },
+      `Gas City root pack must declare a valid [imports.factoru] source${version === undefined ? '' : ' and version'}. ${PROVIDER_CONFIGURATION_REMEDY}`,
+      { kind: 'invalid_request', code: 'gas_city_pack_invalid' },
     )
   }
   return { source, ...(typeof version === 'string' ? { version } : {}) }
@@ -109,20 +127,21 @@ export class GasCityRigRegistrar implements RigRegistrar {
       })
     }
 
+    const rigArgs = [
+      'rig',
+      'add',
+      request.repositoryPath,
+      '--name',
+      request.rigName,
+      '--prefix',
+      request.beadPrefix,
+      '--default-branch',
+      request.defaultBranch,
+      '--city',
+      request.cityPath,
+    ]
     try {
-      await this.executor.run('gc', [
-        'rig',
-        'add',
-        request.repositoryPath,
-        '--name',
-        request.rigName,
-        '--prefix',
-        request.beadPrefix,
-        '--default-branch',
-        request.defaultBranch,
-        '--city',
-        request.cityPath,
-      ])
+      await this.executor.run('gc', rigArgs)
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause)
       // Reconciliation is intentionally adoptive: an earlier attempt may have

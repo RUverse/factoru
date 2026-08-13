@@ -260,8 +260,13 @@ than accepting any binaries found on `PATH`.
 
 Server readiness distinguishes: Factoru healthy, Gas City supervisor reachable,
 dedicated city ready, bead store ready, required pack resolved, each rig healthy,
-and each configured harness/model ready. A failed orchestration dependency must
-not make project/task history unavailable.
+and each configured harness/model ready. Provider configuration preflights the
+verified dependency ranges and Dolt author identity before city mutation;
+notably Gas City 1.4.0 accepts Beads 1.1.x starting at 1.1.2 but rejects 1.2.x,
+whose cross-era guard cannot initialize the managed server workspace, and the
+verified Dolt range is 2.1.x because 2.2.x fails fresh schema initialization.
+A failed orchestration dependency must not make project/task history
+unavailable.
 
 The source-deployment bootstrap and preflight reuse the adapter's pinned
 dependency manifest, including each tool's actual version-command syntax. The
@@ -996,7 +1001,18 @@ The integration deliberately preserves Gas City's three configuration layers:
 | Machine-local site/runtime | City `.gc/` and Gas City-managed runtime directories | Rig path bindings, caches, sockets, logs, sessions, generated state, Gas City worktrees, and Factoru's recoverable private projection of the Factoru origin, Gas City origin, and city name |
 
 The development harness projects the absolute versioned pack path independently
-of pnpm's per-package working directory. It can initialize this topology only after the tester
+of pnpm's per-package working directory. Its `dev:city` and `dev:pair` operator
+helpers preserve the same worktree-local repository and managed-project roots
+as `pnpm dev`; the installed source-preview launcher deliberately substitutes
+its documented home-directory roots. A per-worktree process lock prevents
+multiple development servers from running outbox and pack reconciliation
+against the same database and city, while separate worktrees still resolve
+independent port blocks. The managed city root is initialized as
+its own local Git repository with one empty boundary commit and no remote; the
+commit prevents discovery libraries from skipping an unborn repository. This
+is a repository-discovery boundary so Beads cannot adopt an unrelated parent
+worktree's `origin` or Dolt history, not a second owner of city configuration.
+The harness can initialize this topology only after the tester
 explicitly supplies one or more provider names. It uses pinned Gas City 1.4.0
 commands to create the city without starting it, adds the local
 `factoru-default` pack as a pinned import, and on later starts replaces only
@@ -1014,7 +1030,9 @@ silently delete it or user work. After registration, the adapter attaches the
 Factoru pack to the rig using the exact source and optional version already
 pinned by the root city's `[imports.factoru]`; resolving the development
 worktree again could select a different Git commit and create an incompatible
-lock graph.
+lock graph. A missing, partial, or invalid city configuration is non-retryable
+operator work: project setup enters Needs attention immediately with the exact
+provider-configuration command instead of presenting automatic retries.
 
 Gas City's six primitives and related runtime concepts map to Factoru as follows:
 

@@ -719,7 +719,9 @@ delivery through both Claude and Codex. The 2026-08-12 local acceptance attempt
 found Claude unauthenticated and the Homebrew Gas City dependency set
 (`dolt 2.2.3`, `bd 1.2.1`) unable to initialize a fresh Gas City 1.4.0 city due
 to Beads' cross-era Dolt-workspace guard; no provider result was inferred from
-that failed environment.
+that failed environment. Factoru now rejects Beads 1.2.x before city mutation
+and Dolt 2.2.x before city mutation, directing the operator to the verified
+Beads 1.1.2 and Dolt 2.1.7 releases.
 
 #### Transport and synchronization
 

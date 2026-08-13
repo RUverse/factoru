@@ -20,7 +20,12 @@ export function sourcePreviewEnvironment(repositoryRoot, parentEnvironment = pro
   return { dev, env }
 }
 
-export function main(argv = process.argv.slice(2)) {
+export function developmentEnvironment(repositoryRoot, parentEnvironment = process.env) {
+  const dev = currentDevEnv(repositoryRoot)
+  return { dev, env: processEnvForDevelopment(dev.env, parentEnvironment) }
+}
+
+export function main(argv = process.argv.slice(2), options = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const entrypoint = path.join(repositoryRoot, 'apps/server/dist/main.js')
   if (!fs.existsSync(entrypoint)) {
@@ -28,7 +33,8 @@ export function main(argv = process.argv.slice(2)) {
       `Factoru Server has not been built at ${entrypoint}; rerun ./scripts/remote-bootstrap.sh`,
     )
   }
-  const { env } = sourcePreviewEnvironment(repositoryRoot)
+  const environment = options.environment ?? sourcePreviewEnvironment
+  const { env } = environment(repositoryRoot, options.parentEnvironment)
   const result = spawnSync(process.execPath, [entrypoint, ...argv], {
     cwd: repositoryRoot,
     env,

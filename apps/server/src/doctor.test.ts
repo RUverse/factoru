@@ -37,6 +37,13 @@ function environment(
       overrides.onRun?.(command, args)
       const override = outputs[command]
       if (override) return override
+      if (command === 'dolt' && args[0] === 'config') {
+        return {
+          found: true,
+          succeeded: true,
+          output: args.at(-1) === 'user.name' ? 'Dev' : 'dev@example.test',
+        }
+      }
       const output = REQUIRED_OUTPUTS[command]
       return output
         ? { found: true, succeeded: true, output }
@@ -123,13 +130,28 @@ describe('remote preview doctor', () => {
   it.each([
     ['gc', '1.5.0'],
     ['dolt', 'dolt version 2.0.9'],
+    ['dolt', 'dolt version 2.2.3'],
     ['bd', 'bd version 1.1.1'],
+    ['bd', 'bd version 1.2.1'],
   ] as const)('fails when %s is outside Factoru compatibility', async (command, output) => {
     const report = await runRemoteDoctor(
       'codex',
       environment({ outputs: { [command]: { found: true, succeeded: true, output } } }),
     )
     expect(report.ok).toBe(false)
+  })
+
+  it('requires a global Dolt author identity', async () => {
+    const report = await runRemoteDoctor(
+      'codex',
+      environment({
+        outputs: { dolt: { found: true, succeeded: false, output: '' } },
+      }),
+    )
+    expect(report.ok).toBe(false)
+    expect(report.findings).toContainEqual(
+      expect.objectContaining({ name: 'Dolt author identity', status: 'error' }),
+    )
   })
 
   it('fails when Codex is installed but unauthenticated', async () => {

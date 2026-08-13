@@ -83,6 +83,22 @@ export function evaluateDependency(spec: DependencySpec, probe: ProbeResult): Re
     }
   }
 
+  if (
+    spec.minimumVersion !== null &&
+    spec.belowExclusiveVersion !== undefined &&
+    !withinRange(probe.output, {
+      minimum: spec.minimumVersion,
+      belowExclusive: spec.belowExclusiveVersion,
+    })
+  ) {
+    return {
+      name: spec.displayName,
+      status: 'unsupported_version',
+      detail: `Found ${probe.output.trim() || 'an unreadable version'}; Factoru requires >=${spec.minimumVersion} and <${spec.belowExclusiveVersion}.`,
+      remedy: `Install ${spec.installVersion ?? spec.minimumVersion}. ${spec.reason}`,
+    }
+  }
+
   return okFinding(spec, probe)
 }
 

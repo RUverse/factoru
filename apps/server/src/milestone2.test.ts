@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FactoruDatabase } from '@factoru/database'
 import { parseServerId } from '@factoru/domain'
-import { GasCityRigRegistrar, type RigRegistrar } from '@factoru/gas-city'
+import { GasCityError, GasCityRigRegistrar, type RigRegistrar } from '@factoru/gas-city'
 import {
   CAPABILITY_LOCAL_ENROLLMENT,
   CAPABILITY_REPOSITORY_ACCESS_CHECK,
@@ -306,6 +306,7 @@ describe('Milestone 2 server slice', () => {
       path.join(root, 'city', 'pack.toml'),
       '[imports.factoru]\nsource = "/factoru/pack"\n',
     )
+    fs.writeFileSync(path.join(root, 'city', 'city.toml'), '[city]\nname = "factoru-test"\n')
     const registrar = new GasCityRigRegistrar({
       async run(executable, args) {
         if (executable === 'gc' && args[0] === 'rig' && args[1] === 'add') {
@@ -471,6 +472,66 @@ describe('Milestone 2 server slice', () => {
       setupState: 'setting_up',
     })
     expect(database.claimDueOutbox()).toHaveLength(1)
+    database.close()
+  })
+
+  it('stops retrying when Gas City requires operator configuration', async () => {
+    const { root } = repositoryFixture()
+    const database = new FactoruDatabase(
+      path.join(root, 'factoru.sqlite'),
+      parseServerId('srv_11111111111111111111111111111111'),
+    )
+    const device = database.createTrustedDevice('Mac').device
+    const repositories = new RepositoryService(
+      [{ id: 'root_test', label: 'Repos', path: root }],
+      projectsRoot(root),
+    )
+    const preview = await repositories.preview('root_test', 'project')
+    const service = new ProjectService({
+      database,
+      repositories,
+      registrar: {
+        register: async () => {
+          throw new GasCityError('Configure at least one provider, then retry setup.', {
+            kind: 'invalid_request',
+            code: 'gas_city_not_initialized',
+          })
+        },
+      },
+      cityName: 'factoru-test',
+      cityPath: path.join(root, 'city'),
+    })
+    const project = await service.createProject(device, 'cmd_missing_city', {
+      name: 'Missing city',
+      repositories: [
+        {
+          kind: 'local',
+          rootId: 'root_test',
+          relativePath: 'project',
+          defaultBranch: 'dev',
+          fingerprint: preview.preview.fingerprint,
+        },
+      ],
+    })
+
+    await service.processOutbox()
+
+    expect(service.getProject(project.id)).toMatchObject({
+      setupState: 'needs_attention',
+      setupError: {
+        code: 'gas_city_not_initialized',
+        message: 'Configure at least one provider, then retry setup.',
+      },
+      repositories: [
+        {
+          rig: {
+            registrationState: 'failed',
+            retry: null,
+          },
+        },
+      ],
+    })
+    expect(database.claimDueOutbox()).toEqual([])
     database.close()
   })
 })

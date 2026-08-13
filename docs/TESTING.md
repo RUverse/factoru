@@ -106,6 +106,10 @@ pnpm dev:server
 pnpm dev:desktop
 ```
 
+Only one development server may own a worktree's state. A second `pnpm dev` or
+`pnpm dev:server` exits with the live owner's process ID; stop that server before
+starting another. `pnpm dev:desktop` may still attach to the recorded server.
+
 The server health endpoint is printed by the harness and is available below the
 versioned API prefix. For example:
 

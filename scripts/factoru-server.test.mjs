@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { isDirectRun } from './factoru-server.mjs'
+import { developmentEnvironment, isDirectRun, sourcePreviewEnvironment } from './factoru-server.mjs'
 import { installCliLauncher } from './remote-bootstrap.mjs'
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url))
@@ -24,4 +24,24 @@ test('source-preview CLI launcher is executable and bootstrap installs its symli
   } finally {
     await rm(installRoot, { recursive: true, force: true })
   }
+})
+
+test('development commands keep worktree-local repository and project roots', () => {
+  const root = path.dirname(scriptsDirectory)
+  const { env } = developmentEnvironment(root, {})
+  assert.equal(env.FACTORU_REPOSITORY_ROOTS, JSON.stringify([root]))
+  assert.equal(
+    env.FACTORU_PROJECTS_ROOT,
+    path.join(root, '.factoru-dev', env.FACTORU_WORKTREE_ID, 'projects'),
+  )
+})
+
+test('installed source-preview commands retain managed home roots', () => {
+  const root = path.dirname(scriptsDirectory)
+  const { env } = sourcePreviewEnvironment(root, {})
+  assert.equal(
+    env.FACTORU_REPOSITORY_ROOTS,
+    JSON.stringify([path.join(os.homedir(), 'factoru-repositories')]),
+  )
+  assert.equal(env.FACTORU_PROJECTS_ROOT, path.join(os.homedir(), 'factoru-projects'))
 })

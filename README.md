@@ -74,6 +74,13 @@ the provider harnesses you want to test. Nothing is chosen silently:
 pnpm dev:city --provider codex
 ```
 
+`dev:city` and `dev:pair` use the same worktree-local data, repository, and
+managed-project roots printed by `pnpm dev:env`. The installed Linux
+source-preview launcher instead keeps its documented `$HOME/factoru-projects`
+and `$HOME/factoru-repositories` defaults. One development server owns a
+worktree's state at a time; stop the existing `pnpm dev` or `pnpm dev:server`
+process before starting another one.
+
 Select several providers and one default when needed:
 
 ```bash

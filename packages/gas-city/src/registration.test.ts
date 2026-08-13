@@ -25,6 +25,7 @@ function repository(): string {
 function city(version = 'sha:1111111111111111111111111111111111111111'): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-city-'))
   directories.push(directory)
+  fs.writeFileSync(path.join(directory, 'city.toml'), '[city]\nname = "factoru-test"\n')
   fs.writeFileSync(
     path.join(directory, 'pack.toml'),
     `[imports.factoru]\nsource = "file:///factoru//packs/factoru-default"\nversion = "${version}"\n`,
@@ -33,6 +34,49 @@ function city(version = 'sha:1111111111111111111111111111111111111111'): string 
 }
 
 describe('GasCityRigRegistrar', () => {
+  it('reports an uninitialized city as actionable non-retryable setup work', async () => {
+    const cityPath = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-city-'))
+    directories.push(cityPath)
+    const error = await new GasCityRigRegistrar({
+      run: async () => ({ stdout: '', stderr: '' }),
+    })
+      .register({
+        cityPath,
+        repositoryPath: repository(),
+        rigName: 'factoru-project',
+        beadPrefix: 'f1234567',
+        defaultBranch: 'dev',
+      })
+      .catch((caught: unknown) => caught)
+    expect(error).toMatchObject({
+      code: 'gas_city_not_initialized',
+      retryable: false,
+    })
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toContain('pnpm dev:city --provider codex')
+  })
+
+  it('reports partial city configuration without entering an automatic retry loop', async () => {
+    const cityPath = fs.mkdtempSync(path.join(os.tmpdir(), 'factoru-city-'))
+    directories.push(cityPath)
+    fs.writeFileSync(path.join(cityPath, 'city.toml'), '[city]\nname = "partial"\n')
+    const error = await new GasCityRigRegistrar({
+      run: async () => ({ stdout: '', stderr: '' }),
+    })
+      .register({
+        cityPath,
+        repositoryPath: repository(),
+        rigName: 'factoru-project',
+        beadPrefix: 'f1234567',
+        defaultBranch: 'dev',
+      })
+      .catch((caught: unknown) => caught)
+    expect(error).toMatchObject({
+      code: 'gas_city_partial_initialization',
+      retryable: false,
+    })
+  })
+
   it('enforces registration order and explicit identity values', async () => {
     const calls: string[][] = []
     const executor: CommandExecutor = {

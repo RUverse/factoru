@@ -10,6 +10,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import process from 'node:process'
 import {
+  acquireDevServerLock,
   devEnvFor,
   findFreePortBlock,
   portBaseFor,
@@ -32,6 +33,8 @@ if (!['all', 'server', 'desktop'].includes(only)) {
 const worktreeRoot = resolveWorktreeRoot()
 const preferredBase = portBaseFor(worktreeIdFor(worktreeRoot))
 const { dataDir } = devEnvFor(worktreeRoot)
+const serverLock = only === 'desktop' ? null : acquireDevServerLock(dataDir)
+process.on('exit', () => serverLock?.release())
 
 /*
  * Whoever starts the server owns the allocation and records it. A separately
@@ -57,6 +60,8 @@ if (only === 'desktop') {
 }
 
 const dev = devEnvFor(worktreeRoot, { portBase })
+const childEnvironment = processEnvForDevelopment(dev.env)
+if (serverLock) Object.assign(childEnvironment, serverLock.environment)
 
 // Workspace packages are consumed from their build output, so the applications
 // need them compiled before the watchers start.
@@ -77,6 +82,7 @@ const build = spawnSync(
   { cwd: worktreeRoot, stdio: 'inherit' },
 )
 if (build.status !== 0) {
+  serverLock?.release()
   process.exit(build.status ?? 1)
 }
 
@@ -100,6 +106,7 @@ function shutdown(exitCode) {
   for (const child of children) {
     child.kill('SIGTERM')
   }
+  serverLock?.release()
   process.exitCode = exitCode
   setTimeout(() => process.exit(exitCode), 2_000).unref()
 }
@@ -107,7 +114,7 @@ function shutdown(exitCode) {
 const children = targets.map(({ name, filter }) => {
   const child = spawn('pnpm', ['--filter', filter, 'run', 'dev'], {
     cwd: worktreeRoot,
-    env: processEnvForDevelopment(dev.env),
+    env: childEnvironment,
     stdio: 'inherit',
   })
   child.on('exit', (code, signal) => {

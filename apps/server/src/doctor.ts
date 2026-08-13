@@ -12,6 +12,7 @@ import {
   parseVersion,
   satisfiesMinimum,
   type ProbeResult,
+  type ReadinessFinding,
   type SupportedHarness,
 } from '@factoru/gas-city'
 
@@ -103,6 +104,38 @@ export async function systemDoctorEnvironment(): Promise<DoctorEnvironment> {
     freeDiskBytes: freeDiskBytes(process.cwd()),
     manifest: await readRootManifest(),
     run: runExecutable,
+  }
+}
+
+export async function runtimeDependencyFindings(
+  environment: DoctorEnvironment,
+): Promise<ReadinessFinding[]> {
+  return checkDependencies(async (command, versionArgs) => {
+    const result = await environment.run(command, versionArgs)
+    return { found: result.found, output: result.output }
+  })
+}
+
+export async function doltAuthorIdentityFinding(
+  environment: DoctorEnvironment,
+): Promise<DoctorFinding> {
+  const [name, email] = await Promise.all([
+    environment.run('dolt', ['config', '--global', '--get', 'user.name']),
+    environment.run('dolt', ['config', '--global', '--get', 'user.email']),
+  ])
+  if (name.succeeded && name.output.trim() && email.succeeded && email.output.trim()) {
+    return {
+      name: 'Dolt author identity',
+      status: 'ok',
+      detail: 'Global Dolt user.name and user.email are configured.',
+    }
+  }
+  return {
+    name: 'Dolt author identity',
+    status: 'error',
+    detail: 'Dolt requires global user.name and user.email before Gas City can initialize.',
+    remedy:
+      'Run dolt config --global --add user.name "Your Name" and dolt config --global --add user.email "you@example.com" as the Factoru Server user.',
   }
 }
 
@@ -262,10 +295,7 @@ export async function runRemoteDoctor(
         },
   )
 
-  const dependencyFindings = await checkDependencies(async (command, versionArgs) => {
-    const result = await environment.run(command, versionArgs)
-    return { found: result.found, output: result.output }
-  })
+  const dependencyFindings = await runtimeDependencyFindings(environment)
   for (const finding of dependencyFindings) {
     findings.push({
       name: finding.name,
@@ -274,6 +304,7 @@ export async function runRemoteDoctor(
       ...(finding.remedy ? { remedy: finding.remedy } : {}),
     })
   }
+  findings.push(await doltAuthorIdentityFinding(environment))
 
   const authResult =
     provider === 'codex'

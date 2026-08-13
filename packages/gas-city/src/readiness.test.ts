@@ -27,10 +27,10 @@ describe('source bootstrap manifest', () => {
 })
 
 describe('evaluateDependency', () => {
-  it('accepts a dependency at or above its floor', () => {
+  it('accepts a dependency inside its verified range', () => {
     const finding = evaluateDependency(specFor('dolt'), {
       found: true,
-      output: 'dolt version 2.2.3',
+      output: 'dolt version 2.1.7',
     })
 
     expect(finding.status).toBe('ok')
@@ -45,6 +45,28 @@ describe('evaluateDependency', () => {
 
     expect(finding.status).toBe('unsupported_version')
     expect(finding.remedy).toContain('2.1.0')
+  })
+
+  it('rejects Dolt versions that fail fresh managed schema initialization', () => {
+    const finding = evaluateDependency(specFor('dolt'), {
+      found: true,
+      output: 'dolt version 2.2.3',
+    })
+
+    expect(finding.status).toBe('unsupported_version')
+    expect(finding.detail).toContain('<2.2.0')
+    expect(finding.remedy).toContain('2.1.7')
+  })
+
+  it('rejects Beads versions that trigger the cross-era managed-workspace guard', () => {
+    const finding = evaluateDependency(specFor('bd'), {
+      found: true,
+      output: 'bd version 1.2.1 (Homebrew)',
+    })
+
+    expect(finding.status).toBe('unsupported_version')
+    expect(finding.detail).toContain('<1.2.0')
+    expect(finding.remedy).toContain('1.1.2')
   })
 
   it('reports a missing dependency with an actionable remedy', () => {
@@ -96,6 +118,8 @@ describe('checkDependencies', () => {
       // gc is range-checked, so it needs a version inside the supported range
       // rather than an arbitrarily high one.
       if (command === 'gc') return { found: true, output: '1.4.0' }
+      if (command === 'dolt') return { found: true, output: 'dolt version 2.1.7' }
+      if (command === 'bd') return { found: true, output: 'bd version 1.1.2' }
       return { found: true, output: '99.0.0' }
     })
 
