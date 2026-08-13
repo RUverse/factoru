@@ -9,6 +9,18 @@ function bounded(value: string, limit = 4_096): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}\n… excerpt truncated …`
 }
 
+export function executionUsageSummary(usage: ExecutionRun['usage']): string {
+  const tokens = usage.inputTokens + usage.outputTokens
+  if (usage.partial) return `${tokens} observed tokens · usage syncing; totals may be incomplete`
+  const cost =
+    usage.pricing === 'priced'
+      ? `$${usage.estimatedCostUsd.toFixed(4)} estimated`
+      : usage.pricing === 'unpriced'
+        ? 'cost unpriced by the configured provider'
+        : 'cost pending'
+  return `${tokens} tokens · ${cost}`
+}
+
 export function RunInspector({
   task,
   run,
@@ -151,10 +163,7 @@ export function RunInspector({
 
       <details className="run-inspector-section">
         <summary>Usage, capsule resources, and recovery</summary>
-        <p>
-          {detail.usage.inputTokens + detail.usage.outputTokens} tokens · $
-          {detail.usage.estimatedCostUsd.toFixed(4)} estimated · {detail.usage.pricing}
-        </p>
+        <p>{executionUsageSummary(detail.usage)}</p>
         <p>
           Capsule: Factoru-managed worktree · convoy {detail.convoy.id ? 'available' : 'pending'}
         </p>

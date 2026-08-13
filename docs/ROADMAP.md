@@ -790,17 +790,21 @@ Codex configuration; chat remains responsive while planning or execution runs.
 
 ### Milestone 8 — Gas City-Native Orchestration Depth
 
-Implementation status (2026-08-12): the protocol-v5 projection, migration
-0012, native adapter reads, serial convoy/review Formula path, PM split/resource
-and approval-gated memory tools, resumable per-run streams, and Desktop run
-inspector are connected and automated-test covered. The exit remains open: the
+Implementation status (2026-08-13): the protocol-v5 projection, migrations
+0012–0013, native adapter reads, serial convoy/review Formula path, PM split/resource
+and approval-gated memory tools, a persistent resumable city-event SSE owner,
+atomic usage/cursor accounting with transcript fallback and explicit partial
+totals, degraded compatibility startup, canonical Formula layout, and Desktop
+run inspector are connected and automated-test covered. PM extmsg delivery
+deliberately remains on its durable transcript cursor; an opaque per-session
+SSE lifecycle is deferred. The exit remains open: the
 installed Beads 1.2.1 and Dolt 2.2.3 do not match the accepted pinned 1.1.2 and
 2.1.7 set, so the required disposable-city provider matrix was stopped pending
 an explicit compatibility decision. See
 [`docs/spikes/milestone-8-acceptance.md`](./spikes/milestone-8-acceptance.md).
 
 - Extend `packages/gas-city` to consume served run, Formula preview, bead,
-  convoy, agent/session stream, structured transcript, stage, usage, and cost
+  convoy, city-event stream, structured session transcript, stage, usage, and cost
   surfaces. Prefer typed API state to inferred logs; keep raw Gas City DTOs and
   configuration behind the adapter.
 - Add a progressively disclosed run inspector inside Tasks/Team showing the

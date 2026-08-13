@@ -72,6 +72,66 @@ describe('SupervisorClient', () => {
     expect(headerOf(1)).toBe('factoru')
   })
 
+  it('parses SSE frames split across chunks, including multiline data and CRLF', async () => {
+    const encoder = new TextEncoder()
+    const chunks = [
+      'event: eve',
+      'nt\r\nid: 7\r\ndata: {"part":',
+      '1}\r\ndata: {"part":2}\r',
+      '\n\r\nevent: heartbeat\n',
+      'data: {}\n\n',
+    ]
+    const fn = (async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
+            controller.close()
+          },
+        }),
+        { headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } },
+      )) as typeof globalThis.fetch
+    const client = new SupervisorClient({ baseUrl: 'http://127.0.0.1:8372', fetch: fn })
+    const frames = []
+    for await (const frame of client.stream(
+      '/city/x/events/stream',
+      { after_seq: 6 },
+      new AbortController().signal,
+    )) {
+      frames.push(frame)
+    }
+    expect(frames).toEqual([
+      { event: 'event', id: '7', data: '{"part":1}\n{"part":2}' },
+      { event: 'heartbeat', id: undefined, data: '{}' },
+    ])
+  })
+
+  it('stops an open SSE reader when its owner cancels', async () => {
+    const encoder = new TextEncoder()
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
+    const fn = (async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            streamController = controller
+            controller.enqueue(encoder.encode('event: heartbeat\ndata: {}\n\n'))
+          },
+        }),
+        { headers: { 'Content-Type': 'text/event-stream' } },
+      )) as typeof globalThis.fetch
+    const client = new SupervisorClient({ baseUrl: 'http://127.0.0.1:8372', fetch: fn })
+    const owner = new AbortController()
+    const iterator = client.stream('/city/x/events/stream', {}, owner.signal)
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { event: 'heartbeat' },
+      done: false,
+    })
+    owner.abort()
+    streamController?.close()
+    await expect(iterator.next()).resolves.toMatchObject({ done: true })
+  })
+
   it('maps Problem Details onto a Factoru failure kind and captures the request id', async () => {
     // Body recorded verbatim from a real 422 on /formulas/{name}/preview.
     const { fn } = fakeFetch(() => ({
@@ -207,7 +267,6 @@ describe('GasCityAdapter.verifySupervisorContract', () => {
             '/v0/city/{cityName}/workflow/{workflow_id}',
             '/v0/city/{cityName}/events',
             '/v0/city/{cityName}/events/stream',
-            '/v0/city/{cityName}/usage',
             '/v0/city/{cityName}/extmsg/adapters',
             '/v0/city/{cityName}/extmsg/bind',
             '/v0/city/{cityName}/extmsg/inbound',
@@ -215,7 +274,6 @@ describe('GasCityAdapter.verifySupervisorContract', () => {
             '/v0/city/{cityName}/extmsg/transcript',
             '/v0/city/{cityName}/extmsg/transcript/ack',
             '/v0/city/{cityName}/session/{id}/transcript',
-            '/v0/city/{cityName}/session/{id}/stream',
             '/v0/city/{cityName}/session/{id}/close',
           ].map((p) => [p, {}]),
         ),
@@ -923,9 +981,8 @@ describe('GasCityAdapter.describeNativeRun', () => {
       'run-native',
       'workflow-native',
       'root-native',
-      7,
     )
-    expect(detail).toMatchObject({ eventCursor: 8, gapDetected: false, convoyId: 'convoy-1' })
+    expect(detail).toMatchObject({ convoyId: 'convoy-1' })
     expect(detail.units).toEqual([
       expect.objectContaining({ id: 'unit-1', sessionId: 'session-impl' }),
     ])
@@ -938,87 +995,120 @@ describe('GasCityAdapter.describeNativeRun', () => {
   })
 })
 
-describe('GasCityAdapter.readRunUsage', () => {
-  it('folds only worker-operation facts correlated to the requested run', async () => {
-    const { fn } = fakeFetch(() => ({
-      body: {
-        items: [
-          {
-            seq: 12,
-            type: 'worker.operation',
-            ts: '2026-08-05T10:00:02Z',
-            payload: {
-              run_id: 'run-target',
-              prompt_tokens: 120,
-              completion_tokens: 30,
-              cost_usd_estimate: 0.004,
-            },
-          },
-          {
-            seq: 11,
-            type: 'worker.operation',
-            ts: '2026-08-05T10:00:01Z',
-            payload: { run_id: 'another-run', prompt_tokens: 999 },
-          },
-        ],
+describe('GasCityAdapter usage telemetry', () => {
+  it('streams normalized worker-operation deltas and preserves unrelated cursors', async () => {
+    const body = [
+      'event: event',
+      'id: 11',
+      `data: ${JSON.stringify({ seq: 11, type: 'bead.closed', ts: '2026-08-05T10:00:01Z', payload: {} })}`,
+      '',
+      'event: event',
+      'id: 12',
+      `data: ${JSON.stringify({ seq: 12, type: 'worker.operation', ts: '2026-08-05T10:00:02Z', payload: { run_id: 'run-target', prompt_tokens: 120, completion_tokens: 30, cost_usd_estimate: 0.004 } })}`,
+      '',
+      'event: heartbeat',
+      'data: {}',
+      '',
+      '',
+    ].join('\n')
+    const calls: URL[] = []
+    const fn = (async (input: string | URL | Request) => {
+      calls.push(input instanceof URL ? input : new URL(String(input)))
+      return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })
+    }) as typeof globalThis.fetch
+    const frames = []
+    for await (const frame of adapterWith(fn).streamRunUsageEvents(
+      10,
+      new AbortController().signal,
+    )) {
+      frames.push(frame)
+    }
+    expect(calls[0]?.searchParams.get('after_seq')).toBe('10')
+    expect(frames).toEqual([
+      { kind: 'event', seq: 11, delta: undefined },
+      {
+        kind: 'event',
+        seq: 12,
+        delta: {
+          runId: 'run-target',
+          inputTokens: 120,
+          outputTokens: 30,
+          estimatedCostUsd: 0.004,
+          pricing: 'priced',
+        },
       },
-    }))
+      { kind: 'heartbeat' },
+    ])
+  })
 
-    await expect(adapterWith(fn).readRunUsage('run-target', 10)).resolves.toEqual({
-      inputTokens: 120,
-      outputTokens: 30,
-      estimatedCostUsd: 0.004,
-      pricing: 'priced',
-      partial: false,
-    })
+  it('rejects a malformed streamed event envelope', async () => {
+    const fn = (async () =>
+      new Response('event: event\ndata: {not-json}\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+      })) as typeof globalThis.fetch
+
+    const consume = async () => {
+      for await (const _frame of adapterWith(fn).streamRunUsageEvents(
+        0,
+        new AbortController().signal,
+      )) {
+        // The malformed first frame must fail before yielding.
+      }
+    }
+    await expect(consume()).rejects.toMatchObject({ kind: 'transport' })
   })
 
   it('falls back to provider-neutral structured transcripts when operation facts omit usage', async () => {
-    const { fn, calls } = fakeFetch((url) => {
-      if (url.pathname.endsWith('/events')) {
-        return {
-          body: {
-            items: [
-              {
-                seq: 12,
-                type: 'bead.closed',
-                ts: '2026-08-05T10:00:02Z',
-                payload: {
-                  bead: {
-                    metadata: {
-                      'gc.root_bead_id': 'run-target',
-                      'gc.session_id': 'session-1',
-                    },
-                  },
-                },
-              },
-              {
-                seq: 11,
-                type: 'bead.closed',
-                ts: '2026-08-05T10:00:01Z',
-                payload: {},
-              },
-            ],
-          },
-        }
-      }
-      return {
-        body: {
-          provider: 'codex',
-          format: 'structured',
-          structured_messages: [{ usage: { input_tokens: 11, output_tokens: 3 } }, { usage: null }],
-        },
-      }
-    })
+    const { fn, calls } = fakeFetch(() => ({
+      body: {
+        provider: 'codex',
+        format: 'structured',
+        structured_messages: [{ usage: { input_tokens: 11, output_tokens: 3 } }, { usage: null }],
+      },
+    }))
 
-    await expect(adapterWith(fn).readRunUsage('run-target', 10)).resolves.toEqual({
+    await expect(adapterWith(fn).readTranscriptUsage(['session-1'])).resolves.toEqual({
       inputTokens: 11,
       outputTokens: 3,
       estimatedCostUsd: 0,
       pricing: 'unpriced',
       partial: false,
     })
-    expect(calls[1]?.url.pathname).toContain('/session/session-1/transcript')
-    expect(calls[1]?.url.searchParams.get('format')).toBe('structured')
+    expect(calls[0]?.url.pathname).toContain('/session/session-1/transcript')
+    expect(calls[0]?.url.searchParams.get('format')).toBe('structured')
+  })
+
+  it('distinguishes empty complete transcripts from partially unavailable sessions', async () => {
+    const empty = fakeFetch(() => ({
+      body: { provider: 'codex', format: 'structured', structured_messages: [] },
+    }))
+    await expect(adapterWith(empty.fn).readTranscriptUsage(['session-empty'])).resolves.toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCostUsd: 0,
+      pricing: 'pending',
+      partial: false,
+    })
+
+    const partial = fakeFetch((url) =>
+      url.pathname.includes('session-missing')
+        ? { status: 404, body: { detail: 'session unavailable' } }
+        : {
+            body: {
+              provider: 'codex',
+              format: 'structured',
+              structured_messages: [{ usage: { input_tokens: 8, output_tokens: 2 } }],
+            },
+          },
+    )
+    await expect(
+      adapterWith(partial.fn).readTranscriptUsage(['session-ready', 'session-missing']),
+    ).resolves.toEqual({
+      inputTokens: 8,
+      outputTokens: 2,
+      estimatedCostUsd: 0,
+      pricing: 'unpriced',
+      partial: true,
+    })
   })
 })

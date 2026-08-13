@@ -74,6 +74,7 @@ describe('GasCityProjectConfigurator', () => {
     expect(city).toContain('agent = "software-implementer"')
     expect(city).toContain('agent = "software-reviewer"')
     expect(run).toHaveBeenCalledWith('gc', ['reload', '--city', root])
+    expect(run).toHaveBeenCalledWith('gc', ['config', 'show', '--validate', '--city', root])
     expect(fs.readFileSync(path.join(root, '.gc/factoru-server.json'), 'utf8')).toBe(
       '{\n  "version": 2,\n  "serverUrl": "http://127.0.0.1:8787",\n  "gasCitySupervisorUrl": "http://127.0.0.1:8372",\n  "cityName": "factoru-test"\n}\n',
     )
@@ -94,7 +95,18 @@ describe('GasCityProjectConfigurator', () => {
     expect(await configurator.reconcile([project])).toBe(false)
     expect(fs.readFileSync(path.join(root, 'pack.toml'), 'utf8')).toBe(firstPack)
     expect(fs.readFileSync(path.join(root, 'city.toml'), 'utf8')).toBe(firstCity)
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports the bounded validation command and never reloads invalid generated config', async () => {
+    const { root, run, configurator } = fixture()
+    run.mockRejectedValueOnce(new Error('invalid generated table'))
+
+    await expect(configurator.reconcile([project])).rejects.toThrow(
+      `gc config show --validate --city ${root}`,
+    )
     expect(run).toHaveBeenCalledTimes(1)
+    expect(run).not.toHaveBeenCalledWith('gc', ['reload', '--city', root])
   })
 
   it('adopts chat sessions normalized outside its markers by Gas City import install', async () => {
@@ -114,7 +126,7 @@ describe('GasCityProjectConfigurator', () => {
     const repaired = fs.readFileSync(packFile, 'utf8')
     expect(repaired.match(/template = "project-manager-chat-111111111111"/g)).toHaveLength(1)
     expect(await configurator.reconcile([project])).toBe(false)
-    expect(run).toHaveBeenCalledTimes(2)
+    expect(run).toHaveBeenCalledTimes(4)
   })
 
   it('refuses malformed managed blocks and unsafe identities', async () => {

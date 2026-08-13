@@ -1550,6 +1550,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined
   let processingOutbox = false
   app.addHook('onReady', async () => {
+    workspaces?.start()
     if (!projects) return
     const process = async () => {
       if (processingOutbox) return
@@ -1578,6 +1579,7 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   app.addHook('onClose', async () => {
     if (outboxTimer) clearInterval(outboxTimer)
     if (heartbeatTimer) clearInterval(heartbeatTimer)
+    await workspaces?.stop()
   })
 
   app.setNotFoundHandler(async (request, reply) =>

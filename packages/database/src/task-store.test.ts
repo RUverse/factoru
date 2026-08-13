@@ -415,6 +415,7 @@ describe('Milestones 5 and 6 delivery persistence', () => {
         outputTokens: 80,
         estimatedCostUsd: 0.02,
         pricing: 'priced',
+        partial: false,
       },
     })
     expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
@@ -428,6 +429,7 @@ describe('Milestones 5 and 6 delivery persistence', () => {
         outputTokens: 80,
         estimatedCostUsd: 0.02,
         pricing: 'priced',
+        partial: false,
       },
     })
 
@@ -444,6 +446,7 @@ describe('Milestones 5 and 6 delivery persistence', () => {
         outputTokens: 80,
         estimatedCostUsd: 0.02,
         pricing: 'priced' as const,
+        partial: false,
       },
       capsulePath: '/capsules/one/worktree',
       branchName: 'factoru/task/run',
@@ -453,6 +456,66 @@ describe('Milestones 5 and 6 delivery persistence', () => {
     db.tasks.approveExecution(admitted.id, 'Accepted after review.', device.id)
     expect(db.tasks.listActive(project.id)).toEqual([])
     expect(db.tasks.get(task.id)).toMatchObject({ resolution: 'accepted' })
+    db.close()
+  })
+
+  it('folds an unbounded SSE replay once and keeps sequence gaps visibly partial', () => {
+    const { db } = readyDelivery()
+    const admitted = db.tasks.admitNextExecution({
+      cityName: 'factoru-city',
+      packLockDigest: 'pack-lock-test',
+    })!
+    const dispatch = db.tasks.claimExecutionDispatch()!
+    db.tasks.startExecution(
+      admitted.id,
+      {
+        runId: 'gas-run-stream',
+        workflowRootBeadId: 'root-stream',
+        startingEventSeq: 100,
+      },
+      dispatch.outboxId,
+    )
+
+    for (let sequence = 101; sequence <= 4_101; sequence += 1) {
+      db.tasks.observeUsageEvent(
+        sequence,
+        sequence === 4_101
+          ? {
+              runId: 'gas-run-stream',
+              inputTokens: 12,
+              outputTokens: 3,
+              estimatedCostUsd: 0.01,
+              pricing: 'priced',
+            }
+          : undefined,
+      )
+    }
+    db.tasks.observeUsageEvent(4_101, {
+      runId: 'gas-run-stream',
+      inputTokens: 999,
+      outputTokens: 999,
+      estimatedCostUsd: 99,
+      pricing: 'priced',
+    })
+    db.tasks.setUsageStreamCurrent(true)
+    expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
+      gasCityEventCursor: 4_101,
+      usage: {
+        inputTokens: 12,
+        outputTokens: 3,
+        estimatedCostUsd: 0.01,
+        pricing: 'priced',
+        partial: false,
+      },
+    })
+
+    db.tasks.observeUsageEvent(4_103)
+    db.tasks.setUsageStreamCurrent(true)
+    expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
+      gasCityEventCursor: 4_103,
+      usageHistoryGap: true,
+      usage: { partial: true },
+    })
     db.close()
   })
 

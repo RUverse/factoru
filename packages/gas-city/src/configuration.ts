@@ -386,13 +386,20 @@ export class GasCityProjectConfigurator implements ProjectRuntimeConfigurator {
     changed = atomicWriteIfChanged(cityFile, city) || changed
 
     if (changed) {
-      try {
-        await this.#executor.run('gc', ['reload', '--city', this.#cityPath])
-      } catch (cause) {
-        throw new GasCityError(
-          `Gas City rejected Factoru's project runtime configuration: ${cause instanceof Error ? cause.message : String(cause)}`,
-          { kind: 'unavailable', cause },
-        )
+      const commands = [
+        ['config', 'show', '--validate', '--city', this.#cityPath],
+        ['reload', '--city', this.#cityPath],
+      ] as const
+      for (const args of commands) {
+        try {
+          await this.#executor.run('gc', args)
+        } catch (cause) {
+          const detail = (cause instanceof Error ? cause.message : String(cause)).slice(0, 2_000)
+          throw new GasCityError(`Gas City command failed (gc ${args.join(' ')}): ${detail}`, {
+            kind: 'unavailable',
+            cause,
+          })
+        }
       }
     }
     return changed

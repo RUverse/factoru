@@ -7,7 +7,6 @@ verification before upstream implementation review.
 """
 formula = "standard-build"
 version = 1
-contract = "graph.v2"
 extends = ["build-basic"]
 target_required = true
 

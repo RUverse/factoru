@@ -33,6 +33,7 @@ import type {
   ConversationProjection,
   NativeRunSnapshot,
   FormulaPreview,
+  RunUsageStreamFrame,
 } from '@factoru/gas-city'
 import {
   PROJECT_BLUEPRINTS,
@@ -114,16 +115,17 @@ export interface ProjectManagerOrchestrator {
     runId: string,
     workflowId: string,
     workflowRootBeadId: string,
-    afterEventSeq: number,
   ): Promise<NativeRunSnapshot>
-  readRunUsage?(
-    runId: string,
-    startingEventSeq: number,
-  ): Promise<{
+  streamRunUsageEvents?(
+    afterEventSeq: number,
+    signal: AbortSignal,
+  ): AsyncIterable<RunUsageStreamFrame>
+  readTranscriptUsage?(sessionIds: readonly string[]): Promise<{
     inputTokens: number
     outputTokens: number
     estimatedCostUsd: number
     pricing: 'pending' | 'priced' | 'unpriced'
+    partial: boolean
   }>
   cancelRun(runId: string): Promise<void>
 }
@@ -310,7 +312,11 @@ export class WorkspaceService {
   readonly #conversationCallbackUrl: string | undefined
   readonly #artifacts: ArtifactService | null
   readonly #serverOrigin: string | undefined
+  readonly #orchestrationEnabled: boolean
   #adapterRegistered = false
+  #usageStreamController: AbortController | null = null
+  #usageStreamPromise: Promise<void> | null = null
+  #usageStreamRunIds = ''
 
   constructor(
     database: FactoruDatabase,
@@ -323,6 +329,7 @@ export class WorkspaceService {
       conversationCallbackUrl?: string
       artifacts?: ArtifactService
       serverOrigin?: string
+      orchestrationEnabled?: boolean
     } | null = null,
   ) {
     this.#database = database
@@ -334,6 +341,20 @@ export class WorkspaceService {
     this.#conversationCallbackUrl = execution?.conversationCallbackUrl
     this.#artifacts = execution?.artifacts ?? null
     this.#serverOrigin = execution?.serverOrigin
+    this.#orchestrationEnabled = execution?.orchestrationEnabled ?? true
+  }
+
+  start(): void {
+    if (!this.#orchestrationEnabled) return
+    this.#ensureUsageStream()
+  }
+
+  async stop(): Promise<void> {
+    this.#usageStreamController?.abort()
+    await this.#usageStreamPromise
+    this.#usageStreamController = null
+    this.#usageStreamPromise = null
+    this.#usageStreamRunIds = ''
   }
 
   get(projectId: string): Workspace {
@@ -723,6 +744,7 @@ export class WorkspaceService {
   }
 
   async process(): Promise<void> {
+    if (!this.#orchestrationEnabled) return
     if (this.#database.listProjects().length === 0) return
     try {
       await this.#reconcileRuntimeConfiguration()
@@ -756,6 +778,69 @@ export class WorkspaceService {
         packLockDigest: this.#packLockDigest,
       })
       await this.#dispatchExecution()
+    }
+    await this.#ensureUsageStream()
+  }
+
+  async #ensureUsageStream(): Promise<void> {
+    if (!this.#orchestrator.streamRunUsageEvents) return
+    const runs = this.#database.tasks.activeUsageExecutions()
+    const runIds = runs
+      .map((run) => run.id)
+      .sort()
+      .join(',')
+    if (this.#usageStreamPromise && runIds === this.#usageStreamRunIds) return
+
+    this.#usageStreamController?.abort()
+    await this.#usageStreamPromise
+    this.#usageStreamController = null
+    this.#usageStreamPromise = null
+    this.#usageStreamRunIds = runIds
+    if (runs.length === 0) return
+
+    const controller = new AbortController()
+    this.#usageStreamController = controller
+    this.#usageStreamPromise = this.#consumeUsageStream(controller.signal).finally(() => {
+      if (this.#usageStreamController === controller) {
+        this.#usageStreamController = null
+        this.#usageStreamPromise = null
+      }
+    })
+  }
+
+  async #consumeUsageStream(signal: AbortSignal): Promise<void> {
+    let retryDelay = 250
+    while (!signal.aborted) {
+      const runs = this.#database.tasks.activeUsageExecutions()
+      if (runs.length === 0) return
+      const afterSequence = Math.min(...runs.map((run) => run.gasCityEventCursor))
+      this.#database.tasks.setUsageStreamCurrent(false)
+      try {
+        for await (const frame of this.#orchestrator.streamRunUsageEvents!(afterSequence, signal)) {
+          if (signal.aborted) return
+          if (frame.kind === 'heartbeat') {
+            this.#database.tasks.setUsageStreamCurrent(true)
+            retryDelay = 250
+          } else {
+            this.#database.tasks.observeUsageEvent(frame.seq, frame.delta)
+          }
+        }
+      } catch {
+        if (signal.aborted) return
+      }
+      this.#database.tasks.setUsageStreamCurrent(false)
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, retryDelay)
+        signal.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer)
+            resolve()
+          },
+          { once: true },
+        )
+      })
+      retryDelay = Math.min(retryDelay * 2, 30_000)
     }
   }
 
@@ -1192,7 +1277,6 @@ export class WorkspaceService {
           run.runId,
           run.workflowId ?? run.runId,
           run.workflowRootBeadId,
-          run.gasCityEventCursor,
         )
         snapshot = native
       } else {
@@ -1206,15 +1290,13 @@ export class WorkspaceService {
         const detail = this.#database.orchestration.getRunDetail(run.id)
         detail.projection = {
           ...detail.projection,
-          completeness: native.gapDetected ? 'stale' : 'partial',
-          cursor: native.eventCursor,
-          reason: native.gapDetected
-            ? 'Gas City event history has a gap; authoritative reconciliation is in progress.'
-            : 'Gas City is still warming one or more run projections.',
+          completeness: 'partial',
+          cursor: run.gasCityEventCursor,
+          reason: 'Gas City is still warming one or more run projections.',
         }
         this.#database.orchestration.saveRunDetail(detail, {
-          id: `projection-${native.eventCursor}`,
-          type: native.gapDetected ? 'run.recovery_required' : 'run.projection_partial',
+          id: `projection-${run.gasCityEventCursor}`,
+          type: 'run.projection_partial',
           occurredAt: new Date().toISOString(),
         })
       }
@@ -1222,20 +1304,17 @@ export class WorkspaceService {
     }
     const statuses = snapshot.steps.map((step) => step.status)
     const stage = this.#executionStage(snapshot)
-    let usage = run.usage
-    if (this.#orchestrator.readRunUsage) {
+    if (native && this.#orchestrator.readTranscriptUsage && run.usageSource !== 'events') {
       try {
-        const observed = await this.#orchestrator.readRunUsage(run.runId, run.startingEventCursor)
-        usage = {
-          inputTokens: observed.inputTokens,
-          outputTokens: observed.outputTokens,
-          estimatedCostUsd: observed.estimatedCostUsd,
-          pricing: observed.pricing,
-        }
+        const observed = await this.#orchestrator.readTranscriptUsage(
+          native.sessions.map((session) => session.id),
+        )
+        this.#database.tasks.reconcileTranscriptUsage(run.id, observed)
       } catch {
         // A later reactor pass retries optional usage telemetry.
       }
     }
+    let usage = this.#database.tasks.getExecutionRun(run.id)?.usage ?? run.usage
     let logs = run.logs
     try {
       const project = this.#database.getProject(projectId)
@@ -1254,9 +1333,11 @@ export class WorkspaceService {
         status: step.status,
       })),
       logs,
-      usage,
     })
-    if (native) this.#persistNativeRunProjection(run.id, native, stage)
+    if (native) {
+      const cursor = this.#database.tasks.getExecutionRun(run.id)?.gasCityEventCursor ?? 0
+      this.#persistNativeRunProjection(run.id, native, stage, cursor)
+    }
     if (statuses.some((status) => status === 'failed')) {
       this.#database.tasks.finishExecution(run.id, 'failed', {
         error: { code: 'workflow_failed', message: `A ${run.formulaName} step failed.` },
@@ -1273,6 +1354,7 @@ export class WorkspaceService {
     const task = this.#database.tasks.get(run.taskId)
     if (!project || !task) return
     try {
+      usage = this.#database.tasks.getExecutionRun(run.id)?.usage ?? usage
       this.#database.tasks.observeExecution(run.id, {
         stage: 'integration',
         steps: snapshot.steps.map((step) => ({
@@ -1281,7 +1363,6 @@ export class WorkspaceService {
           status: step.status,
         })),
         logs,
-        usage,
       })
       const capsule = await this.#capsules.prepare(project, run)
       const reviewPackage = await this.#capsules.finalize(project, run, capsule, {
@@ -1303,6 +1384,7 @@ export class WorkspaceService {
     factoruRunId: string,
     native: NativeRunSnapshot,
     stage: ExecutionStage,
+    eventCursor: number,
   ): void {
     const detail = this.#database.orchestration.getRunDetail(factoruRunId)
     const now = new Date().toISOString()
@@ -1313,8 +1395,8 @@ export class WorkspaceService {
     ])
     detail.projection = {
       completeness: 'complete',
-      cursor: native.eventCursor,
-      lastCompleteCursor: native.eventCursor,
+      cursor: eventCursor,
+      lastCompleteCursor: eventCursor,
       reconciledAt: now,
       reason: null,
     }
@@ -1387,7 +1469,7 @@ export class WorkspaceService {
         }
       : null
     this.#database.orchestration.saveRunDetail(detail, {
-      id: `gas-city-${native.eventCursor}-${stage}`,
+      id: `gas-city-${eventCursor}-${stage}`,
       type: `run.${stage}_changed`,
       occurredAt: now,
     })

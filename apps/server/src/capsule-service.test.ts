@@ -79,6 +79,7 @@ describe('CapsuleService', () => {
         outputTokens: 5,
         estimatedCostUsd: 0.01,
         pricing: 'priced',
+        partial: false,
       },
     })
     expect(review.commits[0]).toContain('deliver task')
@@ -96,7 +97,13 @@ describe('CapsuleService', () => {
       service.finalize(project, run, capsule, {
         request: 'x',
         plan: 'x',
-        usage: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, pricing: 'pending' },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCostUsd: 0,
+          pricing: 'pending',
+          partial: false,
+        },
       }),
     ).rejects.toBeInstanceOf(CapsuleIntegrationError)
   })

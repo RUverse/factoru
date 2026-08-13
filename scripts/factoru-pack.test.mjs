@@ -23,11 +23,11 @@ describe('portable Factoru agent contracts', () => {
     const pack = fs.readFileSync(path.join(root, 'packs/factoru-default/pack.toml'), 'utf8')
     const lock = fs.readFileSync(path.join(root, 'packs/factoru-default/packs.lock'), 'utf8')
     const formula = fs.readFileSync(
-      path.join(root, 'packs/factoru-default/formulas/standard-build.formula.toml'),
+      path.join(root, 'packs/factoru-default/formulas/standard-build.toml'),
       'utf8',
     )
     const specialist = fs.readFileSync(
-      path.join(root, 'packs/factoru-default/formulas/factoru-specialist-review.formula.toml'),
+      path.join(root, 'packs/factoru-default/formulas/factoru-specialist-review.toml'),
       'utf8',
     )
     assert.match(pack, /version = "0\.5\.0"/)
@@ -84,8 +84,10 @@ describe('portable Factoru agent contracts', () => {
   it('declares a supported type for every Formula variable', () => {
     const formulas = path.join(resolveWorktreeRoot(), 'packs', 'factoru-default', 'formulas')
     for (const entry of fs.readdirSync(formulas, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith('.formula.toml')) continue
+      if (!entry.isFile() || !entry.name.endsWith('.toml')) continue
       const source = fs.readFileSync(path.join(formulas, entry.name), 'utf8')
+      assert.doesNotMatch(source, /contract\s*=\s*["']graph\.v2["']/)
+      assert.match(source, /\[requires\][\s\S]*formula_compiler\s*=\s*["']>=2\.0\.0["']/)
       for (const match of source.matchAll(/^\[vars\.([^\]]+)\]\n([\s\S]*?)(?=^\[)/gm)) {
         assert.match(
           match[2],

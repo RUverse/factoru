@@ -108,6 +108,95 @@ afterEach(() => {
 })
 
 describe('WorkspaceService', () => {
+  it('keeps product reads available while incompatible orchestration is paused', async () => {
+    const { db, project } = fixture()
+    const orchestrator = fakeOrchestrator()
+    orchestrator.streamRunUsageEvents = vi.fn(async function* () {
+      yield { kind: 'heartbeat' as const }
+    })
+    const service = new WorkspaceService(db, orchestrator, null, {
+      capsules: {} as ExecutionCapsuleManager,
+      cityName: 'factoru-city',
+      packLockDigest: 'pack-lock-test',
+      orchestrationEnabled: false,
+    })
+
+    service.start()
+    await service.process()
+    expect(service.get(project.id).projectId).toBe(project.id)
+    expect(orchestrator.streamRunUsageEvents).not.toHaveBeenCalled()
+    expect(orchestrator.startRun).not.toHaveBeenCalled()
+    await service.stop()
+    db.close()
+  })
+
+  it('reconnects the owned usage stream from the last committed sequence', async () => {
+    const { db, project } = fixture()
+    db.completeProvisioning(db.claimDueOutbox()[0]!.id, project.id)
+    const task = db.tasks.create({
+      projectId: project.id,
+      title: 'Resume usage',
+      description: 'Exercise restart-safe telemetry.',
+      status: 'queue',
+      source: 'user',
+      actorKind: 'user',
+      actorId: 'owner',
+    })
+    db.tasks.applyProjectWorkflowDefault(project.id)
+    db.tasks.update({
+      taskId: task.id,
+      queuePhase: 'ready',
+      workerTypeKind: 'software_engineer',
+      actorKind: 'pm_planner',
+      actorId: 'planner',
+    })
+    const admitted = db.tasks.admitNextExecution({
+      cityName: 'factoru-city',
+      packLockDigest: 'pack-lock-test',
+    })!
+    const dispatch = db.tasks.claimExecutionDispatch()!
+    db.tasks.startExecution(
+      admitted.id,
+      { runId: 'gas-run-resume', workflowRootBeadId: 'root-resume', startingEventSeq: 10 },
+      dispatch.outboxId,
+    )
+    const orchestrator = fakeOrchestrator()
+    const resumedFrom: number[] = []
+    orchestrator.streamRunUsageEvents = vi.fn(async function* (afterSequence, signal) {
+      resumedFrom.push(afterSequence)
+      if (resumedFrom.length === 1) {
+        yield {
+          kind: 'event' as const,
+          seq: 11,
+          delta: {
+            runId: 'gas-run-resume',
+            inputTokens: 9,
+            outputTokens: 3,
+            estimatedCostUsd: 0.02,
+            pricing: 'priced' as const,
+          },
+        }
+        throw new Error('connection reset')
+      }
+      yield { kind: 'heartbeat' as const }
+      await new Promise<void>((resolve) =>
+        signal.addEventListener('abort', () => resolve(), { once: true }),
+      )
+    })
+    const service = new WorkspaceService(db, orchestrator)
+
+    service.start()
+    await vi.waitFor(() => expect(resumedFrom).toEqual([10, 11]))
+    await vi.waitFor(() =>
+      expect(db.tasks.getExecutionRun(admitted.id)).toMatchObject({
+        gasCityEventCursor: 11,
+        usage: { inputTokens: 9, outputTokens: 3, partial: false },
+      }),
+    )
+    await service.stop()
+    db.close()
+  })
+
   it('loads configured provider models without making workspace availability depend on Gas City', async () => {
     const { db, project } = fixture()
     const orchestrator = fakeOrchestrator()
@@ -456,13 +545,15 @@ describe('WorkspaceService', () => {
         { stepId: 'review', title: 'Independent review', status: 'completed' },
       ],
     }))
-    orchestrator.readRunUsage = vi.fn(async () => ({
+    const activeRun = db.tasks.activeExecution(project.id)!
+    db.tasks.observeUsageEvent(activeRun.gasCityEventCursor + 1, {
+      runId: activeRun.runId!,
       inputTokens: 700,
       outputTokens: 100,
       estimatedCostUsd: 0.03,
-      pricing: 'priced' as const,
-      partial: false,
-    }))
+      pricing: 'priced',
+    })
+    db.tasks.setUsageStreamCurrent(true)
 
     const restartedServer = new WorkspaceService(db, orchestrator, null, execution)
     await restartedServer.process()
@@ -481,6 +572,7 @@ describe('WorkspaceService', () => {
             outputTokens: 100,
             estimatedCostUsd: 0.03,
             pricing: 'priced',
+            partial: false,
           },
           reviewPackage: expect.objectContaining({
             commits: ['abc123 implementation'],

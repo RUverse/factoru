@@ -52,6 +52,7 @@ export {
   type NativeRunSnapshot,
   type FormulaPreview,
   type RunUsage,
+  type RunUsageStreamFrame,
   type RunStatus,
   type RunStep,
 } from './adapter.js'
@@ -72,7 +73,12 @@ export {
 // The client is exported because Factoru Server constructs it; its
 // arbitrary-path methods are the cost of not hand-rolling a second one.
 // Product code goes through GasCityAdapter, never through this directly.
-export { SupervisorClient, isLoopbackUrl, type SupervisorClientOptions } from './http.js'
+export {
+  SupervisorClient,
+  isLoopbackUrl,
+  type ServerSentEvent,
+  type SupervisorClientOptions,
+} from './http.js'
 
 export {
   checkDependencies,

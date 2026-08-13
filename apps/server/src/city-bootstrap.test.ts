@@ -60,6 +60,8 @@ describe('Factoru city bootstrap', () => {
         '/tmp/factoru/city',
       ],
       ['import', 'install', '--city', '/tmp/factoru/city'],
+      ['import', 'check', '--city', '/tmp/factoru/city'],
+      ['config', 'show', '--validate', '--city', '/tmp/factoru/city'],
       ['start', '/tmp/factoru/city', '--no-auto-restart'],
     ])
   })
@@ -99,6 +101,8 @@ describe('Factoru city bootstrap', () => {
         '/tmp/factoru/city',
       ],
       ['import', 'install', '--city', '/tmp/factoru/city'],
+      ['import', 'check', '--city', '/tmp/factoru/city'],
+      ['config', 'show', '--validate', '--city', '/tmp/factoru/city'],
       ['reload', '--city', '/tmp/factoru/city'],
     ])
   })

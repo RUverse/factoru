@@ -4,7 +4,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ExecutionRun, RunDetail, Task } from '@factoru/protocol'
-import { RunInspector } from './RunInspector'
+import { executionUsageSummary, RunInspector } from './RunInspector'
 
 let mounted: { root: ReturnType<typeof createRoot>; container: HTMLDivElement } | null = null
 afterEach(() => {
@@ -14,6 +14,23 @@ afterEach(() => {
 })
 
 describe('RunInspector', () => {
+  it.each([
+    ['priced', false, '15 tokens · $0.0100 estimated'],
+    ['pending', false, '15 tokens · cost pending'],
+    ['unpriced', false, '15 tokens · cost unpriced by the configured provider'],
+    ['priced', true, '15 observed tokens · usage syncing; totals may be incomplete'],
+  ] as const)('formats %s partial=%s usage honestly', (pricing, partial, expected) => {
+    expect(
+      executionUsageSummary({
+        inputTokens: 10,
+        outputTokens: 5,
+        estimatedCostUsd: 0.01,
+        pricing,
+        partial,
+      }),
+    ).toBe(expected)
+  })
+
   it('renders progressive orchestration detail and restores actions without raw identities', () => {
     const now = '2026-08-12T10:00:00.000Z'
     const usage = {
@@ -21,6 +38,7 @@ describe('RunInspector', () => {
       outputTokens: 5,
       estimatedCostUsd: 0.01,
       pricing: 'priced' as const,
+      partial: true,
     }
     const run = {
       id: 'run_1',
@@ -192,6 +210,7 @@ describe('RunInspector', () => {
     expect(container.textContent).toContain('Projection partial · session page unavailable')
     expect(container.textContent).toContain('security reliability')
     expect(container.textContent).toContain('same-session')
+    expect(container.textContent).toContain('usage syncing; totals may be incomplete')
     expect(container.textContent).not.toContain('/Users/')
     act(() => (container.querySelector('.back-button') as HTMLButtonElement).click())
     expect(onBack).toHaveBeenCalledOnce()

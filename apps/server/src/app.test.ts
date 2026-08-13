@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createServerId } from '@factoru/domain'
 import {
   HANDSHAKE_PATH,
@@ -32,6 +32,20 @@ afterEach(async () => {
 })
 
 describe('GET /api/v1/health', () => {
+  it('owns the workspace stream lifecycle through Fastify readiness and shutdown', async () => {
+    const workspaceService = {
+      start: vi.fn(),
+      stop: vi.fn(async () => undefined),
+    }
+    const server = startTestServer({ workspaceService: workspaceService as never })
+
+    await server.ready()
+    expect(workspaceService.start).toHaveBeenCalledOnce()
+    await server.close()
+    app = undefined
+    expect(workspaceService.stop).toHaveBeenCalledOnce()
+  })
+
   it('returns a payload the shared protocol schema accepts', async () => {
     const server = startTestServer()
     const response = await server.inject({ method: 'GET', url: HEALTH_PATH })

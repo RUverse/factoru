@@ -334,4 +334,101 @@ describe('forward migrations', () => {
     })
     database.close()
   })
+
+  it('resets active usage for SSE replay and only labels terminal history partial', () => {
+    const { directory, database } = fixture()
+    for (let version = 1; version <= 12; version += 1) {
+      const prefix = String(version).padStart(4, '0')
+      const name = fs
+        .readdirSync(new URL('../migrations', import.meta.url))
+        .find((candidate) => candidate.startsWith(`${prefix}_`))!
+      fs.copyFileSync(new URL(`../migrations/${name}`, import.meta.url), path.join(directory, name))
+    }
+    applyMigrations(database, directory)
+    const projectId = 'prj_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const now = '2026-08-13T10:00:00.000Z'
+    database
+      .prepare(
+        `INSERT INTO projects(
+           id, name, repository_root_id, repository_relative_path, repository_real_path,
+           default_branch, setup_state, created_at, updated_at
+         ) VALUES (?, 'Usage migration', 'root', 'usage', '/repos/usage', 'dev', 'ready', ?, ?)`,
+      )
+      .run(projectId, now, now)
+    database
+      .prepare(
+        `INSERT INTO tasks(id, project_id, title, status, source, created_at, updated_at)
+         VALUES ('task_active', ?, 'Active', 'in_progress', 'user', ?, ?),
+                ('task_done', ?, 'Done', 'backlog', 'user', ?, ?)`,
+      )
+      .run(projectId, now, now, projectId, now, now)
+    database
+      .prepare(
+        `INSERT INTO task_runs(
+           id, project_id, task_id, kind, city_name, rig_name, formula_name,
+           starting_event_cursor, gas_city_event_cursor, request_id, status, stage,
+           usage_json, created_at, updated_at
+         ) VALUES
+           ('run_active', ?, 'task_active', 'implementation', 'factoru', 'rig', 'software-delivery',
+            10, 400, 'active-request', 'running', 'implementation', ?, ?, ?),
+           ('run_done', ?, 'task_done', 'implementation', 'factoru', 'rig', 'software-delivery',
+            20, 500, 'done-request', 'completed', 'needs_you', ?, ?, ?)`,
+      )
+      .run(
+        projectId,
+        JSON.stringify({
+          inputTokens: 50,
+          outputTokens: 10,
+          estimatedCostUsd: 0.1,
+          pricing: 'priced',
+        }),
+        now,
+        now,
+        projectId,
+        JSON.stringify({
+          inputTokens: 70,
+          outputTokens: 20,
+          estimatedCostUsd: 0.2,
+          pricing: 'priced',
+        }),
+        now,
+        now,
+      )
+    database.prepare('UPDATE task_runs SET review_package_json = ? WHERE id = ?').run(
+      JSON.stringify({
+        request: 'Usage migration',
+        usage: {
+          inputTokens: 70,
+          outputTokens: 20,
+          estimatedCostUsd: 0.2,
+          pricing: 'priced',
+        },
+      }),
+      'run_done',
+    )
+    fs.copyFileSync(
+      new URL('../migrations/0013_gas_city_usage_stream.sql', import.meta.url),
+      path.join(directory, '0013_gas_city_usage_stream.sql'),
+    )
+    applyMigrations(database, directory)
+
+    const active = database
+      .prepare('SELECT gas_city_event_cursor, usage_json FROM task_runs WHERE id = ?')
+      .get('run_active') as { gas_city_event_cursor: number; usage_json: string }
+    expect(active.gas_city_event_cursor).toBe(10)
+    expect(JSON.parse(active.usage_json)).toMatchObject({ inputTokens: 0, partial: true })
+    const done = database
+      .prepare(
+        'SELECT gas_city_event_cursor, usage_json, review_package_json FROM task_runs WHERE id = ?',
+      )
+      .get('run_done') as {
+      gas_city_event_cursor: number
+      usage_json: string
+      review_package_json: string
+    }
+    expect(done.gas_city_event_cursor).toBe(500)
+    expect(JSON.parse(done.usage_json)).toMatchObject({ inputTokens: 70, partial: true })
+    expect(JSON.parse(done.review_package_json)).toMatchObject({ usage: { partial: true } })
+    database.close()
+  })
 })

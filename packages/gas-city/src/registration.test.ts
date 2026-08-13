@@ -80,6 +80,8 @@ describe('GasCityRigRegistrar', () => {
         cityPath,
       ],
       ['gc', 'import', 'install', '--city', cityPath],
+      ['gc', 'import', 'check', '--city', cityPath],
+      ['gc', 'config', 'show', '--validate', '--city', cityPath],
       ['gc', 'reload', '--city', cityPath],
     ])
   })

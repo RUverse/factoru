@@ -91,6 +91,7 @@ export interface ExecutionUsageRecord {
   outputTokens: number
   estimatedCostUsd: number
   pricing: 'pending' | 'priced' | 'unpriced'
+  partial: boolean
 }
 
 export interface ExecutionReviewPackageRecord {
@@ -147,6 +148,10 @@ export interface ExecutionRunRecord {
   steps: ExecutionStepRecord[]
   logs: string[]
   usage: ExecutionUsageRecord
+  usageSource: 'pending' | 'events' | 'transcript'
+  usageHistoryGap: boolean
+  usageStreamCurrent: boolean
+  usageTranscriptPartial: boolean
   reviewPackage: ExecutionReviewPackageRecord | null
   errorCode: string | null
   errorMessage: string | null
@@ -287,7 +292,12 @@ function reconciliationFromRow(row: ReconciliationRow): QueueReconciliationRecor
 }
 
 function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
-  const storedUsage = JSON.parse(row.usage_json) as Partial<ExecutionUsageRecord>
+  const storedUsage = JSON.parse(row.usage_json) as Partial<ExecutionUsageRecord> & {
+    _source?: ExecutionRunRecord['usageSource']
+    _historyGap?: boolean
+    _streamCurrent?: boolean
+    _transcriptPartial?: boolean
+  }
   return {
     id: row.id,
     projectId: row.project_id,
@@ -336,7 +346,12 @@ function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
       outputTokens: storedUsage.outputTokens ?? 0,
       estimatedCostUsd: storedUsage.estimatedCostUsd ?? 0,
       pricing: storedUsage.pricing ?? 'pending',
+      partial: storedUsage.partial ?? false,
     },
+    usageSource: storedUsage._source ?? 'pending',
+    usageHistoryGap: storedUsage._historyGap ?? false,
+    usageStreamCurrent: storedUsage._streamCurrent ?? !storedUsage.partial,
+    usageTranscriptPartial: storedUsage._transcriptPartial ?? false,
     reviewPackage: JSON.parse(row.review_package_json) as ExecutionReviewPackageRecord | null,
     errorCode: row.error_code,
     errorMessage: row.error_message,
@@ -346,6 +361,16 @@ function executionFromRow(row: ExecutionRunRow): ExecutionRunRecord {
     updatedAt: row.updated_at ?? row.created_at,
     archivedAt: row.archived_at,
   }
+}
+
+function storedUsageJson(record: ExecutionRunRecord, usage: ExecutionUsageRecord): string {
+  return JSON.stringify({
+    ...usage,
+    _source: record.usageSource,
+    _historyGap: record.usageHistoryGap,
+    _streamCurrent: record.usageStreamCurrent,
+    _transcriptPartial: record.usageTranscriptPartial,
+  })
 }
 
 export class TaskStore {
@@ -1027,6 +1052,16 @@ export class TaskStore {
     return row ? executionFromRow(row) : null
   }
 
+  activeUsageExecutions(): ExecutionRunRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM task_runs WHERE kind = 'implementation' AND run_id IS NOT NULL
+         AND status IN ('running', 'cancelling') ORDER BY created_at`,
+      )
+      .all() as ExecutionRunRow[]
+    return rows.map(executionFromRow)
+  }
+
   admitNextExecution(input: {
     cityName: string
     packLockDigest: string
@@ -1206,6 +1241,7 @@ export class TaskStore {
         .prepare(
           `UPDATE task_runs SET status = 'running', stage = 'implementation', run_id = ?,
              gas_city_workflow_id = ?, workflow_root_bead_id = ?, formula_hash = ?, source_bead_id = ?, starting_event_cursor = ?,
+             gas_city_event_cursor = ?, usage_json = ?,
              started_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
         )
         .run(
@@ -1215,6 +1251,18 @@ export class TaskStore {
           correlation.formulaHash ?? null,
           correlation.sourceBeadId ?? null,
           correlation.startingEventSeq,
+          correlation.startingEventSeq,
+          JSON.stringify({
+            inputTokens: 0,
+            outputTokens: 0,
+            estimatedCostUsd: 0,
+            pricing: 'pending',
+            partial: true,
+            _source: 'pending',
+            _historyGap: false,
+            _streamCurrent: false,
+            _transcriptPartial: false,
+          }),
           now,
           now,
           id,
@@ -1280,6 +1328,7 @@ export class TaskStore {
     },
   ): ExecutionRunRecord {
     const now = this.#now().toISOString()
+    const current = input.usage ? this.#execution(id) : null
     this.#db
       .prepare(
         `UPDATE task_runs SET stage = ?, steps_json = ?, logs_json = COALESCE(?, logs_json),
@@ -1291,7 +1340,7 @@ export class TaskStore {
         input.stage,
         JSON.stringify(input.steps),
         input.logs ? JSON.stringify(input.logs) : null,
-        input.usage ? JSON.stringify(input.usage) : null,
+        input.usage && current ? storedUsageJson(current, input.usage) : null,
         now,
         id,
       )
@@ -1307,7 +1356,7 @@ export class TaskStore {
         `UPDATE task_runs SET usage_json = ?, review_package_json = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
-        JSON.stringify(usage),
+        storedUsageJson(current, usage),
         JSON.stringify(
           current.reviewPackage ? { ...current.reviewPackage, usage } : current.reviewPackage,
         ),
@@ -1315,6 +1364,101 @@ export class TaskStore {
         id,
       )
     if (updated.changes !== 1) throw new Error('execution_run_not_found')
+    return this.#execution(id)
+  }
+
+  observeUsageEvent(
+    sequence: number,
+    delta?: {
+      runId: string
+      inputTokens: number
+      outputTokens: number
+      estimatedCostUsd: number
+      pricing: 'pending' | 'priced' | 'unpriced'
+    },
+  ): void {
+    this.#db.transaction(() => {
+      for (const run of this.activeUsageExecutions()) {
+        if (sequence <= run.gasCityEventCursor) continue
+        const historyGap = run.usageHistoryGap || sequence > run.gasCityEventCursor + 1
+        const matches = delta?.runId === run.runId
+        const useEventTokens = matches && run.usageSource !== 'transcript'
+        const source =
+          useEventTokens && delta.inputTokens + delta.outputTokens > 0 ? 'events' : run.usageSource
+        const pricing = matches
+          ? run.usage.pricing === 'unpriced' || delta.pricing === 'unpriced'
+            ? 'unpriced'
+            : run.usage.pricing === 'priced' || delta.pricing === 'priced'
+              ? 'priced'
+              : 'pending'
+          : run.usage.pricing
+        const usage = {
+          inputTokens: run.usage.inputTokens + (useEventTokens ? delta.inputTokens : 0),
+          outputTokens: run.usage.outputTokens + (useEventTokens ? delta.outputTokens : 0),
+          estimatedCostUsd: run.usage.estimatedCostUsd + (matches ? delta.estimatedCostUsd : 0),
+          pricing,
+          partial: true,
+          _source: source,
+          _historyGap: historyGap,
+          _streamCurrent: false,
+          _transcriptPartial: run.usageTranscriptPartial,
+        }
+        this.#db
+          .prepare(
+            `UPDATE task_runs SET gas_city_event_cursor = ?, usage_json = ?, updated_at = ?
+             WHERE id = ? AND gas_city_event_cursor < ?`,
+          )
+          .run(sequence, JSON.stringify(usage), this.#now().toISOString(), run.id, sequence)
+      }
+    })()
+  }
+
+  setUsageStreamCurrent(current: boolean): void {
+    this.#db.transaction(() => {
+      for (const run of this.activeUsageExecutions()) {
+        const partial = !current || run.usageHistoryGap || run.usageTranscriptPartial
+        this.#db.prepare('UPDATE task_runs SET usage_json = ?, updated_at = ? WHERE id = ?').run(
+          JSON.stringify({
+            ...run.usage,
+            partial,
+            _source: run.usageSource,
+            _historyGap: run.usageHistoryGap,
+            _streamCurrent: current,
+            _transcriptPartial: run.usageTranscriptPartial,
+          }),
+          this.#now().toISOString(),
+          run.id,
+        )
+      }
+    })()
+  }
+
+  reconcileTranscriptUsage(id: string, usage: ExecutionUsageRecord): ExecutionRunRecord {
+    const run = this.#execution(id)
+    if (run.usageSource === 'events') return run
+    const source = usage.inputTokens + usage.outputTokens > 0 ? 'transcript' : run.usageSource
+    const transcriptPartial = usage.partial
+    const next: ExecutionUsageRecord = {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      estimatedCostUsd: run.usage.estimatedCostUsd,
+      pricing:
+        run.usage.pricing === 'priced' || run.usage.pricing === 'unpriced'
+          ? run.usage.pricing
+          : usage.pricing,
+      partial: !run.usageStreamCurrent || run.usageHistoryGap || transcriptPartial,
+    }
+    this.#db.prepare('UPDATE task_runs SET usage_json = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify({
+        ...next,
+        _source: source,
+        _historyGap: run.usageHistoryGap,
+        _streamCurrent: run.usageStreamCurrent,
+        _transcriptPartial: transcriptPartial,
+      }),
+      this.#now().toISOString(),
+      id,
+    )
     return this.#execution(id)
   }
 
@@ -1355,7 +1499,7 @@ export class TaskStore {
           status,
           stage,
           JSON.stringify(input.reviewPackage ?? null),
-          input.usage ? JSON.stringify(input.usage) : null,
+          input.usage ? storedUsageJson(current, input.usage) : null,
           input.error?.code ?? null,
           input.error?.message ?? null,
           status,

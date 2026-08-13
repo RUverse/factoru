@@ -15,7 +15,7 @@ import { buildServer } from './app.js'
 import { configureCity, reconcileFactoruPack } from './city-bootstrap.js'
 import { parseCliArgs, renderCliHelp } from './cli.js'
 import { loadServerConfig } from './config.js'
-import { ensureServerId } from './identity.js'
+import { ensureServerId, readServerId } from './identity.js'
 import { ProjectService } from './project-service.js'
 import { RepositoryError, RepositoryService } from './repositories.js'
 import { SERVER_VERSION } from './version.js'
@@ -29,6 +29,7 @@ import { ArtifactService } from './artifact-service.js'
 import { renderDoctorReport, runRemoteDoctor, systemDoctorEnvironment } from './doctor.js'
 import {
   listOperatorActivity,
+  configuredProvidersFromCityToml,
   readOperatorStatus,
   readProviderFindings,
   renderOperatorActivity,
@@ -59,9 +60,44 @@ async function main(): Promise<void> {
     return
   }
   if (command.kind === 'doctor') {
-    const report = await runRemoteDoctor(command.provider, await systemDoctorEnvironment())
+    const environment = await systemDoctorEnvironment()
+    const report = await runRemoteDoctor(command.provider, environment)
     console.log(renderDoctorReport(report))
-    if (!report.ok) process.exitCode = 1
+    let runtimeOkay = true
+    const doctorConfig = loadServerConfig()
+    const doctorServerId = await readServerId(doctorConfig.dataDir)
+    const doctorCityFile = path.join(doctorConfig.gasCityPath, 'city.toml')
+    if (doctorServerId && fs.existsSync(doctorCityFile)) {
+      const runtime = new GasCityAdapter({
+        client: new SupervisorClient({ baseUrl: doctorConfig.gasCitySupervisorUrl }),
+        cityName: `factoru-${doctorServerId.slice(4, 16)}`,
+        probe: async (executable, args) => {
+          const result = await environment.run(executable, args)
+          return { found: result.found, output: result.output }
+        },
+      })
+      const providers = configuredProvidersFromCityToml(fs.readFileSync(doctorCityFile, 'utf8'))
+      const readiness = await runtime.checkReadiness(providers)
+      const contract = await runtime.verifySupervisorContract().catch((error: unknown) => ({
+        ok: false,
+        missingPaths: [error instanceof Error ? error.message : String(error)],
+      }))
+      runtimeOkay = readiness.ready && contract.ok
+      console.log('')
+      console.log('Factoru Gas City runtime')
+      for (const finding of readiness.findings) {
+        console.log(
+          `[${finding.status === 'ok' ? 'OK' : 'ERROR'}] ${finding.name}: ${finding.detail}`,
+        )
+        if (finding.remedy) console.log(`  Remedy: ${finding.remedy}`)
+      }
+      console.log(
+        contract.ok
+          ? '[OK] Served supervisor contract contains every Factoru operation.'
+          : `[ERROR] Served supervisor contract is missing: ${contract.missingPaths.join(', ')}`,
+      )
+    }
+    if (!report.ok || !runtimeOkay) process.exitCode = 1
     return
   }
 
@@ -146,20 +182,6 @@ async function main(): Promise<void> {
 
   const database = new FactoruDatabase(config.databaseFile, serverId)
 
-  if (command.kind === 'start') {
-    const rigs = database
-      .listProjects()
-      .flatMap((project) => project.repositories)
-      .filter((repository) => repository.rig.registrationState === 'ready')
-      .map((repository) => ({ name: repository.rig.rigName }))
-    try {
-      await reconcileFactoruPack(config, rigs)
-    } catch (error) {
-      database.close()
-      throw error
-    }
-  }
-
   if (command.kind === 'pair') {
     const code = pairingCode()
     const expiresAt = new Date(Date.now() + 10 * 60_000)
@@ -242,11 +264,60 @@ async function main(): Promise<void> {
         throw new Error(`Invalid Factoru formula name: ${formulaName}`)
       }
       return fs.promises.readFile(
-        path.join(config.factoruPackPath, 'formulas', `${formulaName}.formula.toml`),
+        path.join(config.factoruPackPath, 'formulas', `${formulaName}.toml`),
         'utf8',
       )
     },
   })
+  let orchestrationReady = true
+  const orchestrationDiagnostics: string[] = []
+  if (command.kind === 'start') {
+    const runtimeCityFile = path.join(config.gasCityPath, 'city.toml')
+    const configuredProviders = fs.existsSync(runtimeCityFile)
+      ? configuredProvidersFromCityToml(fs.readFileSync(runtimeCityFile, 'utf8'))
+      : []
+    if (!fs.existsSync(runtimeCityFile)) {
+      orchestrationDiagnostics.push(
+        `Factoru Gas City is not initialized at ${config.gasCityPath}. Run providers configure first.`,
+      )
+    }
+    const readiness = await gasCity.checkReadiness(configuredProviders)
+    for (const finding of readiness.findings) {
+      if (finding.status !== 'ok') {
+        orchestrationDiagnostics.push(
+          `${finding.name}: ${finding.detail}${finding.remedy ? ` Remedy: ${finding.remedy}` : ''}`,
+        )
+      }
+    }
+    try {
+      const contract = await gasCity.verifySupervisorContract()
+      if (!contract.ok) {
+        orchestrationDiagnostics.push(
+          `Gas City supervisor contract is missing: ${contract.missingPaths.join(', ')}`,
+        )
+      }
+    } catch (error) {
+      orchestrationDiagnostics.push(
+        `Gas City supervisor contract could not be verified: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    orchestrationReady = readiness.ready && orchestrationDiagnostics.length === 0
+    if (orchestrationReady) {
+      const rigs = database
+        .listProjects()
+        .flatMap((project) => project.repositories)
+        .filter((repository) => repository.rig.registrationState === 'ready')
+        .map((repository) => ({ name: repository.rig.rigName }))
+      try {
+        await reconcileFactoruPack(config, rigs)
+      } catch (error) {
+        orchestrationReady = false
+        orchestrationDiagnostics.push(
+          `Factoru pack/configuration reconciliation failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    }
+  }
   const artifactService = new ArtifactService(database, config.artifactDirectory)
   const workspaceService = new WorkspaceService(
     database,
@@ -281,6 +352,7 @@ async function main(): Promise<void> {
         .digest('hex'),
       // Gas City owns the provider-specific `/publish` suffix.
       conversationCallbackUrl: `${serverUrl}${GAS_CITY_CALLBACK_BASE_PATH}`,
+      orchestrationEnabled: orchestrationReady,
     },
   )
   const app = buildServer({
@@ -295,6 +367,12 @@ async function main(): Promise<void> {
     agentToolService: new AgentToolService(database),
     localEnrollmentProof: localEnrollment.proof,
   })
+  if (!orchestrationReady) {
+    app.log.error(
+      { findings: orchestrationDiagnostics },
+      'Gas City orchestration is paused; Factoru product history remains available',
+    )
+  }
 
   const shutdown = (signal: NodeJS.Signals) => {
     app.log.info({ signal }, 'shutting down')

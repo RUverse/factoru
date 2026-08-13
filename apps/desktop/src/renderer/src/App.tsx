@@ -27,7 +27,7 @@ import { DesktopShell } from './components/DesktopShell'
 import { ConversationSurface } from './features/conversation/ConversationSurface'
 import { InspectorTabs } from './features/inspector/InspectorTabs'
 import { TasksSurface } from './features/tasks/TasksSurface'
-import { RunInspector } from './features/tasks/RunInspector'
+import { executionUsageSummary, RunInspector } from './features/tasks/RunInspector'
 import { TeamSurface } from './features/team/TeamSurface'
 import { ProjectSidebarSurface } from './features/sidebar/ProjectSidebarSurface'
 import { ProjectSetupSurface } from './features/project-setup/ProjectSetupSurface'
@@ -1882,15 +1882,7 @@ factoru-server providers configure --provider codex`}</code>
                                               </span>
                                             ))}
                                           </div>
-                                          <p>
-                                            {taskRun.usage.inputTokens + taskRun.usage.outputTokens}{' '}
-                                            tokens ·{' '}
-                                            {taskRun.usage.pricing === 'priced'
-                                              ? `$${taskRun.usage.estimatedCostUsd.toFixed(4)} estimated`
-                                              : taskRun.usage.pricing === 'unpriced'
-                                                ? 'cost unpriced by the configured provider'
-                                                : 'cost pending'}
-                                          </p>
+                                          <p>{executionUsageSummary(taskRun.usage)}</p>
                                           {taskRun.error && (
                                             <p className="run-error">
                                               {taskRun.error.code}: {taskRun.error.message}

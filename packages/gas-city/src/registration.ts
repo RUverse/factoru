@@ -159,15 +159,22 @@ export class GasCityRigRegistrar implements RigRegistrar {
       }
     }
 
-    try {
-      await this.executor.run('gc', ['import', 'install', '--city', request.cityPath])
-      await this.executor.run('gc', ['reload', '--city', request.cityPath])
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause)
-      throw new GasCityError(`Gas City could not finish rig configuration: ${message}`, {
-        kind: 'unavailable',
-        cause,
-      })
+    const commands = [
+      ['import', 'install', '--city', request.cityPath],
+      ['import', 'check', '--city', request.cityPath],
+      ['config', 'show', '--validate', '--city', request.cityPath],
+      ['reload', '--city', request.cityPath],
+    ] as const
+    for (const args of commands) {
+      try {
+        await this.executor.run('gc', args)
+      } catch (cause) {
+        const message = (cause instanceof Error ? cause.message : String(cause)).slice(0, 2_000)
+        throw new GasCityError(`Gas City command failed (gc ${args.join(' ')}): ${message}`, {
+          kind: 'unavailable',
+          cause,
+        })
+      }
     }
   }
 

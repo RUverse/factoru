@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { SUPERVISOR_OPENAPI_PATH, SUPPORTED_HARNESSES } from './compatibility.js'
 import {
   advanceCursor,
+  cityEventSchema,
   cityEventPageSchema,
   hasSequenceGap,
   selectUnhandledEvents,
@@ -95,8 +96,6 @@ export interface FormulaPreview {
 }
 
 export interface NativeRunSnapshot extends RunSnapshot {
-  readonly eventCursor: number
-  readonly gapDetected: boolean
   readonly convoyId: string | undefined
   readonly units: readonly {
     id: string
@@ -132,6 +131,22 @@ export interface RunUsage {
   readonly pricing: 'pending' | 'priced' | 'unpriced'
   readonly partial: boolean
 }
+
+export type RunUsageStreamFrame =
+  | {
+      readonly kind: 'event'
+      readonly seq: number
+      readonly delta:
+        | {
+            readonly runId: string
+            readonly inputTokens: number
+            readonly outputTokens: number
+            readonly estimatedCostUsd: number
+            readonly pricing: 'pending' | 'priced' | 'unpriced'
+          }
+        | undefined
+    }
+  | { readonly kind: 'heartbeat' }
 
 /** The correlation Factoru persists so a run survives every process restart. */
 export interface RunCorrelation {
@@ -170,7 +185,6 @@ const REQUIRED_SUPERVISOR_PATHS: readonly string[] = [
   '/v0/city/{cityName}/workflow/{workflow_id}',
   '/v0/city/{cityName}/events',
   '/v0/city/{cityName}/events/stream',
-  '/v0/city/{cityName}/usage',
   '/v0/city/{cityName}/extmsg/adapters',
   '/v0/city/{cityName}/extmsg/bind',
   '/v0/city/{cityName}/extmsg/inbound',
@@ -178,7 +192,6 @@ const REQUIRED_SUPERVISOR_PATHS: readonly string[] = [
   '/v0/city/{cityName}/extmsg/transcript',
   '/v0/city/{cityName}/extmsg/transcript/ack',
   '/v0/city/{cityName}/session/{id}/transcript',
-  '/v0/city/{cityName}/session/{id}/stream',
   '/v0/city/{cityName}/session/{id}/close',
 ]
 
@@ -334,10 +347,6 @@ const operationUsageSchema = z.object({
   completion_tokens: z.number().int().nonnegative().optional(),
   cost_usd_estimate: z.number().nonnegative().optional(),
   unpriced: z.boolean().optional(),
-})
-
-const runSessionEventSchema = z.object({
-  bead: z.object({ metadata: z.record(z.string(), z.unknown()).default({}) }),
 })
 
 const structuredTranscriptSchema = z.object({
@@ -585,11 +594,13 @@ export class GasCityAdapter {
    * "gc is not installed" is a far more useful answer than "connection
    * refused", and the user can act on it.
    */
-  async checkReadiness(): Promise<{ ready: boolean; findings: ReadinessFinding[] }> {
+  async checkReadiness(
+    requiredHarnesses: readonly string[] = SUPPORTED_HARNESSES,
+  ): Promise<{ ready: boolean; findings: ReadinessFinding[] }> {
     const findings = await checkDependencies(this.#probe)
 
     try {
-      const providers = await this.checkProviderReadiness()
+      const providers = await this.checkProviderReadiness(requiredHarnesses)
       findings.push(...providers.findings)
     } catch (error) {
       findings.push({
@@ -1043,12 +1054,10 @@ export class GasCityAdapter {
     runId: string,
     workflowId: string,
     workflowRootBeadId: string,
-    afterEventSeq: number,
   ): Promise<NativeRunSnapshot> {
-    const [snapshot, workflowRaw, events] = await Promise.all([
+    const [snapshot, workflowRaw] = await Promise.all([
       this.describeRun(runId, workflowRootBeadId),
       this.#client.get(`/city/${this.#cityName}/workflow/${encodeURIComponent(workflowId)}`),
-      this.readEvents({ lastHandledSeq: afterEventSeq }),
     ])
     const workflow = workflowSchema.parse(workflowRaw)
     const sessionBeads = workflow.beads.filter((bead) => {
@@ -1110,9 +1119,6 @@ export class GasCityAdapter {
       .find((value): value is string => typeof value === 'string' && value.length > 0)
     return {
       ...snapshot,
-      partial: snapshot.partial || events.gapDetected,
-      eventCursor: events.nextCursor.lastHandledSeq,
-      gapDetected: events.gapDetected,
       convoyId,
       units: unitBeads.slice(0, 20).map((bead) => ({
         id: bead.id,
@@ -1130,78 +1136,84 @@ export class GasCityAdapter {
     }
   }
 
-  /**
-   * Fold the immutable worker-operation events for one run into its model
-   * usage. Gas City's city-level `/usage` aggregate cannot isolate a run, but
-   * these events carry the durable run id and per-invocation token/cost facts.
-   */
-  async readRunUsage(runId: string, startingEventSeq: number): Promise<RunUsage> {
-    const page = await this.readEvents({ lastHandledSeq: startingEventSeq })
-    let inputTokens = 0
-    let outputTokens = 0
-    let estimatedCostUsd = 0
-    let priced = false
-    let unpriced = false
-    const sessionIds = new Set<string>()
-    for (const event of page.events) {
+  /** Stream normalized per-run usage deltas while preserving every city seq. */
+  async *streamRunUsageEvents(
+    afterEventSeq: number,
+    signal: AbortSignal,
+  ): AsyncGenerator<RunUsageStreamFrame> {
+    for await (const frame of this.#client.stream(
+      `/city/${this.#cityName}/events/stream`,
+      { after_seq: afterEventSeq },
+      signal,
+    )) {
+      if (frame.event === 'heartbeat') {
+        yield { kind: 'heartbeat' }
+        continue
+      }
+      if (frame.event !== 'event' && frame.event !== 'message') continue
+      let decoded: unknown
+      try {
+        decoded = JSON.parse(frame.data) as unknown
+      } catch (cause) {
+        throw new GasCityError('Gas City emitted malformed JSON on its city event stream', {
+          kind: 'transport',
+          cause,
+        })
+      }
+      const event = cityEventSchema.parse(decoded)
+      let delta: Extract<RunUsageStreamFrame, { kind: 'event' }>['delta']
       if (event.type === 'worker.operation') {
         const parsed = operationUsageSchema.safeParse(event.payload)
-        if (parsed.success && parsed.data.run_id === runId) {
+        if (parsed.success && parsed.data.run_id) {
           const observedTokens =
             (parsed.data.prompt_tokens ?? 0) + (parsed.data.completion_tokens ?? 0)
-          inputTokens += parsed.data.prompt_tokens ?? 0
-          outputTokens += parsed.data.completion_tokens ?? 0
-          estimatedCostUsd += parsed.data.cost_usd_estimate ?? 0
-          if (observedTokens > 0) {
-            if (parsed.data.unpriced === true) unpriced = true
-            else if (
-              parsed.data.unpriced === false ||
-              parsed.data.cost_usd_estimate !== undefined
-            ) {
-              priced = true
-            } else unpriced = true
+          delta = {
+            runId: parsed.data.run_id,
+            inputTokens: parsed.data.prompt_tokens ?? 0,
+            outputTokens: parsed.data.completion_tokens ?? 0,
+            estimatedCostUsd: parsed.data.cost_usd_estimate ?? 0,
+            pricing:
+              observedTokens === 0
+                ? 'pending'
+                : parsed.data.unpriced === true
+                  ? 'unpriced'
+                  : parsed.data.unpriced === false || parsed.data.cost_usd_estimate !== undefined
+                    ? 'priced'
+                    : 'unpriced',
           }
-          if (parsed.data.session_id) sessionIds.add(parsed.data.session_id)
         }
       }
-      const sessionEvent = runSessionEventSchema.safeParse(event.payload)
-      if (!sessionEvent.success) continue
-      const metadata = sessionEvent.data.bead.metadata
-      if (metadata['gc.root_bead_id'] !== runId) continue
-      const sessionId = metadata['gc.session_id']
-      if (typeof sessionId === 'string' && sessionId) sessionIds.add(sessionId)
+      yield { kind: 'event', seq: event.seq, delta }
     }
+  }
 
+  /** Full structured-transcript fallback for sessions without usage events. */
+  async readTranscriptUsage(sessionIds: readonly string[]): Promise<RunUsage> {
+    let inputTokens = 0
+    let outputTokens = 0
     let transcriptPartial = false
-    // Gas City 1.4.0's hook-driven pool sessions may not emit token-bearing
-    // worker.operation events: their provider-neutral structured transcript is
-    // the authoritative fallback. The provider-specific frame parsing remains
-    // inside Gas City; Factoru consumes only its stable normalized usage shape.
-    if (inputTokens === 0 && outputTokens === 0 && sessionIds.size > 0) {
-      for (const sessionId of sessionIds) {
-        try {
-          const raw = await this.#client.get(
-            `/city/${this.#cityName}/session/${encodeURIComponent(sessionId)}/transcript`,
-            { format: 'structured', tail: 0 },
-          )
-          const transcript = structuredTranscriptSchema.parse(raw)
-          for (const message of transcript.structured_messages) {
-            if (!message.usage) continue
-            inputTokens += message.usage.input_tokens
-            outputTokens += message.usage.output_tokens
-          }
-        } catch {
-          transcriptPartial = true
+    for (const sessionId of new Set(sessionIds)) {
+      try {
+        const raw = await this.#client.get(
+          `/city/${this.#cityName}/session/${encodeURIComponent(sessionId)}/transcript`,
+          { format: 'structured', tail: 0 },
+        )
+        const transcript = structuredTranscriptSchema.parse(raw)
+        for (const message of transcript.structured_messages) {
+          if (!message.usage) continue
+          inputTokens += message.usage.input_tokens
+          outputTokens += message.usage.output_tokens
         }
+      } catch {
+        transcriptPartial = true
       }
-      if (inputTokens > 0 || outputTokens > 0) unpriced = true
     }
     return {
       inputTokens,
       outputTokens,
-      estimatedCostUsd,
-      pricing: unpriced ? 'unpriced' : priced ? 'priced' : 'pending',
-      partial: page.gapDetected || transcriptPartial,
+      estimatedCostUsd: 0,
+      pricing: inputTokens > 0 || outputTokens > 0 ? 'unpriced' : 'pending',
+      partial: transcriptPartial,
     }
   }
 

@@ -111,7 +111,13 @@ export interface RunDetailRecord {
     correction: { used: number; limit: 6 }
     transient: { used: number; limit: number }
   }
-  usage: { inputTokens: number; outputTokens: number; estimatedCostUsd: number; pricing: string }
+  usage: {
+    inputTokens: number
+    outputTokens: number
+    estimatedCostUsd: number
+    pricing: string
+    partial: boolean
+  }
   cancellation: { requestedAt: string | null; confirmedAt: string | null }
   recovery: { state: string; message: string | null }
 }
@@ -690,7 +696,7 @@ export class OrchestrationDepthStore {
       } else {
         this.#db
           .prepare(
-            `UPDATE task_runs SET gas_city_convoy_id = ?, gas_city_event_cursor = ?, projection_state = 'complete', projection_reason = NULL, projection_reconciled_at = ?, verification_attempts = ?, correction_attempts = ?, transient_attempts = ?, transient_attempt_limit = ?, updated_at = ? WHERE id = ?`,
+            `UPDATE task_runs SET gas_city_convoy_id = ?, gas_city_event_cursor = MAX(gas_city_event_cursor, ?), projection_state = 'complete', projection_reason = NULL, projection_reconciled_at = ?, verification_attempts = ?, correction_attempts = ?, transient_attempts = ?, transient_attempt_limit = ?, updated_at = ? WHERE id = ?`,
           )
           .run(
             detail.convoy.id,

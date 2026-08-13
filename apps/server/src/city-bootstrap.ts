@@ -109,6 +109,8 @@ export function factoruPackReconcileCommands(
     ])
   }
   commands.push(['import', 'install', '--city', input.cityPath])
+  commands.push(['import', 'check', '--city', input.cityPath])
+  commands.push(['config', 'show', '--validate', '--city', input.cityPath])
   if (reload) commands.push(['reload', '--city', input.cityPath])
   return commands
 }
@@ -146,7 +148,10 @@ async function executeCommands(config: ServerConfig, commands: readonly (readonl
       })
     } catch (error) {
       if (isExistingFactoruImportFailure(args, error)) continue
-      throw error
+      throw new Error(
+        `Gas City command failed (gc ${args.join(' ')}): ${commandFailureText(error).slice(0, 2_000)}`,
+        { cause: error },
+      )
     }
   }
 }

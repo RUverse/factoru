@@ -1,7 +1,7 @@
 # Factoru Architecture
 
 > Document type: living implementation map
-> Last reviewed: 2026-08-12
+> Last reviewed: 2026-08-13
 > Runtime implementation status: Milestone 8 production paths are connected and
 > automated-test covered; provider-backed Fast Patch acceptance passed, while
 > the Milestone 8 Standard Build restart/failure/cancellation matrix plus live
@@ -32,13 +32,13 @@ inventory below is authoritative.
 | Area | Status | Current reality | Next proof |
 | --- | --- | --- | --- |
 | Monorepo | **Implemented** | pnpm workspace with a pnpm-managed Node 22.13.0 development runtime, both applications, protocol/domain/config/database/Gas City/UI packages, versioned templates and pack sources, scripts, boundary linting, shared builds/tests, Linux/macOS CI, isolated per-worktree state/ports/pairing, a source-preview `factoru-server` operator launcher, an explicit provider-selected city bootstrap, a read-only 64-bit Linux remote-host preflight, an idempotent checksum-pinned Debian-family source bootstrap, plus a disposable-repository-root override for safe project acceptance. | Add only milestone-owned boundaries as their real paths connect. |
-| Factoru Server | **Implemented** | Fastify connects SQLite-backed remote pairing and private loopback enrollment, trusted devices, authenticated one-time WebSocket tickets, durable projects/workspaces/tasks, idempotent product commands, and event/outbox reactors while remaining loopback-bound. Shell/workspace/conversation/run subscriptions use independent cursors; selected-run deltas come from normalized per-run events rather than unrelated global events. Gas City events are primary, with authoritative workflow/session reconstruction after gaps/restarts. Split/resource/evidence/memory-proposal commands and opaque run-artifact reads are project-authorized. | Complete the real provider Standard Build restart/failure/cancellation matrix, then Milestone 9 packaging and operational hardening. |
-| Shared protocol | **Implemented** | Protocol v5 in `packages/protocol` keeps v1–v4 compatibility and advertises `orchestration-depth-v1`. Compact workspace run summaries remain; selected-run detail adds stages/edges, convoy units, sessions/bounded transcripts, artifacts, three specialist reports, synthesis, budgets, usage/cost, cancellation, projection health, and recovery. Task evidence/resources/splits and memory proposals are runtime validated. | Remove compatibility aliases only in a later negotiated version and compress stream payloads only from measured pressure. |
-| Factoru Desktop | **Partial** | Electron main persists profiles/credentials/caches and concurrent server sessions as before. Protocol-v5 Desktop dynamically subscribes only to the selected run, unsubscribes on close/project change, and reconciles its compact cached summary. Tasks keeps compact cards; selection opens an in-tab responsive inspector with back/focus restoration, stage ladder, dependencies/units, sessions/bounded transcripts, checks/opaque artifacts, specialist reports/synthesis, budgets, usage/cost, capsule status, recovery, and exact actions. Reduced motion and accessible live projection state remain connected. | Provider-backed and packaged visual/keyboard acceptance remains. |
-| Gas City adapter | **Partial** | `packages/gas-city` remains pinned to 1.4.0 and keeps raw DTOs/provider options inside the boundary. It previews resolved Formulas before dispatch and reconstructs run steps, workflow beads/convoy units, session identities, bounded provider-neutral transcripts, usage/cost, event cursor/gaps, cancellation, and unknown statuses from served DTOs. Recorded 1.4.0 contract fixtures cover native detail and rich conversation shapes. | Complete the pinned compatible dependency and provider-backed restart/failure/cancellation plus both-provider attachment/reconnect matrices. |
+| Factoru Server | **Implemented** | Fastify connects SQLite-backed remote pairing and private loopback enrollment, trusted devices, authenticated one-time WebSocket tickets, durable projects/workspaces/tasks, idempotent product commands, and event/outbox reactors while remaining loopback-bound. Shell/workspace/conversation/run subscriptions use independent cursors. One server-owned Gas City city-event SSE lifecycle resumes from durable run cursors and atomically folds usage; authoritative workflow/session reconstruction and structured-transcript usage fallback repair or expose incomplete evidence after gaps/restarts. Startup pauses orchestration—not the API or stored history—when provider readiness or the served OpenAPI contract is incompatible. Split/resource/evidence/memory-proposal commands and opaque run-artifact reads are project-authorized. | Complete the real provider Standard Build restart/failure/cancellation matrix, then Milestone 9 packaging and operational hardening. |
+| Shared protocol | **Implemented** | Protocol v5 in `packages/protocol` keeps v1–v4 compatibility and advertises `orchestration-depth-v1`. Compact workspace run summaries remain; selected-run detail adds stages/edges, convoy units, sessions/bounded transcripts, artifacts, three specialist reports, synthesis, budgets, usage/cost with an explicit default-false `partial` flag, cancellation, projection health, and recovery. Task evidence/resources/splits and memory proposals are runtime validated. | Remove compatibility aliases only in a later negotiated version and compress stream payloads only from measured pressure. |
+| Factoru Desktop | **Partial** | Electron main persists profiles/credentials/caches and concurrent server sessions as before. Protocol-v5 Desktop dynamically subscribes only to the selected run, unsubscribes on close/project change, and reconciles its compact cached summary. Tasks keeps compact cards; selection opens an in-tab responsive inspector with back/focus restoration, stage ladder, dependencies/units, sessions/bounded transcripts, checks/opaque artifacts, specialist reports/synthesis, budgets, usage/cost, capsule status, recovery, and exact actions. Partial usage is labeled as observed and syncing rather than presented as a final cost. Reduced motion and accessible live projection state remain connected. | Provider-backed and packaged visual/keyboard acceptance remains. |
+| Gas City adapter | **Partial** | `packages/gas-city` remains pinned to 1.4.0 and keeps raw DTOs/provider options inside the boundary. It previews resolved Formulas before dispatch; reconstructs run steps, workflow beads/convoy units, session identities, bounded provider-neutral transcripts, cancellation, and unknown statuses; validates streamed city-event envelopes; and normalizes worker-event plus transcript-fallback usage. Production run reconstruction no longer scans the bounded newest-first event list. Recorded 1.4.0 contract fixtures cover native detail, SSE parsing, usage, and rich conversation shapes. | Complete the pinned compatible dependency and provider-backed restart/failure/cancellation plus both-provider attachment/reconnect matrices. |
 | Agent-tool bridge | **Implemented** | The short-lived rig/project/role/session credential and redacted replay audit remain. The MCP bridge now exposes split, resource intent, duplicate evidence, run/capacity inspection, run context, memory search/proposal, and structured evidence/review reporting. Server policy distinguishes PM, implementer, specialist, and synthesis identities while all specialist agents still map to the visible Software Engineer review slot. | Revalidate tool bootstrap from packaged installations in Milestone 9. |
-| Factoru Gas City pack | **Partial** | `packs/factoru-default` 0.5.0 retains Fast Patch and makes Standard Build one 2–20 unit, same-session, single-lane convoy in one Factoru capsule. Versioned decomposition/handoff/review schemas, exactly three fixed specialist contexts, separate synthesis, trusted pre/post mutation checks, two verification attempts, six correction attempts, and disabled publishing are linted against Gas City 1.4.0. | Run the complete nontrivial Standard Build provider acceptance matrix. |
-| Factoru database | **Implemented** | Migrations remain forward-only. Migration 0012 preserves coarse historical run JSON and adds normalized stages/dependencies/units/sessions/transcripts/artifacts/reviews/per-run events, Gas City and Factoru cursors, projection completeness, budgets, task evidence/supersessions/resources/duplicate decisions, pending/accepted/rejected memory proposals, and immutable run-memory snapshots. Atomic split rollback, cycles, resource bounds, memory poisoning, latest-only retrieval, backfill, and last-complete projection retention are tested. | Milestone 9 completes packaged backup/restore and operational recovery drills. |
+| Factoru Gas City pack | **Partial** | `packs/factoru-default` 0.5.0 retains Fast Patch and makes Standard Build one 2–20 unit, same-session, single-lane convoy in one Factoru capsule. Versioned decomposition/handoff/review schemas, exactly three fixed specialist contexts, separate synthesis, trusted pre/post mutation checks, two verification attempts, six correction attempts, disabled publishing, canonical `formulas/<name>.toml` files, and explicit Formula compiler requirements are linted against Gas City 1.4.0. | Run the complete nontrivial Standard Build provider acceptance matrix. |
+| Factoru database | **Implemented** | Migrations remain forward-only. Migration 0012 preserves coarse historical run JSON and adds normalized orchestration depth; migration 0013 resets active legacy usage to its dispatch cursor for SSE replay and marks unverifiable terminal history partial. Usage event cursor/delta updates are transactional and duplicate-safe, with private source/stream/gap/transcript state separated from the public usage contract. Atomic split rollback, cycles, resource bounds, memory poisoning, latest-only retrieval, backfill, last-complete projection retention, restart replay, gaps, and more than 4,000 usage events are tested. | Milestone 9 completes packaged backup/restore and operational recovery drills. |
 | Authentication and pairing | **Partial** | Hashed one-time remote pairing codes, private restart-scoped same-machine enrollment proofs, hashed revocable owner tokens, method scopes, 60-second one-time connection tickets, rate limiting, active-socket revocation, and OS-encrypted desktop storage are connected and tested ([ADR 0013](./adr/0013-local-desktop-enrollment.md)). Artifact reads/writes recheck project/conversation ownership; Gas City receives only an expiring host-local grant. The renderer never receives enrollment proof, long-lived token, server path, or delivery grant. | Milestone 9 validates the HTTPS proxy path and packaged local-service lifecycle. |
 | Projects | **Partial** | Named projects contain an ordered repository collection and, for new projects, one stable server-owned directory under `$HOME/factoru-projects`. Every remote clone and clean local import is placed below that directory's `repositories/` child, leaving the project root available for later project-level instruction files. HTTPS/SSH URLs receive a bounded non-interactive access check before persistence; Git/OpenSSH credentials remain owned by the unprivileged server account. Existing projects keep their recorded paths as unmanaged legacy projects. Each repository has its own branch/index preview, rig binding, durable outbox item, and bounded setup retry. Failed attempts publish their error, attempt count, and next retry time; a partial managed-clone registration may unstage only known Gas City-generated paths before retrying, while unrelated staged work remains blocked. The first repository is the primary serial execution rig ([ADR 0018](./adr/0018-managed-project-directories.md)). | Validate packaged multi-rig creation/removal, service-account credential lifecycle, backup recovery, and explicit per-task rig routing. |
 | Multi-factory project execution | **Deferred** | Desktop identifies each project by its one authoritative home factory and server-local project ID; additional factories are not replicas or execution targets yet. | Define server-to-server trust, per-factory repository mappings, task placement, cancellation, health, and recovery before attaching execution factories. |
@@ -297,8 +297,8 @@ flowchart TD
 | `packages/protocol` | **Implemented** | Protocol v3 runtime-validates compatibility, authentication, Blueprint/Team/Formula-Preset catalog and selection, projects, workspaces, rich conversations/content parts, opaque artifacts, bounded resource subscriptions, tasks, Queue/run evidence, commands, snapshots/cursors, and explicit run actions. Former Factory Template and Worker Type response fields remain compatibility aliases. |
 | `packages/domain` | **Implemented** | Server identity, client connection state, built-in Project Blueprint/Formula Preset/Team invariants, allowlist and default-precedence rules, Formula capability policy, the four task states, Queue phases, exact Needs-you actions, terminal resolutions, and deterministic candidate scoring are implemented. |
 | `packages/config` | **Implemented** | Shared TypeScript compiler configuration for every workspace package. |
-| `packages/database` | **Implemented** | SQLite connection policy, seven forward migrations, transactional event/outbox writes, backup/reopen recovery, Blueprint/project/task workflow selection, immutable run snapshots, and full serial execution evidence plus transition persistence. |
-| `packages/gas-city` | **Partial** | Factoru-owned orchestration port over Gas City 1.4.0. It adds Formula preview, separate run/workflow/root correlation, native workflow/convoy/bead reconstruction, resumable run/city and structured bounded session projections, usage/cost, provider-neutral conversation projection, attachment delivery, correlation/cancellation, and required served paths without terminal parsing or direct provider sessions. Recorded 1.4.0 contract fixtures pass; live two-harness image and Milestone 8 Standard Build acceptance remain. |
+| `packages/database` | **Implemented** | SQLite connection policy, thirteen forward migrations, transactional event/outbox writes, backup/reopen recovery, Blueprint/project/task workflow selection, immutable run snapshots, full serial execution evidence, and duplicate-safe atomic usage/cursor persistence. |
+| `packages/gas-city` | **Partial** | Factoru-owned orchestration port over Gas City 1.4.0. It adds Formula preview, separate run/workflow/root correlation, native workflow/convoy/bead reconstruction, resumable city-event SSE and structured bounded session projections, worker-event/transcript-fallback usage, provider-neutral conversation projection, attachment delivery, correlation/cancellation, and required served paths without terminal parsing or direct provider sessions. Recorded 1.4.0 contract fixtures pass; live two-harness image and Milestone 8 Standard Build acceptance remain. |
 | `packages/ui` | **Implemented** | Semantic system-theme tokens, owned component styles, and compiled React Button/IconButton, Tabs, Badge, Card, Field, Dialog, Drawer, Tooltip, EmptyState, SplitView/ResizeHandle, and PromptComposer primitives. Base UI supplies accessible composite behavior, Lucide supplies icons, and React is a peer dependency. The package contains no transport, Electron, product-state, or server logic. |
 | `packs/factoru-default` | **Partial** | Version 0.4.0 contains Factoru's roles, probes, scoped task tools, Queue reconciliation, the provider-accepted `software-delivery` formula, and a thin SHA-pinned `standard-build` extension of upstream `gc.build-basic`. Static tests cover locks, caps, verification ordering, and publishing policy; pinned-runtime/provider acceptance for the inherited overlay is pending. |
 | `templates/` | **Implemented** | The versioned Blueprint schema plus `Standard Software Project` and `Fast Patch` manifests define pinned pack locks, fixed Team profiles, allowed Formula Presets, recommended defaults, model slots, memory/tool policy, and WIP-one capacity. Catalog invariants and manifest/domain synchronization are tested. |
@@ -939,17 +939,30 @@ the Software Engineer profile, not a third top-level Team role.
 **Implemented for the serial development path; live attachment acceptance and
 Milestone 9 packaged-host validation remain.** Factoru uses Gas City's native
 model rather than treating it as a generic job runner. The adapter performs guarded, adoptive
-`rig add → import install → reload` reconciliation, real provider dispatch and
-observation, restart adoption, cancellation, usage folding, structured session
-transcripts, external-message attachments, and strict Formula validation. The
-adapter requires the served transcript/stream/close paths and has recorded
-contract coverage for partial text/tool/usage plus attachment delivery. Live
+`rig add → import install → import check → config validate → reload`
+reconciliation, real provider dispatch and observation, restart adoption,
+cancellation, usage folding, structured session transcripts, external-message
+attachments, and strict Formula validation. Startup and operator doctor verify
+configured-provider readiness and the OpenAPI contract served by the running
+supervisor; incompatible orchestration is paused while Factoru's API and stored
+history remain usable. The adapter requires the city-event SSE plus structured
+transcript/close paths and has recorded contract coverage for partial
+text/tool/usage plus attachment delivery. Per-session SSE is not required: PM
+extmsg delivery remains on its durable transcript cursor until Factoru owns a
+proven opaque session-stream cursor lifecycle. Live
 Claude/Codex image delivery remains pending; if the pinned range cannot satisfy
 that path, an upgrade is accepted only with the full compatibility suite.
-Milestone 8 consumes run, Formula, bead, convoy, resumable event,
+Milestone 8 consumes run, Formula, bead, convoy, resumable city events,
 structured-session-transcript, stage, usage, and cost projections without
-leaking raw DTOs or creating a second orchestrator. Partial responses retain
-the last complete projection and authoritative reads repair gaps. Milestone 9 then revalidates
+leaking raw DTOs or creating a second orchestrator. A persistent server-owned
+SSE consumer resumes from the minimum active-run cursor, atomically advances
+each active cursor and matching token/cost delta, and tolerates replay.
+Disconnects and sequence gaps preserve observed totals but label them partial;
+a post-replay heartbeat clears transient incompleteness, while permanent gaps
+and transcript failures remain visible. Sessions without token-bearing
+`worker.operation` events fall back to structured transcript usage. Partial
+responses retain the last complete projection and authoritative reads repair
+gaps. Milestone 9 then revalidates
 installation, recovery, and upgrades on packaged macOS and Linux targets.
 
 #### Runtime topology
@@ -1032,8 +1045,9 @@ blocks, structurally adopts generated chat sessions normalized outside those
 markers by Gas City import installation, and reloads only after a byte change
 ([ADR 0012](./adr/0012-project-manager-runtime-identities.md)).
 Gas City 1.4.0 rig patches address the pack-local agent key, so these generated
-patches use bare role names while Formula routes retain their binding-qualified
-runtime identities.
+patches intentionally use bare role names while Formula routes retain their
+binding-qualified runtime identities. This is a pinned-release compatibility
+rule, not a project-isolation mechanism.
 
 Do not configure a pool minimum on the chat template. Gas City treats an
 always-on named session and `min_active_sessions` as independent sources of live
@@ -1111,7 +1125,10 @@ otherwise the PM may select only from that project's Blueprint allowlist during
 reconciliation. Admission snapshots the result, so changing either default
 cannot mutate an existing run.
 
-`factoru-default` 0.4.0 supplies Queue reconciliation plus two delivery paths:
+`factoru-default` 0.5.0 supplies Queue reconciliation plus two delivery paths.
+Every shipped Formula lives at canonical `formulas/<name>.toml`, declares
+`[requires] formula_compiler = ">=2.0.0"`, and omits the deprecated
+`contract = "graph.v2"` spelling:
 
 - **Fast Patch** is the `fast-patch` preset over the unchanged
   `software-delivery` Formula. Its standalone contract is prepare → implement
@@ -1231,7 +1248,8 @@ observePlanningWork
 readCapacity
 validateFormula
 startRun
-readRunUsage
+streamRunUsageEvents
+readTranscriptUsage
 observeRun
 cancelRun
 recoverRuns
@@ -1240,10 +1258,11 @@ describeRun
 
 Mutation requests carry Gas City's required anti-CSRF header; request IDs are
 captured for diagnostics; Problem Details error codes are mapped to stable
-Factoru errors. Event and reply SSE consumers persist sequence cursors and resume
-with supported cursor/`Last-Event-ID` semantics. A `202 Accepted` is not treated
-as completion; Factoru correlates the terminal request event or reconciles the
-resource after restart.
+Factoru errors. The city-event SSE consumer persists `seq` and resumes with
+`after_seq`; Project Manager reply delivery independently persists its extmsg
+transcript sequence. Bounded `GET /events` reads have no `after_seq` and remain
+diagnostic/test-only. A `202 Accepted` is not treated as completion; Factoru
+correlates the terminal request event or reconciles the resource after restart.
 
 Gas City IDs and payloads remain inside the adapter or dedicated persistence
 records. The operational spike must test named-session chat, tool authorization,
@@ -1324,7 +1343,7 @@ capsule.
 | Conversation image artifacts | Factoru Server artifact storage plus Factoru database metadata | Authoritative bytes, opaque identity, project/conversation authorization, content hash, MIME/dimensions, provenance, upload state, and retention |
 | Gas City city, rig, pack, agent, and session runtime | Gas City configuration/supervisor | Desired Factoru configuration, external IDs, health, and last reconciliation result |
 | Configured provider/model catalog | Gas City provider configuration and public provider projection | Recoverable safe value/label/default choices in workspace/Desktop caches; never provider commands, flags, environment, or credentials |
-| Admitted Formula execution and bead readiness | Gas City | Immutable preset/Blueprint/formula/variable/pack snapshot plus source/workflow/convoy/bead IDs, cursors, cached projection, and summarized evidence |
+| Admitted Formula execution and bead readiness | Gas City | Immutable preset/Blueprint/formula/variable/pack snapshot plus source/workflow/convoy/bead IDs, cursors, cached projection, summarized evidence, and observed usage with private completeness telemetry |
 | Commits, branches, and diffs | Git | References, intended lifecycle, cached summaries |
 | Worktree lifecycle | Factoru Server and Git ([ADR 0008](./adr/0008-worktree-ownership.md)) | Task/capsule/run correlation, path reference, health, and cleanup outcome |
 | Capsule identity, resource leases, limits, and retention policy | Factoru database | Authoritative desired allocation and lifecycle history |
@@ -1350,8 +1369,11 @@ connected serial path:
 - server startup replays incomplete outbox work and reconciles active Gas City
   runs, the dedicated city, every project repository/rig registration, and
   Project Manager sessions;
-- Gas City event and external-message streams resume from persisted cursors and
-  tolerate duplicate delivery;
+- the Gas City city-event SSE stream and external-message transcript reads
+  resume from independent persisted cursors and tolerate duplicate delivery;
+- usage cursors and deltas commit atomically; disconnects, gaps, and unavailable
+  transcript evidence retain observed totals with `partial=true` rather than
+  presenting an understated final cost;
 - repeated Queue changes coalesce without running concurrent planners for the
   same project/version, and stale planning writes fail optimistic checks;
 - permanent memory updates retain source/provenance and cannot silently
@@ -1543,9 +1565,9 @@ and Milestone 8 projection, split, specialist-review, and memory ownership.
 | Durable memory storage/retrieval | **Implemented for M8 scope** — [ADR 0023](./adr/0023-orchestration-projections-splits-review-and-memory.md) | Only user-accepted memory is active. Retrieval is project/role scoped, latest-only, deterministic, eight-entry/4 KiB bounded, provenance-bearing, and injected in explicit untrusted-reference delimiters. Control characters, foreign references, and privilege-claim patterns are rejected; relevant memory is snapshotted per admitted run. Deletion/redaction UX remains later work. |
 | Capacity mapping | **Implemented at WIP one; parallel mapping Validate** | Serial admission and Needs-you backpressure are connected. Mapping a higher Factoru cap to agent/rig/workspace limits while reserving PM, reviewer, and control capacity remains Milestone 10 evidence. |
 | Project Blueprint and Formula Preset catalog | **Implemented for built-ins** — [ADR 0019](./adr/0019-blueprints-formula-presets-and-project-manager-boundary.md) | Versioned manifests compose SHA-pinned packs, fixed Team/model slots, allowed presets, recommended defaults, tool/memory policies, launch/capability policies, and WIP-one capacity. Server/default/task precedence, user locks, migration, and immutable run snapshots are tested. Arbitrary trusted imports remain deferred. |
-| Default pack installation and patching | **Partial** — [ADR 0012](./adr/0012-project-manager-runtime-identities.md) | Worker model updates generate bounded idempotent city/root-pack regions, preserve unrelated config, reload on change, and resolve under Gas City 1.4.0; a live soft reload passed acceptance. Packaged rollback and doctor acceptance remain. |
-| Gas City API compatibility policy | **Accepted** — [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md) | Pinned to 1.4.0 with a `>=1.4.0 <1.5.0` range. The authoritative contract is the OpenAPI document served by the running supervisor at `/openapi.json`, which diverges from the documentation site. |
-| Formula resolution and capability validation | **Partial** — [ADR 0019](./adr/0019-blueprints-formula-presets-and-project-manager-boundary.md), [ADR 0023](./adr/0023-orchestration-projections-splits-review-and-memory.md) | Attached dispatch previews and snapshots the resolved ladder before source-bead creation. Standard Build permits only a shared single-lane 2–20 unit drain, validates versioned handoffs/reports, fixes verification at two attempts and correction at six, disables publishing, and checks review mutation. Gas City 1.4.0 lint plus recorded DTO tests pass; provider acceptance remains. |
+| Default pack installation and patching | **Partial** — [ADR 0012](./adr/0012-project-manager-runtime-identities.md) | Worker model updates generate bounded idempotent city/root-pack regions, preserve unrelated config, and resolve under Gas City 1.4.0. Import reconciliation runs `gc import check` and `gc config show --validate` before reload/start; runtime generation also validates before reload and reports the failing bounded command. Rig patch keys deliberately remain bare agent names for 1.4.0. A live soft reload passed acceptance; packaged rollback remains. |
+| Gas City API compatibility policy | **Accepted** — [ADR 0007](./adr/0007-gas-city-compatibility-and-transport.md) | Pinned to 1.4.0 with a `>=1.4.0 <1.5.0` range. Startup and operator doctor check configured-provider readiness and the OpenAPI document served by the running supervisor at `/openapi.json`; missing required paths degrade orchestration without hiding Factoru history. Required event transport is city SSE; unused city usage and per-session stream paths are not required. |
+| Formula resolution and capability validation | **Partial** — [ADR 0019](./adr/0019-blueprints-formula-presets-and-project-manager-boundary.md), [ADR 0023](./adr/0023-orchestration-projections-splits-review-and-memory.md) | Attached dispatch previews and snapshots the resolved ladder before source-bead creation. Standard Build permits only a shared single-lane 2–20 unit drain, validates versioned handoffs/reports, fixes verification at two attempts and correction at six, disables publishing, and checks review mutation. Shipped formulas use canonical names, an explicit Formula compiler requirement, and no deprecated graph contract declaration. Gas City 1.4.0 lint plus recorded DTO tests pass; provider acceptance remains. |
 | Gas City versus Factoru capsule lifecycle | **Accepted** — [ADR 0008](./adr/0008-worktree-ownership.md) | A real run created no worktree, because Gas City only creates them for `drain` fan-out units. Factoru owns worktree lifecycle for the single-task loop; separate-context fan-out ownership must be re-examined in Milestone 10 before Milestone 11 activation. |
 | Rig registration safety | **Accepted** — [ADR 0009](./adr/0009-rig-registration-safety.md) | `gc rig add` commits to the target repository and captured a staged user change. Factoru requires a clean index and discloses every mutation. |
 | Tier-two container policy | **Validate** | Compose identity, ports, volumes/databases, limits, logs, secrets, health, recovery, and cleanup on macOS and Linux without exposing the Docker socket to workers. |

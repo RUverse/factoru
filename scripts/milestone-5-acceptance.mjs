@@ -360,7 +360,7 @@ async function main() {
       },
       formulaSource: async (formulaName) =>
         fs.promises.readFile(
-          path.join(workspaceRoot, 'packs/factoru-default/formulas', `${formulaName}.formula.toml`),
+          path.join(workspaceRoot, 'packs/factoru-default/formulas', `${formulaName}.toml`),
           'utf8',
         ),
     })
@@ -380,16 +380,7 @@ async function main() {
         .map((run) => ({ run, task: database.tasks.get(run.taskId) }))
         .find(({ task }) => task?.title === `Add catalog task-${ordinal}`)
       if (existing?.run.status === 'completed' && existing.task?.resolution === 'accepted') {
-        let run = existing.run
-        if (run.runId) {
-          const observed = await adapter.readRunUsage(run.runId, run.startingEventCursor)
-          run = database.tasks.updateExecutionUsage(run.id, {
-            inputTokens: observed.inputTokens,
-            outputTokens: observed.outputTokens,
-            estimatedCostUsd: observed.estimatedCostUsd,
-            pricing: observed.pricing,
-          })
-        }
+        const run = existing.run
         if (!report.runs.some((entry) => entry.ordinal === ordinal)) {
           const startedAt = Date.parse(run.startedAt ?? run.createdAt)
           report.runs.push(reportEntry(run, existing.task, ordinal, startedAt, { resumed: true }))
@@ -416,6 +407,7 @@ async function main() {
               taskId: task.id,
               onStarted: async () => {
                 if (index === 0) {
+                  await serviceRef.current.stop()
                   serviceRef.current = makeService()
                   report.serviceRestartObserved = true
                   restartedThisRun = true
@@ -430,15 +422,7 @@ async function main() {
                 }
               },
             })
-      if (run.runId) {
-        const observed = await adapter.readRunUsage(run.runId, run.startingEventCursor)
-        run = database.tasks.updateExecutionUsage(run.id, {
-          inputTokens: observed.inputTokens,
-          outputTokens: observed.outputTokens,
-          estimatedCostUsd: observed.estimatedCostUsd,
-          pricing: observed.pricing,
-        })
-      }
+      run = database.tasks.getExecutionRun(run.id) ?? run
       const assessment = assessRun(run, ordinal)
       const entry = reportEntry(run, task, ordinal, startedAt, {
         resumed: Boolean(existing),
@@ -489,18 +473,7 @@ async function main() {
       milestone6RestartObserved = delivered.serverRestartObserved
     }
     if (!milestone6Task || !milestone6Run) throw new Error('Milestone 6 task run is missing')
-    if (milestone6Run.runId) {
-      const observed = await adapter.readRunUsage(
-        milestone6Run.runId,
-        milestone6Run.startingEventCursor,
-      )
-      milestone6Run = database.tasks.updateExecutionUsage(milestone6Run.id, {
-        inputTokens: observed.inputTokens,
-        outputTokens: observed.outputTokens,
-        estimatedCostUsd: observed.estimatedCostUsd,
-        pricing: observed.pricing,
-      })
-    }
+    milestone6Run = database.tasks.getExecutionRun(milestone6Run.id) ?? milestone6Run
     const milestone6Assessment = assessRun(milestone6Run, '11')
     report.milestone6 = {
       conversationMessageSent: true,
