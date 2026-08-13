@@ -46,6 +46,50 @@ describe('GET /api/v1/health', () => {
     expect(workspaceService.stop).toHaveBeenCalledOnce()
   })
 
+  it('stops the dedicated runtime after workspace orchestration quiesces', async () => {
+    const order: string[] = []
+    const workspaceService = {
+      start: vi.fn(),
+      stop: vi.fn(async () => {
+        order.push('workspace')
+      }),
+    }
+    const runtimeLifecycle = {
+      stop: vi.fn(async () => {
+        order.push('runtime')
+      }),
+    }
+    const server = startTestServer({
+      workspaceService: workspaceService as never,
+      runtimeLifecycle,
+    })
+
+    await server.ready()
+    await server.close()
+    app = undefined
+
+    expect(order).toEqual(['workspace', 'runtime'])
+    expect(runtimeLifecycle.stop).toHaveBeenCalledOnce()
+  })
+
+  it('still stops the dedicated runtime when workspace shutdown fails', async () => {
+    const runtimeLifecycle = { stop: vi.fn(async () => undefined) }
+    const server = startTestServer({
+      workspaceService: {
+        start: vi.fn(),
+        stop: vi.fn(async () => {
+          throw new Error('workspace stop failed')
+        }),
+      } as never,
+      runtimeLifecycle,
+    })
+
+    await server.ready()
+    await expect(server.close()).rejects.toThrow('workspace stop failed')
+    app = undefined
+    expect(runtimeLifecycle.stop).toHaveBeenCalledOnce()
+  })
+
   it('returns a payload the shared protocol schema accepts', async () => {
     const server = startTestServer()
     const response = await server.inject({ method: 'GET', url: HEALTH_PATH })

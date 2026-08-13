@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/main.js",
-    "dev": "tsx watch src/main.ts",
+    "dev": "tsx src/main.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

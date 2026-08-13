@@ -9,6 +9,7 @@ import {
   GasCityAdapter,
   GasCityProjectConfigurator,
   GasCityRigRegistrar,
+  GasCityRuntimeLifecycle,
   SupervisorClient,
 } from '@factoru/gas-city'
 import { buildServer } from './app.js'
@@ -258,6 +259,31 @@ async function main(): Promise<void> {
     serverUrl,
   })
   const cityName = `factoru-${serverId.slice(4, 16)}`
+  const runtimeLifecycle = new GasCityRuntimeLifecycle({
+    cityName,
+    cityPath: config.gasCityPath,
+  })
+  const runtimeState: { app?: ReturnType<typeof buildServer> } = {}
+  let shuttingDown = false
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (shuttingDown) return
+    shuttingDown = true
+    if (runtimeState.app) runtimeState.app.log.info({ signal }, 'shutting down')
+    const close = runtimeState.app ? runtimeState.app.close() : runtimeLifecycle.stop()
+    void close.then(
+      () => {
+        database.close()
+        process.exit(0)
+      },
+      (error: unknown) => {
+        if (runtimeState.app) runtimeState.app.log.error({ err: error }, 'shutdown failed')
+        else console.error('[factoru-server] shutdown failed:', error)
+        process.exit(1)
+      },
+    )
+  }
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
   const projectService = new ProjectService({
     database,
     repositories,
@@ -388,10 +414,12 @@ async function main(): Promise<void> {
     projectService,
     workspaceService,
     artifactService,
+    runtimeLifecycle,
     taskService: new TaskService(database),
     agentToolService: new AgentToolService(database),
     localEnrollmentProof: localEnrollment.proof,
   })
+  runtimeState.app = app
   if (!orchestrationReady) {
     app.log.error(
       { findings: orchestrationDiagnostics },
@@ -399,21 +427,6 @@ async function main(): Promise<void> {
     )
   }
 
-  const shutdown = (signal: NodeJS.Signals) => {
-    app.log.info({ signal }, 'shutting down')
-    void app.close().then(
-      () => {
-        database.close()
-        process.exit(0)
-      },
-      (error: unknown) => {
-        app.log.error({ err: error }, 'shutdown failed')
-        process.exit(1)
-      },
-    )
-  }
-  process.on('SIGINT', shutdown)
-  process.on('SIGTERM', shutdown)
   await app.listen({ host: config.host, port: config.port })
   app.log.info(
     {

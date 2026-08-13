@@ -122,6 +122,8 @@ export interface BuildServerOptions {
   taskService?: TaskService
   agentToolService?: AgentToolService
   artifactService?: ArtifactService
+  /** Stops the dedicated Gas City runtime after application work has quiesced. */
+  runtimeLifecycle?: { stop(): Promise<void> }
   /** Restart-scoped same-user proof. Never expose this through health or handshake. */
   localEnrollmentProof?: string
 }
@@ -1579,7 +1581,21 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
   app.addHook('onClose', async () => {
     if (outboxTimer) clearInterval(outboxTimer)
     if (heartbeatTimer) clearInterval(heartbeatTimer)
-    await workspaces?.stop()
+    const shutdownErrors: unknown[] = []
+    try {
+      await workspaces?.stop()
+    } catch (error) {
+      shutdownErrors.push(error)
+    }
+    try {
+      await options.runtimeLifecycle?.stop()
+    } catch (error) {
+      shutdownErrors.push(error)
+    }
+    if (shutdownErrors.length === 1) throw shutdownErrors[0]
+    if (shutdownErrors.length > 1) {
+      throw new AggregateError(shutdownErrors, 'Factoru Server shutdown failed')
+    }
   })
 
   app.setNotFoundHandler(async (request, reply) =>

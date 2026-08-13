@@ -108,6 +108,14 @@ export {
 } from './registration.js'
 
 export {
+  GasCityRuntimeLifecycle,
+  type GasCityLifecycleCommandExecutor,
+  type GasCityRuntimeLifecycleOptions,
+  type RuntimeProcessController,
+  type RuntimeProcessSnapshot,
+} from './lifecycle.js'
+
+export {
   GasCityProjectConfigurator,
   type GasCityProjectConfiguratorOptions,
   type ProjectAgentBinding,

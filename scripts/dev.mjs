@@ -99,16 +99,51 @@ if (only === 'all' || only === 'desktop') {
 }
 
 let shuttingDown = false
+let forcedShutdownTimer
+let shutdownPollTimer
+
+function signalTarget(child, signal) {
+  try {
+    process.kill(-child.pid, signal)
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error
+  }
+}
+
+function targetGroupIsRunning(child) {
+  try {
+    process.kill(-child.pid, 0)
+    return true
+  } catch (error) {
+    if (error?.code === 'ESRCH') return false
+    throw error
+  }
+}
 
 function shutdown(exitCode) {
   if (shuttingDown) return
   shuttingDown = true
   for (const child of children) {
-    child.kill('SIGTERM')
+    // Each target owns a process group so the signal reaches pnpm, its watcher,
+    // and the actual application. Factoru Server may need the full Gas City
+    // shutdown grace period before this launcher exits.
+    signalTarget(child, 'SIGTERM')
   }
   serverLock?.release()
   process.exitCode = exitCode
-  setTimeout(() => process.exit(exitCode), 2_000).unref()
+  forcedShutdownTimer = setTimeout(() => {
+    for (const child of children) {
+      signalTarget(child, 'SIGKILL')
+    }
+    process.exit(exitCode)
+  }, 40_000)
+  forcedShutdownTimer.unref()
+  shutdownPollTimer = setInterval(() => {
+    if (children.some(targetGroupIsRunning)) return
+    clearInterval(shutdownPollTimer)
+    clearTimeout(forcedShutdownTimer)
+    process.exit(exitCode)
+  }, 100)
 }
 
 const children = targets.map(({ name, filter }) => {
@@ -116,6 +151,7 @@ const children = targets.map(({ name, filter }) => {
     cwd: worktreeRoot,
     env: childEnvironment,
     stdio: 'inherit',
+    detached: true,
   })
   child.on('exit', (code, signal) => {
     if (shuttingDown) return

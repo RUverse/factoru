@@ -6,7 +6,10 @@ project runtime configuration, rig registration, Project Manager external
 messaging and provider-neutral structured transcript projection,
 provider-session closure for auditable Factoru context reset,
 Formula validation and launch, run observation/cancellation, event cursors, and
-usage folding.
+usage folding. It also owns graceful shutdown of Factoru Server's dedicated city:
+bounded `gc stop`, exact city tmux-socket cleanup for orphaned sessions, and
+PID/config-validated Dolt cleanup. It never stops the machine-wide supervisor or
+another city's runtime.
 
 Run usage is consumed from one server-owned, resumable city SSE stream. The
 adapter validates event envelopes, ignores heartbeats as accounting input, and
